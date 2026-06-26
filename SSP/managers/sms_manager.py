@@ -226,6 +226,11 @@ def send_printing_error_sms(error_message):
     manager = get_sms_manager()
     return manager.send_sms_and_close(f"Printing error: {error_message}")
 
+def send_no_paper_sms():
+    """Send no paper / media empty SMS alert."""
+    manager = get_sms_manager()
+    return manager.send_sms_and_close("Printer is out of paper. Please refill.")
+
 def cleanup_sms():
     """Clean up SMS resources."""
     global sms_manager

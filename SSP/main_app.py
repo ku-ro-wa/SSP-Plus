@@ -234,13 +234,51 @@ class PrintingSystemApp(QMainWindow):
             bool: True if redirected to error screen, False if paper is available
         """
         paper_count = self.admin_screen.get_paper_count()
-        if paper_count <= 1:
+        if paper_count <= 3:
             print(f"⚠️ Low paper detected: {paper_count} pages remaining. Redirecting to error screen.")
             self.show_screen('thank_you')
             # Show the no paper error on the thank you screen
             self.thank_you_screen.show_no_paper_error(paper_count)
             return True
         return False
+
+    def check_ink_levels_and_redirect(self):
+        """
+        Check CMYK ink levels and redirect to error screen if any cartridge is critically low.
+
+        Returns:
+            bool: True if redirected (kiosk should stop), False if ink is acceptable.
+        """
+        try:
+            cmyk_levels = self.admin_screen.db_manager.get_cmyk_ink_levels()
+            if not cmyk_levels:
+                print("No CMYK ink data available, skipping ink level check")
+                return False
+
+            low_ink_threshold = 20.0
+            low_cartridges = {
+                name: level
+                for name, level in cmyk_levels.items()
+                if name in ('cyan', 'magenta', 'yellow', 'black') and level <= low_ink_threshold
+            }
+
+            if low_cartridges:
+                details = ", ".join(
+                    f"{name.capitalize()}: {level:.1f}%"
+                    for name, level in low_cartridges.items()
+                )
+                print(f"Critical low ink detected ({details}). Redirecting to error screen.")
+                self.show_screen('thank_you')
+                self.thank_you_screen.show_printing_error(
+                    "Ink levels are too low to continue printing.\n"
+                    "Please contact an administrator to replace the ink cartridges."
+                )
+                return True
+
+            return False
+        except Exception as e:
+            print(f"Error checking ink levels: {e}")
+            return False
 
     def show_screen(self, screen_name):
         """
@@ -261,10 +299,13 @@ class PrintingSystemApp(QMainWindow):
         if hasattr(current_widget, 'on_leave'):
             current_widget.on_leave()
 
-        # Check paper count before switching to most screens (except admin and thank_you)
+        # Check paper and ink before switching to most screens (except admin and thank_you)
         if screen_name not in ['admin', 'thank_you']:
             if self.check_paper_count_and_redirect():
-                print(f"❌ Cannot navigate to {screen_name} - insufficient paper")
+                print(f"Cannot navigate to {screen_name} - insufficient paper")
+                return
+            if self.check_ink_levels_and_redirect():
+                print(f"Cannot navigate to {screen_name} - low ink")
                 return
         
         # Switch to the new screen

@@ -70,6 +70,10 @@ class Config:
                     key = key.strip()
                     value = value.strip()
                     
+                    # Strip inline comments (e.g. KEY=value  # comment)
+                    if '#' in value:
+                        value = value.split('#')[0].strip()
+
                     # Remove quotes if present
                     if value.startswith('"') and value.endswith('"'):
                         value = value[1:-1]
@@ -173,7 +177,34 @@ class Config:
     def pixel_count_threshold(self) -> int:
         """Get minimum pixel count threshold for color detection."""
         return self.get('PIXEL_COUNT_THRESHOLD', int)
-    
+
+    # SMS / hardware settings
+
+    @property
+    def phone_number(self) -> str:
+        """Get admin phone number for SMS alerts."""
+        return self.get('PHONE_NUMBER', str)
+
+    @property
+    def coin_pin(self) -> int:
+        """Get GPIO pin number for coin acceptor pulse input."""
+        return self.get('COIN_PIN', int)
+
+    @property
+    def bill_pin(self) -> int:
+        """Get GPIO pin number for bill acceptor pulse input."""
+        return self.get('BILL_PIN', int)
+
+    @property
+    def coin_inhibit_pin(self) -> int:
+        """Get GPIO pin number for coin acceptor inhibit/enable (active high)."""
+        return self.get('COIN_INHIBIT_PIN', int)
+
+    @property
+    def bill_inhibit_pin(self) -> int:
+        """Get GPIO pin number for bill acceptor inhibit/enable (active low)."""
+        return self.get('BILL_INHIBIT_PIN', int)
+
     # Display settings
     
     @property
