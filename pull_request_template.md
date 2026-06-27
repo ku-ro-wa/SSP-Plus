@@ -1,0 +1,3 @@
+- [ ] Code compiles locally
+- [ ] Verified on actual kiosk hardware
+- [ ] Peer reviewed by at least one teammate
