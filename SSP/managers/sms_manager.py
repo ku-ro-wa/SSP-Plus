@@ -1,8 +1,16 @@
 # sms_manager.py
-import serial
+import os
 import time
 import threading
 from PyQt5.QtCore import QObject, pyqtSignal
+
+try:
+    import serial
+    SERIAL_AVAILABLE = True
+except ImportError:
+    serial = None
+    SERIAL_AVAILABLE = False
+    print("WARNING: pyserial not found. SMS will be SIMULATED.")
 
 class SMSManager(QObject):
     """
@@ -21,6 +29,10 @@ class SMSManager(QObject):
         
     def initialize_modem(self):
         """Initialize the GSM modem connection."""
+        sim_mode = os.getenv('SIM_MODE', 'false').lower() in ('true', '1', 'yes')
+        if sim_mode or not SERIAL_AVAILABLE:
+            print("[SIM] GSM modem initialization skipped (SIM_MODE or pyserial unavailable).")
+            return False
         try:
             print("Initializing GSM modem...")
             self.ser = serial.Serial(self.serial_port, baudrate=self.baudrate, timeout=1)
@@ -56,6 +68,11 @@ class SMSManager(QObject):
         """
         Sends an SMS message to the configured phone number.
         """
+        sim_mode = os.getenv('SIM_MODE', 'false').lower() in ('true', '1', 'yes')
+        if sim_mode or not SERIAL_AVAILABLE:
+            print(f"[SIM] SMS to {self.phone_number}: {message}")
+            self.sms_sent.emit(f"[SIM] SMS to {self.phone_number}")
+            return True
         if not self.is_initialized:
             print("GSM modem not initialized. Attempting to initialize...")
             if not self.initialize_modem():
@@ -143,6 +160,10 @@ class SMSManager(QObject):
         Sends an SMS message and closes the connection (like your working code).
         This method opens a new connection, sends the SMS, and closes it.
         """
+        sim_mode = os.getenv('SIM_MODE', 'false').lower() in ('true', '1', 'yes')
+        if sim_mode or not SERIAL_AVAILABLE:
+            print(f"[SIM] SMS to {self.phone_number}: {message}")
+            return True
         try:
             print("Initializing modem...")
             # Give modem time to boot up

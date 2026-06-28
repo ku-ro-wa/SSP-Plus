@@ -28,7 +28,14 @@ class PrinterThread(QThread):
         self.temp_pdf_path = None
 
     def run(self):
+        sim_mode = os.getenv('SIM_MODE', 'false').lower() in ('true', '1', 'yes')
+
         if not PYMUPDF_AVAILABLE:
+            if sim_mode:
+                print("[SIM] PyMuPDF unavailable — simulating print job without temp PDF.")
+                self._print_succeeded = True
+                self.print_success.emit("")
+                return
             self.print_failed.emit("PyMuPDF library is not installed.")
             return
 
@@ -46,6 +53,13 @@ class PrinterThread(QThread):
 
             if not os.path.exists(self.temp_pdf_path):
                 raise FileNotFoundError(f"Temporary PDF not found: {self.temp_pdf_path}")
+
+            if sim_mode:
+                print(f"[SIM] Skipping CUPS submission. Would run: {' '.join(command)}")
+                time.sleep(1)
+                self._print_succeeded = True
+                self.print_success.emit(self.temp_pdf_path)
+                return
 
             # No timeout — large jobs can take a long time to spool
             process = subprocess.run(

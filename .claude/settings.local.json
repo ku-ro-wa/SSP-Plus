@@ -2,7 +2,21 @@
   "permissions": {
     "allow": [
       "Bash(git *)",
-      "Bash(python3 *)"
+      "Bash(python3 *)",
+      "Read(//usr/bin/**)",
+      "Read(//usr/local/bin/**)",
+      "Bash(python3.14 -m ensurepip --upgrade)",
+      "Bash(python3.14 -m pip install pytest)",
+      "Bash(python3.14 -m pytest /mnt/c/Users/riley/Documents/SSP-Plus/tests/ -v)",
+      "Bash(/mnt/c/Users/riley/AppData/Local/Programs/Python/Python311/python.exe -m pip install pytest)",
+      "Bash(/mnt/c/Users/riley/AppData/Local/Programs/Python/Python311/python.exe -m pytest /mnt/c/Users/riley/Documents/SSP-Plus/tests/ -v)",
+      "Bash(/mnt/c/Users/riley/AppData/Local/Programs/Python/Python311/python.exe *)",
+      "Bash(python.exe --version)",
+      "Read(//mnt/c/Users/riley/AppData/Local/Programs/Python/Python311/Scripts/**)",
+      "Bash(/mnt/c/Users/riley/AppData/Local/Programs/Python/Python311/Scripts/pytest.exe --version)",
+      "Bash(make *)",
+      "Bash(bash -c \"pytest --version\")",
+      "Bash(bash -i -c \"pytest --version\")"
     ]
   }
 }

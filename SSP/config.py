@@ -232,6 +232,14 @@ class Config:
         """Get screen height threshold below which fullscreen is used."""
         return self.get('FULLSCREEN_THRESHOLD_HEIGHT', int)
 
+    @property
+    def sim_mode(self) -> bool:
+        """Skip GPIO, CUPS, and modem — set SIM_MODE=true for laptop development."""
+        try:
+            return self.get('SIM_MODE', bool)
+        except KeyError:
+            return False
+
 
 # Global configuration instance
 config = Config()

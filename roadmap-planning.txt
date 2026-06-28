@@ -1,0 +1,391 @@
+ ▐▛███▜▌   Claude Code v2.1.193
+▝▜█████▛▘  Sonnet 4.6 · Claude Pro
+  ▘▘ ▝▝    /mnt/c/Users/riley/Documents/SSP-Plus
+
+  ✔ Using flicker-free rendering · if you want to go back, use /tui default
+    · Click to move your cursor in the text input
+    · Click to expand collapsed tool results
+    · By default, text auto-copies when you select it (/config to change)
+    · Hold Shift while selecting to use your terminal's native copy instead
+
+
+ ▎ [✻] [✻] [✻] · Share Claude Code and earn $10 in usage credits · /passes
+
+❯ explore the codebase to help give me a high-level understanding of its        
+  structure                                                                     
+
+● Explore(Codebase structure exploration)
+  ⎿  Done (29 tool uses · 44.9k tokens · 1m 3s)
+  (ctrl+o to expand)
+
+● Here's a high-level map of the codebase:
+
+  ---
+  Project: Self-Service Printing Kiosk (SSP-Plus)
+
+  A PyQt5 kiosk app for a physical printing station — users insert a USB, select
+  a PDF, pay with coins/bills, and receive a printout with change.
+
+  ---
+  Directory Layout
+
+  SSP-Plus/
+  ├── .env                  # Runtime config (pricing, pins, printer name)
+  └── SSP/
+      ├── main_app.py       # Entry point; owns screen stack and wires
+  everything
+      ├── config.py         # Singleton that loads .env into typed properties
+      ├── database/
+      │   ├── models.py     # SQLite schema (6 tables)
+      │   └── db_manager.py # Query/write helpers
+      ├── managers/         # Hardware + background services
+      └── screens/          # 8 screens, each as MVC triplet
+
+  ---
+  Screen Flow
+
+  idle → usb → file_browser → print_options → payment → thank_you
+                                                  ↕
+                                         admin ↔ data_viewer
+
+  main_app.show_screen() drives all transitions — it calls on_leave() /
+  on_enter() lifecycle hooks and checks paper count before most transitions.
+
+  ---
+  Managers (background services)
+
+  ┌───────────────────────────────┬─────────────────────────────────────────┐
+  │            Manager            │             Responsibility              │
+  ├───────────────────────────────┼─────────────────────────────────────────┤
+  │ db_threader                   │ Serializes all SQLite writes to a       │
+  │                               │ background thread                       │
+  ├───────────────────────────────┼─────────────────────────────────────────┤
+  │ ink_analysis_threader         │ Runs PDF → OpenCV CMYK analysis off the │
+  │                               │  main thread                            │
+  ├───────────────────────────────┼─────────────────────────────────────────┤
+  │ printer_manager +             │ Spawns CUPS lp command in a QThread     │
+  │ printer_thread                │                                         │
+  ├───────────────────────────────┼─────────────────────────────────────────┤
+  │ payment_handler               │ Counts GPIO pulses from coin/bill       │
+  │                               │ acceptors                               │
+  ├───────────────────────────────┼─────────────────────────────────────────┤
+  │ persistent_gpio               │ Singleton pigpio connection shared      │
+  │                               │ app-wide                                │
+  ├───────────────────────────────┼─────────────────────────────────────────┤
+  │ hopper_manager                │ Drives coin-dispensing motors for       │
+  │                               │ change                                  │
+  ├───────────────────────────────┼─────────────────────────────────────────┤
+  │ payment_algorithm_manager     │ Calculates change feasibility given     │
+  │                               │ current coin inventory                  │
+  ├───────────────────────────────┼─────────────────────────────────────────┤
+  │ sms_manager                   │ Sends AT-command SMS alerts (low paper, │
+  │                               │  jams, errors)                          │
+  ├───────────────────────────────┼─────────────────────────────────────────┤
+  │ usb_file_manager              │ Detects USB drives, copies PDFs to a    │
+  │                               │ temp session dir                        │
+  └───────────────────────────────┴─────────────────────────────────────────┘
+
+  ---
+  Database Tables
+
+  ┌─────────────────┬──────────────────────────────────────────┐
+  │      Table      │              What it stores              │
+  ├─────────────────┼──────────────────────────────────────────┤
+  │ transactions    │ Every print job (cost, pages, status)    │
+  ├─────────────────┼──────────────────────────────────────────┤
+  │ cash_inventory  │ Current coin/bill counts by denomination │
+  ├─────────────────┼──────────────────────────────────────────┤
+  │ cmyk_ink_levels │ Running CMYK consumption estimates       │
+  ├─────────────────┼──────────────────────────────────────────┤
+  │ printer_status  │ Paper count and printer state snapshots  │
+  ├─────────────────┼──────────────────────────────────────────┤
+  │ error_log       │ System errors with resolution status     │
+  ├─────────────────┼──────────────────────────────────────────┤
+  │ settings        │ Key-value config (thresholds, limits)    │
+  └─────────────────┴──────────────────────────────────────────┘
+
+  ---
+  Key Design Patterns
+
+  - MVC per screen — controller.py wires signals, model.py holds state/logic,
+  view.py is pure PyQt5 layout
+  - Signal-based decoupling — hardware events and thread completions emit Qt
+  signals; screens never call each other directly
+  - Queue-based threading — DB and ink analysis use operation queues with
+  callbacks to stay thread-safe
+  - Graceful hardware degradation — all pigpio code falls back to simulation
+  mode if the daemon isn't running
+
+  ---
+  Print Job Lifecycle (the happy path)
+
+  1. User selects pages in file_browser, sets options in print_options
+  2. payment screen accumulates coins/bills via GPIO pulses
+  3. PaymentAlgorithmManager confirms change is makeable → payment_completed
+  signal fires
+  4. PrinterThread builds a temp PDF (selected pages only via PyMuPDF), submits
+  to CUPS
+  5. On success: paper count decremented, InkAnalysisThreadManager estimates
+  CMYK consumption and updates DB
+  6. HopperManager dispenses change; thank_you screen shown; temp PDF cleaned up
+
+✻ Cooked for 1m 32s
+
+❯ given the contents of @project_objectives.txt and the current state of the    
+  repo suggest a logical roadmap for the eventual completion of all objectives  
+  (after testing                                                                
+  the merged repo's functionality on the kiosk). 3 undergrads who don't have    
+  24/7 access to the physical machine so we need to be able to develop and test 
+  independently before code is committed to the main branch.                    
+  ⎿  Read project_objectives.txt (34 lines)
+
+● Let me look at a couple more things before drafting the roadmap.
+
+  Read 1 file, listed 1 directory (ctrl+o to expand)
+
+● Good — the existing hardware abstraction pattern (try/except import with
+  simulation fallback) is already established. Here's the roadmap:
+
+  ---
+  AIO SPARK Development Roadmap
+
+  Situation summary
+
+  What exists: A working PyQt5 kiosk — USB print, coin/bill payment, CUPS
+  integration, SQLite, SMS alerts, ink analysis. GPIO already has a simulation
+  mode when pigpio is unavailable.
+
+  What's new: FastAPI backend, Kivy GUI, Wi-Fi upload, email submission,
+  scanning, OTP sessions, admin web dashboard.
+
+  Constraint: 3 devs, limited hardware access → everything must be testable on a
+  laptop.
+
+  ---
+  Guiding principle: hardware-independent by default
+
+  Extend the existing pattern (persistent_gpio.py already does this) — every
+  hardware interface gets a SIM_MODE flag so the full feature can be built and
+  tested without the Pi. The physical machine is only needed for integration
+  validation before a PR merges.
+
+  ---
+  Phase 0 — Stabilize the merged repo (on the kiosk, ~1 week)
+
+  Goal: Confirm the current main branch works end-to-end before adding anything
+  new.
+
+  - Test the full print flow (USB → file select → payment → print → change)
+  - Verify SMS alerts, ink tracking, admin screen
+  - Log any regressions or broken behavior as issues
+  - Deliverable: a stable baseline commit tagged v1.0-baseline
+
+  ▎ This is the only phase that truly requires the physical machine.
+
+  ---
+  Phase 1 — Dev environment & shared foundations (all 3 devs, ~1 week)
+
+  Goal: Make independent development possible. No features yet — just
+  scaffolding.
+
+  Tasks:
+  - Add a requirements.txt (or pyproject.toml) with all dependencies pinned
+  - Create a SIM_MODE env flag that each hardware module respects (extend the
+  existing PIGPIO_AVAILABLE pattern to CUPS, scanner, modem)
+  - Add a Makefile or scripts/ with run-dev, run-tests, lint targets
+  - Set up pytest with a basic test for PaymentAlgorithmManager (pure logic, no
+  hardware)
+  - Agree on branching strategy: one feature branch per module, PRs require one
+  review before merging to main
+  - Deliverable: any dev can git clone + pip install -r requirements.txt and run
+  the app in sim mode on their laptop
+
+  ---
+  Phase 2 — FastAPI backend skeleton (1 dev, ~1 week)
+
+  Goal: Stand up the backend that all new modules will plug into. Kivy and the
+  existing PyQt5 app will both call into it.
+
+  Tasks:
+  - backend/main.py — Uvicorn app with /health, /docs (disabled in prod via env
+  flag)
+  - Shared SQLite access layer (reuse db_manager.py or wrap it)
+  - Auth middleware stub for the /admin routes
+  - Self-signed TLS cert generation script (for the Wi-Fi portal requirement)
+  - Fully testable offline with pytest + httpx (FastAPI's test client)
+  - Deliverable: GET /health returns 200; CI or a pre-push hook runs the test
+  suite
+
+  ---
+  Phase 3 — Session Manager (1 dev, ~1.5 weeks)
+
+  Goal: OTP + QR sessions underpin Wi-Fi upload and email submission, so build
+  this first.
+
+  Tasks:
+  - backend/session_manager.py — secrets.token_digits(6) OTP, session → temp dir
+  mapping
+  - Configurable expiry (read from settings DB table, not hardcoded)
+  - Rate limiting: 5 failed OTP attempts → session locked
+  - Background task that deletes expired session directories
+  - QR code generation (image or URL) to be shown on the kiosk screen
+  - LogicOwl scanner input: read USB HID events and validate OTP (mock as
+  keyboard input in sim mode)
+  - Fully testable offline — no hardware dependency
+  - Deliverable: pytest suite covering OTP issuance, expiry, lockout, directory
+  cleanup
+
+  ---
+  Phase 4 — Wi-Fi Transfer (1 dev, ~2 weeks)
+
+  Goal: User connects to kiosk's AP, uploads PDF via browser.
+
+  Tasks:
+  - FastAPI route: POST /upload — validates magic bytes (%PDF) + MIME, ties file
+  to session, saves to session temp dir
+  - Simple HTML upload page served at / (Jinja2 template, mobile-friendly)
+  - TLS on Uvicorn (self-signed cert from Phase 2 script)
+  - RaspAP + Nodogsplash setup documented as a deployment script (Pi-specific —
+  can be mocked with a regular laptop hotspot during dev)
+  - Integration test: upload a PDF via httpx, confirm it lands in the session
+  directory
+  - Hardware needed only for AP configuration — the FastAPI portal itself is
+  fully testable on any machine
+  - Deliverable: working upload portal; RaspAP deployment script
+
+  ---
+  Phase 5 — Email Submission (1 dev, ~2 weeks)
+
+  Goal: Kiosk polls a Gmail inbox, extracts PDFs, sends OTP reply.
+
+  Tasks:
+  - backend/email_poller.py — IMAP polling loop (configurable interval), subject
+  keyword filter, PDF attachment extraction
+  - SMTP reply: OTP + QR image attached, sent back to sender
+  - Queue extracted PDF into the session manager (Phase 3)
+  - SIM7600G-H modem integration: AT commands over USB serial for data path —
+  abstract behind ModemInterface with a SimModem mock
+  - Testable offline: use a real Gmail account + imaplib against Gmail directly
+  (no modem needed); modem integration tested on Pi
+  - Deliverable: end-to-end email → PDF queue → OTP reply flow, tested against a
+  real Gmail inbox without modem hardware
+
+  ---
+  Phase 6 — Scanner Module (1 dev, ~2 weeks)
+
+  Goal: Photocopy (scan → print) and scan-to-email / scan-to-download.
+
+  Tasks:
+  - backend/scanner.py — wraps sane-airscan via subprocess; returns image/PDF
+  paths
+  - Abstract behind ScannerInterface with a SimScanner that returns a canned PDF
+  - Routes: scan-to-print-queue, scan-to-email (reuse email module),
+  scan-to-session-download
+  - Multi-page support: collect pages, combine into single PDF (PyMuPDF)
+  - Rescan / cancel flow
+  - Hardware needed for final validation only — all routing logic testable with
+  SimScanner
+  - Deliverable: scan-to-print flow working on kiosk; sim mode passes pytest
+
+  ---
+  Phase 7 — Admin Dashboard (1 dev, ~1.5 weeks)
+
+  Goal: Web UI at /admin/accounting showing per-service revenue and transaction
+  counts.
+
+  Tasks:
+  - FastAPI routes: aggregate queries on transactions table, grouped by service
+  type and time range
+  - Add service_type column to transactions table (migration script)
+  - HTML/JS frontend: Chart.js bar chart + summary table, time filter buttons
+  (Today / Week / Month / All Time)
+  - Paper level reset endpoint (admin fallback for SMS fuzzy-match)
+  - Fully testable offline — seed the DB with fixture data and test the charts
+  in a browser
+  - Deliverable: working dashboard served locally; screenshots for review
+
+  ---
+  Phase 8 — Paper Level Monitoring enhancement (shared, ~0.5 weeks)
+
+  Goal: Extend the existing SMS alert system to support fuzzy-match REFILL
+  replies.
+
+  Tasks:
+  - Extend sms_manager.py: poll for incoming SMS, fuzzy-match against "REFILLED"
+  (≥0.80 similarity, use rapidfuzz)
+  - On match: reset paper count in DB
+  - Admin dashboard fallback reset button (from Phase 7)
+  - Wire paper count tracking to all new service types (scan jobs consume paper
+  too)
+  - Deliverable: fuzzy-match tested with unit tests; reset flow verified on
+  kiosk
+
+  ---
+  Phase 9 — Kivy GUI migration (all 3 devs, ~3–4 weeks)
+
+  Goal: Replace PyQt5 with Kivy for the touchscreen UI.
+
+  Why last: Kivy migration is the highest-effort refactor and has no hardware
+  dependency — it can run entirely on laptops. Doing it last means all business
+  logic is already in the FastAPI backend, so the GUI becomes a thin client.
+
+  Tasks:
+  - Port each screen one at a time (idle → usb → file_browser → print_options →
+  payment → thank_you → admin)
+  - Kivy screens call FastAPI endpoints rather than importing manager classes
+  directly
+  - Hardware signals (GPIO coin/bill) routed through a FastAPI WebSocket or SSE
+  stream instead of Qt signals
+  - Keep PyQt5 app on a long-lived branch as a fallback until Kivy is validated
+  on the kiosk
+  - Deliverable: full Kivy app running in sim mode on laptops; validated on
+  kiosk before PyQt5 branch is archived
+
+  ---
+  Dependency graph
+
+  Phase 0 (stabilize)
+      └── Phase 1 (dev env)
+              ├── Phase 2 (FastAPI skeleton)
+              │       ├── Phase 3 (Session Manager)
+              │       │       ├── Phase 4 (Wi-Fi Upload)
+              │       │       └── Phase 5 (Email)
+              │       ├── Phase 6 (Scanner)       ← depends on 3 for routing
+              │       └── Phase 7 (Admin Dashboard)
+              └── Phase 8 (Paper monitoring)      ← can run in parallel with 4-7
+  Phase 9 (Kivy) ← depends on all above being stable
+
+  ---
+  What each dev can own independently
+
+  ┌─────┬──────────────────────────────────────┬────────────────────────────┐
+  │ Dev │                Phases                │      Hardware needed?      │
+  ├─────┼──────────────────────────────────────┼────────────────────────────┤
+  │ A   │ Session Manager (3), Wi-Fi Upload    │ No (AP config only for     │
+  │     │ (4)                                  │ final test)                │
+  ├─────┼──────────────────────────────────────┼────────────────────────────┤
+  │ B   │ Email Submission (5), Scanner (6)    │ No (modem/scanner for      │
+  │     │                                      │ final test only)           │
+  ├─────┼──────────────────────────────────────┼────────────────────────────┤
+  │ C   │ FastAPI skeleton (2), Admin          │ No                         │
+  │     │ Dashboard (7), Paper monitoring (8)  │                            │
+  ├─────┼──────────────────────────────────────┼────────────────────────────┤
+  │ All │ Kivy migration (9)                   │ No until final validation  │
+  └─────┴──────────────────────────────────────┴────────────────────────────┘
+
+  ---
+  Branch strategy
+
+  - main — only stable, kiosk-validated code
+  - feature/<module> — one per phase; PR requires one other dev's review
+  - integration/<date> — cut periodically to test combinations on the kiosk
+  before merging to main
+  - Never merge a hardware-dependent branch to main without at least one run on
+  the Pi
+
+✻ Crunched for 1m 25s
+
+※ recap: You're building a roadmap to extend a PyQt5 printing kiosk into a full multi-modal kiosk (Wi-Fi upload, email, scanning, FastAPI backend, Kivy GUI). The suggested next step is stabilizing the current merged repo on the physical kiosk before any new development begins. (disable recaps in /config)
+
+❯ /export                                                                       
+  ⎿  Conversation copied to clipboard

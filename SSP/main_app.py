@@ -15,8 +15,9 @@ import sys
 import os
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
-from PyQt5.QtWidgets import QApplication, QMainWindow, QStackedWidget, QDesktopWidget
-from PyQt5.QtCore import Qt, QTimer
+from PyQt5 import QtCore
+from PyQt5.QtWidgets import QApplication, QMainWindow, QStackedWidget
+from PyQt5.QtCore import QTimer
 from PyQt5.QtGui import QIcon
 from screens.idle import IdleController
 from screens.usb import USBController
@@ -113,6 +114,9 @@ class PrintingSystemApp(QMainWindow):
             
         self.thank_you_screen = ThankYouController(self)
 
+        # Connect payment completion to the print workflow once screens exist.
+        self.payment_screen.payment_completed.connect(self.on_payment_completed)
+
         # Add all screens to stacked widget in order (see SCREEN_MAP)
         self.stacked_widget.addWidget(self.idle_screen)
         self.stacked_widget.addWidget(self.usb_screen)
@@ -133,18 +137,20 @@ class PrintingSystemApp(QMainWindow):
         print("🔄 Disabling payment acceptors at startup...")
         pi = None
         try:
-            import pigpio
+            import pigpio  # type: ignore[import-not-found]
             pi = pigpio.pi()
             if pi.connected:
                 # Disable bill acceptor (pin 23) - HIGH = disabled
                 pi.write(23, 1)
                 print("✅ Bill acceptor disabled (pin 23)")
-                # Disable coin acceptor (pin 22) - LOW = disabled  
+                # Disable coin acceptor (pin 22) - LOW = disabled
                 pi.write(22, 0)
                 print("✅ Coin acceptor disabled (pin 22)")
                 print("✅ Payment acceptors manually disabled at startup")
             else:
                 print("⚠️ pigpio not connected - acceptors remain in default state")
+        except ImportError:
+            print("⚠️ pigpio is not installed; payment acceptors remain in default state")
         except Exception as e:
             print(f"⚠️ Could not disable acceptors manually: {e}")
         finally:
@@ -161,10 +167,9 @@ class PrintingSystemApp(QMainWindow):
         
         # Connect printer manager signals immediately after initialization
         print("DEBUG: Connecting printer manager signals after initialization")
-        from PyQt5.QtCore import Qt
-        self.printer_manager.print_job_successful.connect(self.on_print_successful, Qt.QueuedConnection)
-        self.printer_manager.print_job_failed.connect(self.on_print_failed, Qt.QueuedConnection)
-        self.printer_manager.print_job_waiting.connect(self.on_print_waiting, Qt.QueuedConnection)
+        self.printer_manager.print_job_successful.connect(self.on_print_successful)
+        self.printer_manager.print_job_failed.connect(self.on_print_failed)
+        self.printer_manager.print_job_waiting.connect(self.on_print_waiting)
         print("DEBUG: Printer manager signals connected successfully with QueuedConnection")
         
         # Signal connection established successfully
@@ -186,7 +191,7 @@ class PrintingSystemApp(QMainWindow):
         self.setMinimumSize(1280, 720)
         
         # Set window flags for kiosk-like behavior
-        self.setWindowFlags(Qt.Window | Qt.FramelessWindowHint)
+        self.setWindowFlags(self.windowFlags() | QtCore.Qt.WindowType.FramelessWindowHint)
         
         # Go fullscreen on startup
         print("🖥️ Starting in fullscreen mode")
@@ -202,12 +207,9 @@ class PrintingSystemApp(QMainWindow):
         - Print job status updates (success, failure, waiting)
         """
         # Connect ink analysis completion for database updates
-        self.ink_analysis_threader.analysis_completed.connect(self._on_ink_analysis_completed)
-        
-        # Connect payment and printing signals (will be connected after screens are initialized)
-        # This connection happens after all screens are created to avoid AttributeErrors
-    
-    def _on_ink_analysis_completed(self, result):
+        self.ink_analysis_threader.analysis_completed.connect(self._handle_analysis_result)
+
+    def _handle_analysis_result(self, result):
         """
         Handle ink analysis completion and forward CMYK level updates.
         
@@ -219,9 +221,6 @@ class PrintingSystemApp(QMainWindow):
         if result.get('database_updated', False) and 'cmyk_levels' in result:
             print(f"CMYK levels updated: {result['cmyk_levels']}")
             self.db_threader.cmyk_levels_updated.emit(result['cmyk_levels'])
-
-        # Connect payment signals after screens are ready
-        self.payment_screen.payment_completed.connect(self.on_payment_completed)
 
     def check_paper_count_and_redirect(self, allow_admin_access=False):
         """
@@ -296,7 +295,7 @@ class PrintingSystemApp(QMainWindow):
 
         # Call on_leave lifecycle method for current screen
         current_widget = self.stacked_widget.currentWidget()
-        if hasattr(current_widget, 'on_leave'):
+        if current_widget is not None and hasattr(current_widget, 'on_leave'):
             current_widget.on_leave()
 
         # Check paper and ink before switching to most screens (except admin and thank_you)
@@ -316,7 +315,7 @@ class PrintingSystemApp(QMainWindow):
         new_widget = self.stacked_widget.currentWidget()
         print(f"DEBUG: show_screen - new_widget: {new_widget}")
         print(f"DEBUG: show_screen - hasattr(new_widget, 'on_enter'): {hasattr(new_widget, 'on_enter')}")
-        if hasattr(new_widget, 'on_enter'):
+        if new_widget is not None and hasattr(new_widget, 'on_enter'):
             print(f"DEBUG: show_screen - calling new_widget.on_enter()")
             try:
                 new_widget.on_enter()
@@ -694,15 +693,16 @@ class PrintingSystemApp(QMainWindow):
         except Exception as e:
             print(f"❌ Error during cleanup: {e}")
 
-    def closeEvent(self, event):
+    def closeEvent(self, a0) -> None:
         """
         Qt event handler for window close.
         
         Args:
-            event: QCloseEvent from Qt framework
+            a0: QCloseEvent from Qt framework
         """
         self.cleanup()
-        event.accept()
+        if a0 is not None:
+            a0.accept()
 
 
 def main():

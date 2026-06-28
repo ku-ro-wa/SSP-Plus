@@ -1,0 +1,28 @@
+# Self-Service Printing Kiosk — Python dependencies
+# Install with: pip install -r requirements.txt
+#
+# System-level dependencies (install separately):
+#   sudo apt-get install cups libcups2-dev poppler-utils
+#   sudo systemctl start cups
+#   sudo systemctl start pigpiod
+#
+# pigpio (Raspberry Pi only):
+#   pip install pigpio   (Linux/Pi only; skipped automatically via SIM_MODE on laptops)
+
+# GUI
+PyQt5>=5.15
+
+# PDF handling
+PyMuPDF>=1.23
+pdf2image>=1.16
+
+# Image analysis
+opencv-python>=4.8
+numpy>=1.24
+
+# Hardware communication (GSM modem)
+pyserial>=3.5
+
+# Testing & dev tooling
+pytest>=7.4
+flake8>=6.0

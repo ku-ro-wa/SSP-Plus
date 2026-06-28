@@ -1,0 +1,34 @@
+AIO SPARK — Required Features & Objectives *Specific architecture of some features may be subject to change*
+The system extends a predecessor Raspberry Pi–based USB-only printing kiosk (Python, PyQt5) into a multi-modal self-service kiosk. The new stack targets FastAPI/Uvicorn backend + Kivy touchscreen GUI + SQLite + CUPS.
+Core services the kiosk must support:
+
+Printing — via USB (predecessor), Wi-Fi upload, and email submission
+Scanning — scan-to-print (photocopy), scan-to-email, scan-to-Wi-Fi download
+Photocopying — scan + immediate print, with payment
+Payment — coin/bill acceptor + change dispenser (existing hardware); cashless explicitly out of scope atm
+
+New modules to implement:
+
+5. Wi-Fi Transfer — Kiosk runs as a local AP (RaspAP + Nodogsplash captive portal); user connects via personal device and uploads PDF through a FastAPI-served web portal; PDF-only; file validated via magic bytes (%PDF header) + MIME check
+
+6. Email Submission — IMAP polling of a dedicated Gmail inbox via SIM7600G-H 4G HAT (USB data path); subject keyword required; PDF attachment extracted and queued; OTP + QR reply sent via SMTP
+
+7. Session Manager — Generates 6-digit OTP + QR code per session; maps tokens to temporary file directories; OTP rate-limited to 5 failed attempts; session expiry is operator-configurable (not hardcoded); expired session files deleted automatically; QR scanning via LogicOwl OJ-HS-23 USB HID scanner
+
+8. Scanner Module — Uses sane-airscan (eSCL/AirScan, driverless) against HP Smart Tank 580; supports single/multi-page, rescan, cancel; routes output to print queue, SMTP, or session download
+
+9. Admin Dashboard (Report Module) — FastAPI-served local web UI at /admin/accounting; per-service transaction counts and revenue (Wi-Fi print, email print, scan, photocopy); time filters (Today / Week / Month / All Time); Chart.js bar chart + summary table
+
+10. Paper Level Monitoring — Tracks paper count via print_jobs inserts; SMS alert to admin via SIM7600G-H when low; fuzzy-match reply (REFILLED, ≥0.80 similarity) resets counter; admin dashboard fallback reset
+Key constraints:
+
+PDF-only for email submission; all other paths accept PDFs already on the device
+4G internet required for email module; Wi-Fi transfer is internet-independent
+A4/Letter paper only
+secrets module for OTP generation (cryptographically secure)
+FastAPI /docs and /redoc endpoints disabled in production
+TLS via self-signed cert on Uvicorn for the Wi-Fi upload portal
+
+Hardware:
+
+Raspberry Pi 4, HP Smart Tank 580, 15" touchscreen, Waveshare SIM7600G-H 4G HAT (GPIO seat for power/control, USB for data), LogicOwl OJ-HS-23 QR scanner, coin/bill acceptor + coin hopper
