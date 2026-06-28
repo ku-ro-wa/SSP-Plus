@@ -13,7 +13,9 @@ Configuration Categories:
 
 import os
 import sys
-from typing import Union
+from typing import TypeVar, Union, cast
+
+ValueType = TypeVar("ValueType", str, int, float, bool)
 
 
 class Config:
@@ -80,10 +82,10 @@ class Config:
                     elif value.startswith("'") and value.endswith("'"):
                         value = value[1:-1]
                     
-                    # Set environment variable
-                    os.environ[key] = value
+                    # Shell env takes precedence over .env (allows SIM_MODE=true make run-sim)
+                    os.environ.setdefault(key, value)
     
-    def get(self, key: str, value_type: type = str) -> Union[str, int, float, bool]:
+    def get(self, key: str, value_type: type[ValueType] = str) -> ValueType:
         """
         Get configuration value with type conversion.
         
@@ -104,14 +106,14 @@ class Config:
         value = os.environ[key]
         
         try:
-            if value_type == bool:
-                return value.lower() in ('true', '1', 'yes', 'on')
-            elif value_type == int:
-                return int(value)
-            elif value_type == float:
-                return float(value)
+            if value_type is bool:
+                return cast(ValueType, value.lower() in ('true', '1', 'yes', 'on'))
+            elif value_type is int:
+                return cast(ValueType, int(value))
+            elif value_type is float:
+                return cast(ValueType, float(value))
             else:
-                return str(value)
+                return cast(ValueType, str(value))
         except (ValueError, TypeError) as e:
             raise ValueError(f"Could not convert '{key}={value}' to {value_type.__name__}: {e}")
     

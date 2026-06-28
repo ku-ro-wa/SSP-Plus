@@ -10,12 +10,13 @@ PYTHON ?= $(if $(_WIN_PY),$(_WIN_PY),python3)
 
 # Run the app on the kiosk (requires hardware + CUPS + pigpiod)
 # Runs from repo root so config.py finds .env here (SSP/.env is gitignored)
+# -X utf8 forces UTF-8 stdout on Windows (avoids CP1252 emoji errors)
 run:
-	$(PYTHON) SSP/main_app.py
+	$(PYTHON) -X utf8 SSP/main_app.py
 
 # Run the app in simulation mode — no GPIO, CUPS, or modem required
 run-sim:
-	SIM_MODE=true $(PYTHON) SSP/main_app.py
+	SIM_MODE=true $(PYTHON) -X utf8 SSP/main_app.py
 
 # Run the test suite
 test:
