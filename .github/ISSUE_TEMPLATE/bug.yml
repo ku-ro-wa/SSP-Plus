@@ -1,0 +1,62 @@
+name: Bug
+description: Something broken in an existing kiosk module
+title: "[Bug] "
+labels: ["bug"]
+body:
+  - type: dropdown
+    id: module
+    attributes:
+      label: Module
+      options:
+        - USB Submission
+        - Wi-Fi Transfer (Captive Portal)
+        - Email Pipeline
+        - Scanning
+        - Photocopying
+        - Payment Handler
+        - Printer Thread
+        - Session Mgmt (OTP/QR)
+        - Admin Dashboard
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: description
+    attributes:
+      label: What happened
+      description: Actual behavior observed
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Steps to Reproduce
+      placeholder: |
+        1. 
+        2. 
+        3. 
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: Pi/hardware state, OS image version, relevant config
+      placeholder: e.g. Pi 4, Raspbian version, CUPS/sane-airscan version, SIM7600 connected via USB
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs / Screenshots
+  - type: dropdown
+    id: severity
+    attributes:
+      label: Severity
+      options: [Blocker, Major, Minor, Cosmetic]
+    validations:
+      required: true
