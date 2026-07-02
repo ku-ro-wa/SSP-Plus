@@ -28,7 +28,23 @@
       "Bash(ps -p 58615 -o pid,command)",
       "Bash(../.venv/bin/python -c ' *)",
       "Bash(.venv/bin/python -c ' *)",
-      "Bash(rm -rf /private/tmp/claude-501/-Users-riley-Documents-SSP-Plus-SSP-Plus/4bc21bff-66ad-4289-bf19-ec6863513261/scratchpad/run_sim*.log)"
+      "Bash(rm -rf /private/tmp/claude-501/-Users-riley-Documents-SSP-Plus-SSP-Plus/4bc21bff-66ad-4289-bf19-ec6863513261/scratchpad/run_sim*.log)",
+      "Bash(.venv/Scripts/python.exe *)",
+      "Bash(echo \"EXIT:$?\")",
+      "Bash(curl -s -o /dev/null -w \"webapp HTTP status: %{http_code}\\\\n\" http://localhost:8000/ --max-time 5)",
+      "Bash(curl -s -o /dev/null -w \"webapp /docs status: %{http_code}\\\\n\" http://localhost:8000/docs --max-time 5)",
+      "Bash(netstat.exe -ano)",
+      "Bash(curl -sv http://127.0.0.1:8000/ --max-time 5)",
+      "Bash(powershell.exe *)",
+      "Bash(pip show *)",
+      "Bash(grep -E \"^\\\\.env$\")",
+      "Bash(echo \"exit:$?\")",
+      "Bash(python -m pytest tests/ -v)",
+      "Bash(SIM_MODE=true .venv/Scripts/python.exe -m uvicorn webapp.main:app --app-dir SSP --port 8001)",
+      "Bash(curl -s http://127.0.0.1:8001/health)",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\\\\n\" http://127.0.0.1:8001/docs)",
+      "Bash(kill %1)",
+      "Bash(wait)"
     ]
   }
 }

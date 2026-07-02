@@ -169,6 +169,42 @@ make run-sim   # opens the kiosk GUI on your Mac
 
 ---
 
+## Testing the FastAPI backend (`SSP/webapp`)
+
+The webapp is a normal FastAPI app mounted inside the kiosk GUI (`WebAppThreadManager` starts it on a background thread), so you can test it at three levels depending on what you're checking.
+
+### 1. Automated tests (fastest — no server, no GUI)
+
+```bash
+make test
+```
+
+`tests/test_webapp.py` uses FastAPI's `TestClient` to drive the app in-process — no port is actually opened. This is what CI/reviewers will run, so it should be your first check after any webapp change.
+
+### 2. Standalone server with auto-reload (fastest way to poke at it manually)
+
+You don't need to launch the full kiosk GUI to hit an endpoint. Run Uvicorn directly against the `webapp` package:
+
+```bash
+SIM_MODE=true .venv/Scripts/python.exe -m uvicorn webapp.main:app --app-dir SSP --reload
+```
+
+(`python3 -m uvicorn ...` on Mac/Linux.) `--app-dir SSP` puts `SSP/` on the import path — the same thing that happens implicitly when you run `SSP/main_app.py` directly — so `config`, `webapp`, and `database` all resolve. `--reload` restarts the server on file changes.
+
+Then, with the server running:
+- `http://127.0.0.1:8000/health` → `{"status":"ok"}`
+- `http://127.0.0.1:8000/docs` → interactive Swagger UI (auto-generated from route type hints; only served when `API_DOCS_ENABLED=true` in `.env` — it's off by default, per `project_objectives.txt`'s "disabled in production" requirement)
+
+### 3. Full integration (GUI + webapp thread together — closest to production)
+
+```bash
+make run-sim
+```
+
+This is the real startup path: `WebAppThreadManager` boots Uvicorn on a background thread as part of `PrintingSystemApp.__init__`. Same `/health` / `/docs` URLs work while the kiosk window is open. Use this to confirm the webapp thread starts/stops cleanly alongside the GUI (`cleanup()` calls `webapp_thread.stop()`), not just that the routes work in isolation.
+
+---
+
 ## Workflow
 
 ```

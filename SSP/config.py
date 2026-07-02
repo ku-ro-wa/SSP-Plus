@@ -242,6 +242,16 @@ class Config:
         except KeyError:
             return False
 
+    # Web backend (FastAPI) settings
+
+    @property
+    def docs_enabled(self) -> bool:
+        """Serve /docs and /redoc — must be false in production (see project_objectives.txt)."""
+        try:
+            return self.get('API_DOCS_ENABLED', bool)
+        except KeyError:
+            return False
+
 
 # Global configuration instance
 config = Config()

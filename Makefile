@@ -1,10 +1,12 @@
 SHELL := /bin/bash
 
-# Auto-detect Python: picks up the Windows Python inside WSL, falls back to
-# python3 on native Linux/macOS. Override any time: make PYTHON=/path/to/python test
+# Auto-detect Python: prefers a repo-local .venv (Windows or Linux layout),
+# then falls back to the Windows Python inside WSL, then python3 on native
+# Linux/macOS. Override any time: make PYTHON=/path/to/python test
+_VENV_PY := $(firstword $(wildcard .venv/Scripts/python.exe) $(wildcard .venv/bin/python))
 # Find the first Windows Python (sorted ascending) that has pytest installed
 _WIN_PY := $(shell for p in $$(ls /mnt/c/Users/*/AppData/Local/Programs/Python/Python3*/python.exe 2>/dev/null | sort -V); do $$p -c "import pytest" 2>/dev/null && echo $$p && break; done)
-PYTHON ?= $(if $(_WIN_PY),$(_WIN_PY),python3)
+PYTHON ?= $(if $(_VENV_PY),$(_VENV_PY),$(if $(_WIN_PY),$(_WIN_PY),python3))
 
 .PHONY: run run-sim test lint
 
