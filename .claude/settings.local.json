@@ -16,7 +16,19 @@
       "Bash(/mnt/c/Users/riley/AppData/Local/Programs/Python/Python311/Scripts/pytest.exe --version)",
       "Bash(make *)",
       "Bash(bash -c \"pytest --version\")",
-      "Bash(bash -i -c \"pytest --version\")"
+      "Bash(bash -i -c \"pytest --version\")",
+      "Bash(mkdir -p /Users/riley/.claude/projects/-Users-riley-Documents-SSP-Plus-SSP-Plus/memory && touch /Users/riley/.claude/projects/-Users-riley-Documents-SSP-Plus-SSP-Plus/memory/MEMORY.md && cat /Users/riley/.claude/projects/-Users-riley-Documents-SSP-Plus-SSP-Plus/memory/MEMORY.md)",
+      "Bash(timeout 8 env SIM_MODE=true python SSP/main_app.py)",
+      "Bash(SIM_MODE=true python SSP/main_app.py)",
+      "Bash(echo \"started PID $!\")",
+      "Bash(curl -s -m 3 http://localhost:8000/)",
+      "Bash(ps -p 58370 -o pid,command)",
+      "Bash(.venv/bin/python -c \"import fitz, uvicorn, fastapi; print\\('ok'\\)\")",
+      "Bash(SIM_MODE=true .venv/bin/python SSP/main_app.py)",
+      "Bash(ps -p 58615 -o pid,command)",
+      "Bash(../.venv/bin/python -c ' *)",
+      "Bash(.venv/bin/python -c ' *)",
+      "Bash(rm -rf /private/tmp/claude-501/-Users-riley-Documents-SSP-Plus-SSP-Plus/4bc21bff-66ad-4289-bf19-ec6863513261/scratchpad/run_sim*.log)"
     ]
   }
 }

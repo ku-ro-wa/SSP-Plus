@@ -31,6 +31,7 @@ from database.models import init_db
 from managers.printer_manager import PrinterManager
 from managers.db_threader import DatabaseThreadManager
 from managers.ink_analysis_threader import InkAnalysisThreadManager
+from managers.webapp_thread import WebAppThreadManager
 from managers.sms_manager import cleanup_sms
 from managers.persistent_gpio import cleanup_persistent_gpio
 from config import get_config
@@ -92,6 +93,8 @@ class PrintingSystemApp(QMainWindow):
         self.ink_analysis_threader = InkAnalysisThreadManager()
         self.db_threader.start()
         self.ink_analysis_threader.start()
+        self.webapp_thread = WebAppThreadManager()
+        self.webapp_thread.start()
         
         # Connect thread managers for real-time data updates
         self._connect_thread_managers()
@@ -666,6 +669,9 @@ class PrintingSystemApp(QMainWindow):
             if hasattr(self, 'ink_analysis_threader'):
                 print("🔄 Stopping ink analysis threader...")
                 self.ink_analysis_threader.stop()
+            if hasattr(self, 'webapp_thread'):
+                print("🔄 Stopping webapp thread...")
+                self.webapp_thread.stop()
             
             # Stop USB monitoring thread
             if hasattr(self, 'usb_screen') and hasattr(self.usb_screen, 'model'):
