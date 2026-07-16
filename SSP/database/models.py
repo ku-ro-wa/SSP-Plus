@@ -98,6 +98,39 @@ def init_db():
     ''')
     print("OK - Created settings table")
 
+    # Create Sessions table (OTP + QR sessions for Wi-Fi/email intake — see managers/session_manager.py)
+    cursor.execute('''
+    CREATE TABLE IF NOT EXISTS sessions (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        session_id TEXT UNIQUE NOT NULL,
+        otp_hash TEXT NOT NULL,
+        source TEXT NOT NULL,
+        file_path TEXT NOT NULL,
+        original_filename TEXT,
+        status TEXT NOT NULL DEFAULT 'pending',
+        failed_attempts INTEGER NOT NULL DEFAULT 0,
+        created_at DATETIME NOT NULL,
+        expires_at DATETIME NOT NULL,
+        metadata TEXT
+    )
+    ''')
+    print("OK - Created sessions table")
+
+    # Create Email Intake Log table (for tracking email intake processing outcomes)
+    cursor.execute('''
+    CREATE TABLE IF NOT EXISTS email_intake_log (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    uidvalidity INTEGER NOT NULL,   -- from IMAP; UIDs are only unique per UIDVALIDITY epoch
+    uid INTEGER NOT NULL,           -- IMAP UID, not sequence number
+    message_id TEXT,                -- Message-ID header, belt-and-suspenders vs UID resets
+    outcome TEXT NOT NULL,          -- 'accepted' | 'rejected_subject' | 'rejected_attachment' | 'error'
+    session_id TEXT,                -- FK-ish to sessions.session_id, NULL if rejected
+    processed_at DATETIME NOT NULL,
+    UNIQUE(uidvalidity, uid)
+    )
+    ''')
+    print("OK - Created email_intake_log table")
+
     # Initialize default settings if they don't exist
     cursor.execute("INSERT OR IGNORE INTO settings (key, value) VALUES ('paper_count', '100')")
     print("OK - Initialized paper_count setting")

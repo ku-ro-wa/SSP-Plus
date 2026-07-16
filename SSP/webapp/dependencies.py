@@ -5,7 +5,10 @@
 # get_db() is the shared DB access point every route below will use instead
 # of importing DatabaseManager directly.
 
+from config import get_config
 from database.db_manager import DatabaseManager
+from managers.adapters.wifi_adapter import WifiAdapter
+from managers.session_manager import SessionManager
 
 
 def get_db():
@@ -17,5 +20,21 @@ def get_db():
     db = DatabaseManager()
     try:
         yield db
+    finally:
+        db.close()
+
+
+def get_wifi_adapter():
+    # Built on its own DatabaseManager (not get_db()) for the same
+    # per-request/per-thread connection reason as above.
+    db = DatabaseManager()
+    try:
+        config = get_config()
+        session_manager = SessionManager(db)
+        yield WifiAdapter(
+            session_manager=session_manager,
+            upload_dir=config.wifi_upload_dir,
+            max_size_bytes=config.max_upload_size_mb * 1024 * 1024,
+        )
     finally:
         db.close()

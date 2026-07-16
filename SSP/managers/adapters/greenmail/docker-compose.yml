@@ -1,0 +1,16 @@
+version: '3.8'
+
+services:
+  greenmail:
+    image: greenmail/standalone:latest
+    container_name: greenmail-server
+    environment:
+      # This enables SMTP, IMAP, and POP3 with extra logging
+      - GREENMAIL_OPTS=-Dgreenmail.setup.test.all -Dgreenmail.hostname=0.0.0.0 -Dgreenmail.verbose
+      - GREENMAIL_OPTS=-Dgreenmail.setup.test.all -Dgreenmail.hostname=0.0.0.0 -Dgreenmail.verbose -Dgreenmail.users=test@example.com:test
+    ports:
+      - "3025:3025" # SMTP (Sending)
+      - "3110:3110" # POP3 (Receiving)
+      - "3143:3143" # IMAP (Receiving)
+      - "8080:8080" # GreenMail API / Web UI (if available in version)
+    restart: always

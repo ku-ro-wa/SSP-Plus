@@ -2,7 +2,7 @@
 from fastapi import FastAPI
 
 from config import get_config
-from webapp.routers import health
+from webapp.routers import health, upload
 
 config = get_config()
 
@@ -15,3 +15,4 @@ redoc_url = "/redoc" if config.docs_enabled else None
 app = FastAPI(title="AIO SPARK", docs_url=docs_url, redoc_url=redoc_url)
 
 app.include_router(health.router)
+app.include_router(upload.router)

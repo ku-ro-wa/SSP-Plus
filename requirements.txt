@@ -27,6 +27,10 @@ pyserial>=3.5
 fastapi>=0.110
 uvicorn[standard]>=0.29
 cryptography>=42.0
+python-multipart>=0.0.9  # required for FastAPI's UploadFile/Form parsing (webapp/routers/upload.py)
+
+# Session manager (OTP + QR intake sessions)
+qrcode[pil]>=7.4
 
 # Testing & dev tooling
 pytest>=7.4

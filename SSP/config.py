@@ -252,6 +252,115 @@ class Config:
         except KeyError:
             return False
 
+    # Wi-Fi upload portal (webapp/routers/upload.py)
+
+    @property
+    def wifi_upload_dir(self) -> str:
+        """Directory uploaded PDFs are saved to before being handed to SessionManager."""
+        try:
+            return self.get('WIFI_UPLOAD_DIR', str)
+        except KeyError:
+            return "SSP/database/wifi_uploads"
+
+    @property
+    def max_upload_size_mb(self) -> int:
+        """Reject Wi-Fi uploads larger than this (megabytes)."""
+        try:
+            return self.get('MAX_UPLOAD_SIZE_MB', int)
+        except KeyError:
+            return 25
+
+    # Email intake (managers/adapters/email_adapter.py) — defaults below match
+    # the greenmail dev server in managers/adapters/greenmail/docker-compose.yml.
+    # Override all of these in .env before pointing at the real dedicated
+    # Gmail account (Gmail needs EMAIL_USE_SSL=true, IMAP port 993, an app
+    # password, etc.) — no code changes required for that swap.
+
+    @property
+    def email_imap_host(self) -> str:
+        try:
+            return self.get('EMAIL_IMAP_HOST', str)
+        except KeyError:
+            return "127.0.0.1"
+
+    @property
+    def email_imap_port(self) -> int:
+        try:
+            return self.get('EMAIL_IMAP_PORT', int)
+        except KeyError:
+            return 3143
+
+    @property
+    def email_smtp_host(self) -> str:
+        try:
+            return self.get('EMAIL_SMTP_HOST', str)
+        except KeyError:
+            return "127.0.0.1"
+
+    @property
+    def email_smtp_port(self) -> int:
+        try:
+            return self.get('EMAIL_SMTP_PORT', int)
+        except KeyError:
+            return 3025
+
+    @property
+    def email_use_ssl(self) -> bool:
+        try:
+            return self.get('EMAIL_USE_SSL', bool)
+        except KeyError:
+            return False
+
+    @property
+    def email_user(self) -> str:
+        try:
+            return self.get('EMAIL_USER', str)
+        except KeyError:
+            return "test@example.com"
+
+    @property
+    def email_password(self) -> str:
+        try:
+            return self.get('EMAIL_PASSWORD', str)
+        except KeyError:
+            return "test"
+
+    @property
+    def email_mailbox(self) -> str:
+        try:
+            return self.get('EMAIL_MAILBOX', str)
+        except KeyError:
+            return "INBOX"
+
+    @property
+    def email_subject_keyword(self) -> str:
+        """Required in the subject line for an email to be treated as a print request."""
+        try:
+            return self.get('EMAIL_SUBJECT_KEYWORD', str)
+        except KeyError:
+            return "DEMO_TRIGGER"
+
+    @property
+    def email_poll_interval_seconds(self) -> int:
+        try:
+            return self.get('EMAIL_POLL_INTERVAL_SECONDS', int)
+        except KeyError:
+            return 10
+
+    @property
+    def email_upload_dir(self) -> str:
+        try:
+            return self.get('EMAIL_UPLOAD_DIR', str)
+        except KeyError:
+            return "SSP/database/email_uploads"
+
+    @property
+    def email_max_attachment_size_mb(self) -> int:
+        try:
+            return self.get('EMAIL_MAX_ATTACHMENT_SIZE_MB', int)
+        except KeyError:
+            return 25
+
 
 # Global configuration instance
 config = Config()
