@@ -15,3 +15,6 @@ certs/
 # Uploaded/extracted files awaiting pickup
 SSP/database/wifi_uploads/
 SSP/database/email_uploads/
+
+# Fake USB drive directory seeded by SIM_MODE (managers/usb_file_manager.py)
+SSP/database/sim_usb_drive/

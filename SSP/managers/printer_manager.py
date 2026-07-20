@@ -64,6 +64,10 @@ class PrinterManager(QObject):
         self.print_thread.start()
 
     def check_printer_availability(self):
+        sim_mode = os.getenv('SIM_MODE', 'false').lower() in ('true', '1', 'yes')
+        if sim_mode:
+            return True
+
         try:
             result = subprocess.run(['which', 'lp'], capture_output=True, text=True)
             if result.returncode != 0:
