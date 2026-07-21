@@ -29,9 +29,13 @@ class USBFileManager:
     
     def get_usb_drives(self):
         """Detect ONLY actual USB/removable drives - exclude all internal drives"""
+        sim_mode = os.getenv('SIM_MODE', 'false').lower() in ('true', '1', 'yes')
+        if sim_mode:
+            return self._get_sim_usb_drives()
+
         usb_drives = []
         system = platform.system()
-        
+
         try:
             if system == "Windows":
                 usb_drives = self._get_windows_usb_drives()
@@ -39,13 +43,37 @@ class USBFileManager:
                 usb_drives = self._get_linux_usb_drives()
             else:
                 print(f"OS not found: {system}")
-                
+
         except Exception as e:
             print(f"Error detecting USB drives: {e}")
-        
+
         print(f"Detected {len(usb_drives)} actual USB drives: {usb_drives}")
         return usb_drives
-    
+
+    def _get_sim_usb_drives(self):
+        """SIM_MODE stand-in for a real USB drive: a local directory scanned for PDFs.
+
+        Lets `make run-sim` reach file_browser/printing_options/payment without
+        physically inserting a USB stick. Seeds a placeholder PDF on first run.
+        """
+        fake_dir = os.getenv('SIM_USB_DIR', 'SSP/database/sim_usb_drive')
+        os.makedirs(fake_dir, exist_ok=True)
+
+        if not any(f.lower().endswith('.pdf') for f in os.listdir(fake_dir)):
+            try:
+                import fitz  # PyMuPDF
+                doc = fitz.open()
+                page = doc.new_page()
+                page.insert_text((72, 72), "SIM_MODE sample PDF")
+                doc.save(os.path.join(fake_dir, "sim_sample.pdf"))
+                doc.close()
+                print(f"📄 Seeded sample PDF into SIM_USB_DIR: {fake_dir}")
+            except Exception as e:
+                print(f"⚠️ Could not seed sample PDF into SIM_USB_DIR: {e}")
+
+        print(f"🧪 SIM_MODE: reporting fake USB drive at {fake_dir}")
+        return [fake_dir]
+
     def _get_windows_usb_drives(self):
         """Windows-specific USB drive detection"""
         usb_drives = []

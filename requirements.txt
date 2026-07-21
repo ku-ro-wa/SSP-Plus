@@ -39,3 +39,6 @@ httpx>=0.27
 
 # Captive Portal Templates
 Jinja2>=3.1
+# Optional dependencies (for Windows only)
+psutil
+pywin32

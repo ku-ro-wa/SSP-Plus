@@ -19,7 +19,7 @@ Run a single test: `python -m pytest tests/test_payment_algorithm.py::TestCalcul
 
 First-time setup: `cp .env.example .env` and set `SIM_MODE=true` for laptop development. `.env` **must live at the repo root** — `config.py`'s `Config` class resolves it relative to the process's working directory (`.env` by default), and both Makefile targets invoke `python SSP/main_app.py` from the repo root. Running `main_app.py` directly from inside `SSP/` will fail because `.env` isn't there. If `.env` is missing, `config.py` calls `sys.exit(1)` immediately.
 
-SIM_MODE (set via `.env` or as a shell var, which takes precedence — see `make run-sim`) disables GPIO, the CUPS printer submission, and the GSM modem, replacing them with console-logged simulation.
+SIM_MODE (set via `.env` or as a shell var, which takes precedence — see `make run-sim`) disables GPIO, the CUPS printer submission, and the GSM modem, replacing them with console-logged simulation. It also makes `USBFileManager.get_usb_drives()` (`managers/usb_file_manager.py`) report a fake USB drive instead of doing real OS-level detection, so the `usb` screen auto-navigates to `file_browser` without a physical drive — the fake drive is a local directory (`SIM_USB_DIR` in `.env`, default `SSP/database/sim_usb_drive`) auto-seeded with a placeholder PDF on first run.
 
 ## Architecture
 
