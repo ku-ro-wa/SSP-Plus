@@ -46,7 +46,7 @@ class TestPostUpload:
             app.dependency_overrides.pop(get_wifi_adapter, None)
 
         assert response.status_code == 200
-        assert "Code:" in response.text
+        assert 'id="otp-display"' in response.text
         assert "data:image/png;base64," in response.text
 
     def test_non_pdf_rejected_with_400(self, tmp_path):

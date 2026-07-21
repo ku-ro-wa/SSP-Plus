@@ -26,8 +26,8 @@ app.include_router(health.router)
 app.include_router(upload.router)
 
 
-
 # To run both on desktop and mobile: uvicorn webapp.main:app --reload --host 0.0.0.0 --port 8000
+# If the above command doesn't work try: .venv/Scripts/python.exe -X utf8 -m uvicorn --app-dir SSP webapp.main:app --reload --host 0.0.0.0 --port 8000
 # lookback IP: http://<LAN IP>:8000/
 # Example: 
 # lookback IP: http://192.168.8.180:8000/upload

@@ -18,7 +18,14 @@ class DatabaseManager:
     def connect(self):
         """Establish a connection to the SQLite database."""
         try:
-            self.conn = sqlite3.connect(self.db_path)
+            # check_same_thread=False: the webapp opens one DatabaseManager
+            # per request via a sync FastAPI dependency (see
+            # webapp/dependencies.py), and Starlette can resolve that
+            # dependency and run the async route body on different
+            # threadpool/event-loop threads within the same request. The
+            # connection is still only ever touched sequentially within a
+            # single request's lifecycle, never concurrently, so this is safe.
+            self.conn = sqlite3.connect(self.db_path, check_same_thread=False)
             self.conn.row_factory = self.dict_factory
             print(f"✅ Database connection established: {self.db_path}")
         except sqlite3.Error as e:

@@ -79,7 +79,7 @@ class SessionManager:
         created_at = datetime.now()
         expires_at = created_at + timedelta(minutes=self._expiry_minutes())
 
-        self.db_manager.create_session(
+        inserted = self.db_manager.create_session(
             session_id=session_id,
             otp_hash=_hash_otp(session_id, otp),
             source=source,
@@ -89,6 +89,8 @@ class SessionManager:
             expires_at=expires_at,
             metadata=metadata,
         )
+        if not inserted:
+            raise RuntimeError(f"Failed to persist session {session_id} to the database")
 
         qr_bytes = _generate_qr_bytes(f"{session_id}:{otp}")
         return Session(
