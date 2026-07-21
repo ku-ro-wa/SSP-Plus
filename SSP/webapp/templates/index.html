@@ -1,0 +1,456 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport"
+          content="width=device-width, initial-scale=1.0">
+
+    <title>AIO SPARK | Wi-Fi Upload</title>
+
+    <link rel="stylesheet"
+          href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
+
+    <style>
+
+        *{
+            margin:0;
+            padding:0;
+            box-sizing:border-box;
+        }
+
+        html,
+        body{
+            width:100%;
+            min-height:100%;
+        }
+
+        body{
+            font-family:Arial, Helvetica, sans-serif;
+            background:#ffffff;
+            color:#000;
+        }
+
+        /*=========================
+            PAGE WRAPPER
+        =========================*/
+
+        .page-wrapper{
+            min-height:100vh;
+        }
+
+        .background-overlay{
+            min-height:100vh;
+            background:transparent;
+        }
+
+        /*=========================
+            CARD
+        =========================*/
+
+        .card{
+
+            width:100%;
+            background:#ffffff;
+
+            animation:fadeUp .7s ease;
+        }
+
+        @keyframes fadeUp{
+
+            from{
+
+                opacity:0;
+                transform:translateY(25px);
+
+            }
+
+            to{
+
+                opacity:1;
+                transform:translateY(0);
+
+            }
+
+        }
+
+        /*=========================
+            HEADER
+        =========================*/
+
+        header{
+
+            display:flex;
+            justify-content:flex-start;
+
+            padding:24px 32px;
+
+            border-bottom:1px solid #e0e0e0;
+
+        }
+
+        header img{
+
+            width:100%;
+            max-width:520px;
+            height:auto;
+        }
+
+        /*=========================
+            MAIN
+        =========================*/
+
+        main{
+
+            display:flex;
+            flex-direction:column;
+            align-items:center;
+            padding:48px 36px;
+            text-align: center;
+        }
+
+        h1{
+
+            font-size:48px;
+            font-weight:400;
+            margin-bottom:32px;
+            width:100%;
+            text-align: center;
+
+        }
+
+        h2{
+
+            width:100%;
+            font-size:22px;
+            margin-bottom:20px;
+            text-align: center;
+
+        }
+
+        ol{
+
+            width:100%;
+            padding-left:20px;
+            margin-bottom:48px;
+            text-align: center;
+
+        }
+
+        ol li{
+
+            font-size:22px;
+            line-height:1.8;
+            margin-bottom:20px;
+            list-style-position: inside;
+            
+
+        }
+
+        form{
+
+            width:100%;
+            display:flex;
+            flex-direction:column;
+            align-items:center;
+
+        }
+
+        input[type=file]{
+
+            display:none;
+
+        }
+
+        button{
+            background:#000;
+            color:#fff;
+            border:none;
+            border-radius:14px;
+            width:360px;
+            padding:22px;
+            cursor:pointer;
+            font-size:24px;
+            font-weight:bold;
+            transition:
+                transform .25s ease,
+                box-shadow .25s ease,
+                background .25s ease;
+
+        }
+
+        button:hover{
+            transform:translateY(-3px);
+            box-shadow:
+                0 12px 25px rgba(0,0,0,.18);
+            background:#1a1a1a;
+        }
+
+        .icon-buttons{
+
+            display:flex;
+            justify-content:center;
+            gap:24px;
+            margin-top:28px;
+            width:100%;
+
+        }
+
+        .icon-btn{
+
+            width:64px;
+            height:64px;
+
+            border:none;
+
+            border-radius:12px;
+
+            background:#000;
+            color:#fff;
+
+            display:flex;
+
+            justify-content:center;
+            align-items:center;
+
+            font-size:34px;
+
+            cursor:pointer;
+
+        }
+        /*=========================
+            MOBILE
+        =========================*/
+
+        @media (max-width:480px){
+
+            header{
+
+                justify-content:center;
+
+            }
+
+            header img{
+
+                width:400px;
+                max-width:100%;
+                height:auto;
+
+            }
+
+            main{
+
+                align-items:flex-start;
+
+            }
+
+            h1{
+
+                font-size:42px;
+
+            }
+
+            h2{
+
+                font-size:20px;
+
+            }
+
+            ol li{
+
+                font-size:20px;
+
+                line-height:1.8;
+
+                margin-bottom:24px;
+
+            }
+
+            form{
+
+                align-items:center;
+
+            }
+
+            button{
+
+                width:50%;
+
+                font-size:15px;
+
+            }
+
+            .icon-buttons{
+
+                justify-content:center;
+
+            }
+
+        }
+
+        /*=========================
+            DESKTOP
+        =========================*/
+
+        @media (min-width:900px){
+
+            body{
+
+                background:
+                linear-gradient(
+                    rgba(0,80,35,.78),
+                    rgba(0,80,35,.78)
+                ),
+
+                
+                url("/static/usc_building.jpg");
+
+                background-size:cover;
+                background-position:center;
+                background-repeat:no-repeat;
+                background-attachment:fixed;
+
+                /*background:red !important;*/
+
+            }
+
+            .background-overlay{
+
+                display:flex;
+
+                justify-content:center;
+
+                align-items:center;
+
+                min-height:100vh;
+
+                padding:50px;
+
+            }
+
+            .card{
+
+                width: 600px;
+
+                border-radius: 28px;
+
+                overflow:hidden;
+
+                background:#ffffff;
+
+                box-shadow:
+                    0 25px 80px rgba(0,0,0,.35);
+
+            }
+
+        }
+
+        .error-banner {
+            background: #fff0f0;
+            border: 1px solid #ffcccc;
+            color: #cc0000;
+            padding: 12px 16px;
+            border-radius: 8px;
+            margin-bottom: 16px;
+            text-align: center;
+        }
+
+    </style>
+
+</head>
+
+<body>
+
+<div class="page-wrapper">
+
+    <div class="background-overlay">
+
+        <div class="card">
+
+            <header>
+
+                <img src="/static/image.png"
+                     alt="USC Logo">
+
+            </header>
+
+            {% if error %}
+            <div class="error-banner">
+                ⚠️ {{ error }}
+            </div>
+            {% endif %}
+
+            <main>
+
+                <h1>WiFi File Upload</h1>
+
+                <h2>Usage Guide:</h2>
+
+                <ol>
+
+                    <li>
+                        Upload one or more PDF files.
+                    </li>
+
+                    <li>
+                        Scan the provided QR Code or enter the
+                        provided OTP to continue to the printing
+                        configuration.
+                    </li>
+
+                </ol>
+
+                <form
+                    method="POST"
+                    action="/upload"
+                    enctype="multipart/form-data">
+
+                    <input
+                        id="pdf-upload"
+                        type="file"
+                        name="file"
+                        accept="application/pdf"
+                        onchange="this.form.submit()"
+                        hidden>
+
+                    <button 
+                        type="button"
+                        onclick="document.getElementById('pdf-upload').click();">
+
+                        Upload File
+                        <i class="fa-solid fa-arrow-up-from-bracket"></i>
+
+                    </button>
+
+                </form>
+
+                <div class="icon-buttons">
+
+                    <button
+                        type="button"
+                        class="icon-btn">
+
+                        <i class="fa-brands fa-google-drive"></i>
+
+                    </button>
+
+                    <button
+                        type="button"
+                        class="icon-btn">
+
+                        <i class="fa-brands fa-dropbox"></i>
+
+                    </button>
+
+                </div>
+
+            </main>
+
+        </div>
+
+    </div>
+
+</div>
+
+</body>
+
+</html>

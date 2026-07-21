@@ -1,0 +1,224 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width,initial-scale=1.0">
+    <title>AIO SPARK | Upload Success</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box
+        }
+
+        body {
+            font-family: Arial, sans-serif;
+            background: #fff
+        }
+
+        .page-wrapper,
+        .background-overlay {
+            min-height: 100vh
+        }
+
+        .card {
+            width: 100%;
+            background: #fff;
+            animation: fadeUp .6s
+        }
+
+        @keyframes fadeUp {
+            from {
+                opacity: 0;
+                transform: translateY(20px)
+            }
+
+            to {
+                opacity: 1
+            }
+        }
+
+        header {
+            display: flex;
+            justify-content: center;
+            padding: 16px 24px;
+            border-bottom: 1px solid #e5e5e5
+        }
+
+        header img {
+            width: 100%;
+            max-width: 600px
+        }
+
+        main {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            text-align: center;
+            padding: 32px 24px
+        }
+
+        h1 {
+            font-size: 32px;
+            font-weight: 400;
+            margin-bottom: 18px
+        }
+
+        .description {
+            max-width: 650px;
+            line-height: 1.6;
+            margin-bottom: 26px
+        }
+
+        .success-layout {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 24px;
+            width: 100%
+        }
+
+        .left-column,
+        .right-column {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            width: 100%
+        }
+
+        .qr-image {
+            width: 260px;
+            height: 260px
+        }
+
+        .scan-text {
+            margin-top: 18px
+        }
+
+        .otp-card {
+            background: none;
+            box-shadow: none;
+            padding: 0;
+            margin-bottom:32px;
+        }
+
+        .otp-label {
+            font-size: 20px;
+            font-weight: bold;
+            margin-bottom: 12px
+        }
+
+        #otp-display {
+            font-size: 52px;
+            font-weight: bold;
+            letter-spacing: 8px;
+            text-decoration: underline
+        }
+
+        .btn-link {
+            display: block;
+            width: 280px;
+            margin: 0 auto;
+            background: #000;
+            color: #fff;
+            text-decoration: none;
+            text-align: center;
+            padding: 18px;
+            border-radius: 10px;
+            font-weight: bold
+        }
+
+        @media(min-width:900px) {
+            body {
+                background: linear-gradient(rgba(0, 80, 35, .78), rgba(0, 80, 35, .78)), url("/static/usc_building.jpg");
+                background-size: cover;
+                background-position: center;
+                background-attachment: fixed
+            }
+
+            .background-overlay {
+                display: flex;
+                justify-content: center;
+                align-items: center;
+                padding: 50px
+            }
+
+            .card {
+                width: 900px;
+                border-radius: 20px;
+                overflow: hidden;
+                box-shadow: 0 25px 80px rgba(0, 0, 0, .35)
+            }
+
+            header {
+                padding: 24px 40px
+            }
+
+            .success-layout {
+                flex-direction: row;
+                justify-content: space-between;
+                gap: 60px
+            }
+
+            .left-column,
+            .right-column {
+                flex: 1
+            }
+
+            .qr-image {
+                width: 280px;
+                height: 280px
+            }
+
+            .otp-card {
+                width: 320px;
+                background: linear-gradient(180deg, #2E7D32, #256B2A);
+                border-radius: 18px;
+                padding: 30px;
+                box-shadow: 0 15px 35px rgba(0, 0, 0, .22);
+                margin-bottom: 28px
+            }
+
+            .otp-label {
+                color: #fff
+            }
+
+            #otp-display {
+                color: #fff;
+                text-decoration: none;
+                font-size: 56px;
+                letter-spacing: 10px
+            }
+        }
+    </style>
+</head>
+
+<body>
+    <div class="page-wrapper">
+        <div class="background-overlay">
+            <div class="card">
+                <header><img src="/static/image.png"></header>
+                <main>
+                    <h1>File Upload Successful</h1>
+                    <p class="description">Scan the QR code or use the generated OTP on the kiosk to continue to the
+                        printing configuration.</p>
+                    <div class="success-layout">
+                        <div class="left-column"><img class="qr-image" src="data:image/png;base64,{{ qr }}" alt="QR">
+                            <p class="scan-text">Scan with the kiosk</p>
+                        </div>
+                        <div class="right-column">
+                            <div class="otp-card">
+                                <p class="otp-label"><i class="fa-solid fa-key"></i> Generated OTP</p>
+                                <p id="otp-display">{{ otp }}</p>
+                            </div><a href="/upload" class="btn-link">Start New Upload</a>
+                        </div>
+                    </div>
+                </main>
+            </div>
+        </div>
+    </div>
+</body>
+
+</html>

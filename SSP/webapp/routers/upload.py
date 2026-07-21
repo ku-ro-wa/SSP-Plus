@@ -1,30 +1,37 @@
 import base64
+from pathlib import Path
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, Form, Request, UploadFile
 from fastapi.responses import HTMLResponse
+from fastapi.templating import Jinja2Templates
 
 from webapp.dependencies import get_wifi_adapter
 
+print("UPLOAD ROUTER IMPORTED")
+
 router = APIRouter()
+
+# Points at SSP/webapp/templates/ (this file lives in SSP/webapp/routers/,
+# so .parent.parent gets us back up to webapp/)
+templates = Jinja2Templates(
+    directory=Path(__file__).resolve().parent.parent / "templates"
+)
 
 
 @router.get("/upload", response_class=HTMLResponse)
-async def upload_form():
-    return """
-    <html>
-        <body>
-            <form action="/upload" enctype="multipart/form-data" method="post">
-                <input name="file" type="file">
-                <input name="metadata" type="text" placeholder="Metadata">
-                <input type="submit">
-            </form>
-        </body>
-    </html>
-    """
+async def upload_form(request: Request):
+    return templates.TemplateResponse(
+        request,
+        "index.html",
+        {
+            "request": request,
+        },
+    )
 
 
 @router.post("/upload", response_class=HTMLResponse)
 async def upload_file(
+    request: Request,
     file: UploadFile = File(...),
     metadata: str = Form(None),
     wifi_adapter=Depends(get_wifi_adapter),
@@ -37,17 +44,45 @@ async def upload_file(
     )
 
     if not success:
-        raise HTTPException(status_code=400, detail=message)
+        # Re-show the upload page with the error banner
+        return templates.TemplateResponse(
+            request,
+            "index.html",
+            {
+                "request": request,
+                "error": message,
+            },
+            status_code=400,
+        )
 
     qr_b64 = base64.b64encode(session.qr_bytes).decode("ascii")
-    return f"""
-    <html>
-        <body>
-            <h1>Upload received</h1>
-            <p>Scan this QR code at the kiosk, or enter the code manually.</p>
-            <img src="data:image/png;base64,{qr_b64}" alt="Pickup QR code">
-            <p>Code: <strong>{session.otp}</strong></p>
-            <p>Expires at: {session.expires_at.isoformat()}</p>
-        </body>
-    </html>
+    
+    return templates.TemplateResponse(
+        request,
+        "success.html",
+        {
+            "request": request,
+            "qr": qr_b64,
+            "otp": session.otp,
+        },
+    )
     """
+    from pathlib import Path
+
+    print("USING TEMPLATE:", templates.directory)
+    print("SUCCESS FILE:",
+        Path(templates.directory) / "success.html")
+
+    return templates.TemplateResponse(
+        request,
+        "success.html",
+        {
+            "request": request,
+            "qr": qr_b64,
+            "otp": session.otp,
+        },
+    )
+    """
+
+
+
