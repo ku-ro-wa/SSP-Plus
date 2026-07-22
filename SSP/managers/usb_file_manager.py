@@ -213,7 +213,12 @@ class USBFileManager:
     
     def scan_and_copy_pdf_files(self, source_dir):
         """Scan for and copy PDF files from USB drive with safety checks"""
+        print(f"source_dir = {source_dir}")
         print(f"\n🔍 Starting scan_and_copy_pdf_files for {source_dir}")
+        print("=" * 60)
+        print(f"scan_and_copy_pdf_files() called")
+        print(f"source_dir = {source_dir}")
+        print("=" * 60)
         copied_files = []
 
         try:

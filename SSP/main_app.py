@@ -21,6 +21,10 @@ from PyQt5.QtCore import QTimer
 from PyQt5.QtGui import QIcon
 from screens.idle import IdleController
 from screens.usb import USBController
+from screens.wifi import WifiController
+from screens.email import EmailController
+from screens.homepage import HomepageController
+from screens.scanner import ScannerController
 from screens.file_browser import FileBrowserController
 from screens.payment import PaymentController
 from screens.print_options import PrintOptionsController
@@ -59,13 +63,18 @@ class PrintingSystemApp(QMainWindow):
     # Screen index mapping for stacked widget navigation
     SCREEN_MAP = {
         'idle': 0,
-        'usb': 1,
-        'file_browser': 2,
-        'printing_options': 3,
-        'payment': 4,
-        'admin': 5,
-        'data_viewer': 6,
-        'thank_you': 7
+        'homepage': 1,
+        'usb': 2,
+        'wifi': 3,
+        'email': 4,
+        'scanner': 5,
+        'file_browser': 6,
+        'printing_options': 7,
+        'payment': 8,
+        'admin': 9,
+        'data_viewer': 10,
+        'thank_you': 11
+  
     }
     
     def __init__(self):
@@ -80,9 +89,36 @@ class PrintingSystemApp(QMainWindow):
         self.stacked_widget = QStackedWidget()
         self.setCentralWidget(self.stacked_widget)
 
+        from PyQt5.QtWidgets import QLabel
+        from PyQt5.QtCore import Qt
+
+        self.global_timer_label = QLabel("Remaining Time: 60s", self)
+        self.global_timer_label.setGeometry(1040, 10, 230, 40)
+        self.global_timer_label.setAlignment(Qt.AlignCenter)
+        self.global_timer_label.setStyleSheet("""
+            QLabel {
+                background-color: rgba(0,0,0,170);
+                color: white;
+                font-size: 18px;
+                font-weight: bold;
+                border-radius: 8px;
+                padding: 4px;
+            }
+        """)
+        self.global_timer_label.hide()
+
+        self.countdown_timer = QTimer(self)
+        self.countdown_timer.timeout.connect(self._update_countdown)
+
+        self.remaining_seconds = 0
+
         # Initialize all screen controllers
         self.idle_screen = IdleController(self)
+        self.homepage_screen = HomepageController(self)
         self.usb_screen = USBController(self)
+        self.wifi_screen = WifiController(self)
+        self.email_screen = EmailController(self)
+        self.scanner_screen = ScannerController(self)
         self.file_browser_screen = FileBrowserController(self)
         self.printing_options_screen = PrintOptionsController(self)
         self.payment_screen = PaymentController(self)
@@ -122,7 +158,11 @@ class PrintingSystemApp(QMainWindow):
 
         # Add all screens to stacked widget in order (see SCREEN_MAP)
         self.stacked_widget.addWidget(self.idle_screen)
+        self.stacked_widget.addWidget(self.homepage_screen)
         self.stacked_widget.addWidget(self.usb_screen)
+        self.stacked_widget.addWidget(self.wifi_screen)
+        self.stacked_widget.addWidget(self.email_screen)
+        self.stacked_widget.addWidget(self.scanner_screen)
         self.stacked_widget.addWidget(self.file_browser_screen)
         self.stacked_widget.addWidget(self.printing_options_screen)
         self.stacked_widget.addWidget(self.payment_screen)
@@ -313,6 +353,11 @@ class PrintingSystemApp(QMainWindow):
         # Switch to the new screen
         target_index = self.SCREEN_MAP[screen_name]
         self.stacked_widget.setCurrentIndex(target_index)
+
+        if screen_name == "idle":
+            self.stop_global_countdown()
+        else:
+            self.start_global_countdown(60)
         
         # Call on_enter lifecycle method for new screen
         new_widget = self.stacked_widget.currentWidget()
@@ -651,6 +696,25 @@ class PrintingSystemApp(QMainWindow):
                 self.thank_you_screen.show_printing_error(error_message)
         else:
             print(f"⚠️ Print failed on wrong screen. Error: {error_message}")
+
+    def start_global_countdown(self, seconds=60):
+        self.remaining_seconds = seconds
+        self.global_timer_label.show()
+        self.global_timer_label.setText(f"Remaining Time: {self.remaining_seconds:02d}s")
+        self.countdown_timer.start(1000)
+
+    def stop_global_countdown(self):
+        self.countdown_timer.stop()
+        self.global_timer_label.hide()
+
+    def _update_countdown(self):
+        self.remaining_seconds -= 1
+
+        if self.remaining_seconds <= 0:
+            self.stop_global_countdown()
+            return
+
+        self.global_timer_label.setText(f"Remaining Time: {self.remaining_seconds:02d}s")
 
     def cleanup(self):
         """
