@@ -45,6 +45,13 @@ class FakeDBManager:
     def get_session(self, session_id):
         return self.sessions.get(session_id)
 
+    def get_verifiable_sessions(self, source):
+        matches = [
+            s for s in self.sessions.values()
+            if s['source'] == source and s['status'] in ('pending', 'locked')
+        ]
+        return sorted(matches, key=lambda s: s['created_at'], reverse=True)
+
     def increment_session_failed_attempts(self, session_id):
         if session_id not in self.sessions:
             return None
@@ -169,6 +176,59 @@ class TestVerifyOtp:
         sm = SessionManager(FakeDBManager())
         ok, msg, file_path = sm.verify_qr_payload("not-a-valid-payload")
         assert ok is False
+
+
+class TestVerifyOtpForSource:
+    def test_matches_the_only_pending_session(self):
+        db = FakeDBManager()
+        sm = SessionManager(db)
+        session = sm.create_session('wifi', '/tmp/fake/upload.pdf')
+
+        ok, msg, file_path = sm.verify_otp_for_source('wifi', session.otp)
+
+        assert ok is True
+        assert file_path == '/tmp/fake/upload.pdf'
+        assert db.sessions[session.session_id]['status'] == 'verified'
+
+    def test_wrong_otp_matches_no_session(self):
+        db = FakeDBManager()
+        sm = SessionManager(db)
+        session = sm.create_session('wifi', '/tmp/fake/upload.pdf')
+
+        ok, msg, file_path = sm.verify_otp_for_source('wifi', '000000')
+
+        assert ok is False
+        assert file_path is None
+        # No candidate matched, so nothing was mutated
+        assert db.sessions[session.session_id]['status'] == 'pending'
+        assert db.sessions[session.session_id]['failed_attempts'] == 0
+
+    def test_ignores_sessions_from_a_different_source(self):
+        db = FakeDBManager()
+        sm = SessionManager(db)
+        email_session = sm.create_session('email', '/tmp/fake/upload.pdf')
+
+        ok, msg, file_path = sm.verify_otp_for_source('wifi', email_session.otp)
+
+        assert ok is False
+        assert file_path is None
+
+    def test_locked_session_match_surfaces_locked_message(self):
+        db = FakeDBManager()
+        sm = SessionManager(db)
+        session = sm.create_session('wifi', '/tmp/fake/upload.pdf')
+        db.sessions[session.session_id]['status'] = 'locked'
+
+        ok, msg, file_path = sm.verify_otp_for_source('wifi', session.otp)
+
+        assert ok is False
+        assert 'locked' in msg.lower()
+
+    def test_no_pending_sessions_returns_generic_failure(self):
+        sm = SessionManager(FakeDBManager())
+        ok, msg, file_path = sm.verify_otp_for_source('wifi', '123456')
+        assert ok is False
+        assert file_path is None
 
 
 class TestCleanupExpiredSessions:

@@ -3,6 +3,8 @@
 from PyQt5.QtWidgets import QWidget, QGridLayout
 from PyQt5.QtCore import QTimer
 
+from managers.usb_file_manager import USBFileManager
+
 from .model import WifiModel
 from .view import WifiScreenView
 
@@ -46,31 +48,20 @@ class WifiController(QWidget):
     def _handle_send_otp(self, otp_text):
         self.model.validate_otp(otp_text)
 
-    def _handle_otp_result(self, is_valid, message):
+    def _handle_otp_result(self, is_valid, message, file_path):
         if is_valid:
             self.view.show_status(message, is_error=False)
             print("WiFi screen: OTP accepted")
 
-            # --- DEV BYPASS: no real Wi-Fi upload backend yet, reuse test_pdfs ---
-            import os
-            from managers.usb_file_manager import USBFileManager
-
-            test_folder = os.path.abspath(
-                os.path.join(os.path.dirname(__file__), '..', '..', '..', 'test_pdfs')
-            )
-            os.makedirs(test_folder, exist_ok=True)
-
             temp_manager = USBFileManager()
-            pdf_files = temp_manager.scan_and_copy_pdf_files(test_folder)
+            pdf_files = temp_manager.scan_and_copy_single_pdf_file(file_path)
 
             if pdf_files:
-                print(f"[SIM] WiFi screen: loaded {len(pdf_files)} test PDF(s) from {test_folder}")
                 self.main_app.file_browser_screen.set_source("wifi")
                 self.main_app.file_browser_screen.load_pdf_files(pdf_files)
                 self.main_app.show_screen('file_browser')
             else:
-                self.view.show_status("No PDF files found in test folder.", is_error=True)
-            # --- END DEV BYPASS ---
+                self.view.show_status("Could not load the uploaded file.", is_error=True)
         else:
             self.view.show_status(message, is_error=True)
 
@@ -89,6 +80,11 @@ class WifiController(QWidget):
     def on_leave(self):
         print("WiFi screen leaving")
         self.timeout_timer.stop()
+
+    def refresh_files(self):
+        """Called by file_browser when the user wants to add another
+        wifi-sourced document — send them back to enter a fresh code."""
+        self.main_app.show_screen('wifi')
 
     def _on_timeout(self):
         print("⏰ WiFi screen timeout - returning to homepage")

@@ -36,6 +36,7 @@ from managers.printer_manager import PrinterManager
 from managers.db_threader import DatabaseThreadManager
 from managers.ink_analysis_threader import InkAnalysisThreadManager
 from managers.webapp_thread import WebAppThreadManager
+from managers.email_poller_thread import EmailPollerThreadManager
 from managers.sms_manager import cleanup_sms
 from managers.persistent_gpio import cleanup_persistent_gpio
 from config import get_config
@@ -131,7 +132,13 @@ class PrintingSystemApp(QMainWindow):
         self.ink_analysis_threader.start()
         self.webapp_thread = WebAppThreadManager()
         self.webapp_thread.start()
-        
+        try:
+            self.email_poller_thread = EmailPollerThreadManager.from_config()
+            self.email_poller_thread.start()
+        except Exception as e:
+            print(f"⚠️ Failed to start email poller thread: {e}")
+            self.email_poller_thread = None
+
         # Connect thread managers for real-time data updates
         self._connect_thread_managers()
         
@@ -736,7 +743,10 @@ class PrintingSystemApp(QMainWindow):
             if hasattr(self, 'webapp_thread'):
                 print("🔄 Stopping webapp thread...")
                 self.webapp_thread.stop()
-            
+            if hasattr(self, 'email_poller_thread') and self.email_poller_thread:
+                print("🔄 Stopping email poller thread...")
+                self.email_poller_thread.stop()
+
             # Stop USB monitoring thread
             if hasattr(self, 'usb_screen') and hasattr(self.usb_screen, 'model'):
                 print("🔄 Stopping USB monitoring...")

@@ -109,6 +109,20 @@ class SessionManager:
             return False, "Malformed QR payload", None
         return self.verify_otp(session_id, otp)
 
+    def verify_otp_for_source(self, source: str, otp: str):
+        """
+        Resolve a manually-typed OTP to a session without a session_id in
+        hand (the kiosk OTP screens only collect the 6-digit code). Scans
+        pending/locked sessions for `source` and hash-compares — read-only,
+        so looping over unrelated candidates never spuriously locks them
+        out. Only a matching hash falls through to verify_otp(), which
+        performs the actual (mutating) verification.
+        """
+        for row in self.db_manager.get_verifiable_sessions(source):
+            if _hash_otp(row['session_id'], otp) == row['otp_hash']:
+                return self.verify_otp(row['session_id'], otp)
+        return False, "Incorrect or expired code", None
+
     def verify_otp(self, session_id: str, otp: str):
         """
         Validate an OTP against a session (QR scan or manual entry both land

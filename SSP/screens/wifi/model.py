@@ -1,30 +1,29 @@
 from PyQt5.QtCore import QObject, pyqtSignal
 
+from database.db_manager import DatabaseManager
+from managers.session_manager import SessionManager
+
 
 class WifiModel(QObject):
     """Handles data and logic for the WiFi upload screen."""
-    otp_result = pyqtSignal(bool, str)  # (is_valid, message)
+    otp_result = pyqtSignal(bool, str, str)  # (is_valid, message, file_path)
 
     def __init__(self):
         super().__init__()
+        self.db_manager = DatabaseManager()
+        self.session_manager = SessionManager(self.db_manager)
 
     def validate_otp(self, otp_text):
-        """
-        Validates the entered OTP.
-
-        TODO: Replace this stub with a real call into the session manager
-        once Phase 3 (OTP + QR sessions) exists — see project_objectives.txt.
-        For now, any 6-digit numeric code is accepted so the flow can be tested.
-        """
+        """Validates the entered OTP against a real pending wifi session."""
         otp_text = otp_text.strip()
 
         if not otp_text:
-            self.otp_result.emit(False, "Please enter a code.")
+            self.otp_result.emit(False, "Please enter a code.", "")
             return
 
         if not otp_text.isdigit() or len(otp_text) != 6:
-            self.otp_result.emit(False, "Invalid code.")
+            self.otp_result.emit(False, "Invalid code.", "")
             return
 
-        print(f"[STUB] Accepting OTP '{otp_text}' — no real session backend yet")
-        self.otp_result.emit(True, "Code accepted.")
+        success, message, file_path = self.session_manager.verify_otp_for_source("wifi", otp_text)
+        self.otp_result.emit(success, message, file_path or "")

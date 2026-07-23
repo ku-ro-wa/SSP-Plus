@@ -320,6 +320,53 @@ class USBFileManager:
             traceback.print_exc()
             return []
         
+    def scan_and_copy_single_pdf_file(self, source_path):
+        """Like scan_and_copy_pdf_files() but for one already-validated file
+        (a SessionManager-resolved wifi/email upload), not a directory walk —
+        walking the upload directory would leak other pending sessions'
+        files (siblings in wifi_uploads/ or email_uploads/) into this
+        user's file_browser."""
+        print(f"\n🔍 Starting scan_and_copy_single_pdf_file for {source_path}")
+        self._create_new_session()
+        self.set_operation_in_progress(True)
+
+        filename = os.path.basename(source_path)
+        dest_path = os.path.join(self.destination_dir, filename)
+
+        try:
+            self.mark_file_in_use(source_path)
+            shutil.copy2(source_path, dest_path)
+
+            file_size = os.path.getsize(dest_path)
+            print(f"✅ Copied {filename} ({file_size/1024:.1f} KB)")
+
+            try:
+                import fitz  # PyMuPDF
+                doc = fitz.open(dest_path)
+                page_count = len(doc)
+                doc.close()
+            except Exception:
+                page_count = 1
+                print(f"⚠️ Could not get page count for {filename}")
+
+            result = [{
+                'filename': filename,
+                'path': dest_path,
+                'size': file_size,
+                'pages': page_count,
+                'type': '.pdf'
+            }]
+            self.mark_file_complete(source_path)
+            return result
+
+        except Exception as e:
+            print(f"❌ Error copying single session file: {e}")
+            self.mark_file_complete(source_path)
+            return []
+
+        finally:
+            self.set_operation_in_progress(False)
+
     def cleanup_temp_files(self):
         """Delete all files in the temporary directory after printing"""
         try:

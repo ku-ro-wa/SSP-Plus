@@ -357,6 +357,22 @@ class DatabaseManager:
             print(f"Error getting session '{session_id}': {e}")
             return None
 
+    def get_verifiable_sessions(self, source):
+        """Sessions for `source` not yet in a terminal state, for OTP
+        resolution when no session_id is known (manual kiosk entry)."""
+        if not self.conn:
+            return []
+        try:
+            cursor = self.conn.cursor()
+            cursor.execute(
+                "SELECT * FROM sessions WHERE source = ? AND status IN ('pending', 'locked') "
+                "ORDER BY created_at DESC", (source,)
+            )
+            return cursor.fetchall()
+        except sqlite3.Error as e:
+            print(f"Error getting verifiable sessions for source '{source}': {e}")
+            return []
+
     def increment_session_failed_attempts(self, session_id):
         """Increment failed_attempts for a session and return the new count."""
         if not self.conn:
