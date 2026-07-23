@@ -28,6 +28,10 @@ MANIFEST
 data/
 database/*.db
 
+# Wi-Fi/email intake uploads (runtime artifacts, recreated via os.makedirs)
+database/wifi_uploads/
+database/email_uploads/
+
 # Environment variables
 .env
 .env.local

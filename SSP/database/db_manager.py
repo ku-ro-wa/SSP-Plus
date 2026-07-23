@@ -18,7 +18,14 @@ class DatabaseManager:
     def connect(self):
         """Establish a connection to the SQLite database."""
         try:
-            self.conn = sqlite3.connect(self.db_path)
+            # check_same_thread=False: the webapp opens one DatabaseManager
+            # per request via a sync FastAPI dependency (see
+            # webapp/dependencies.py), and Starlette can resolve that
+            # dependency and run the async route body on different
+            # threadpool/event-loop threads within the same request. The
+            # connection is still only ever touched sequentially within a
+            # single request's lifecycle, never concurrently, so this is safe.
+            self.conn = sqlite3.connect(self.db_path, check_same_thread=False)
             self.conn.row_factory = self.dict_factory
             print(f"✅ Database connection established: {self.db_path}")
         except sqlite3.Error as e:
@@ -314,6 +321,138 @@ class DatabaseManager:
         except sqlite3.Error as e:
             print(f"Error getting CMYK ink history: {e}")
             return []
+
+    # --- NEW: Session methods (OTP + QR intake sessions) ---
+    def create_session(
+        self, session_id, otp_hash, source, file_path, original_filename,
+        created_at, expires_at, metadata=None
+    ):
+        """Insert a new intake session. Returns True on success."""
+        if not self.conn:
+            return False
+        try:
+            cursor = self.conn.cursor()
+            cursor.execute("""
+                INSERT INTO sessions
+                    (session_id, otp_hash, source, file_path, original_filename,
+                     status, failed_attempts, created_at, expires_at, metadata)
+                VALUES (?, ?, ?, ?, ?, 'pending', 0, ?, ?, ?)
+            """, (session_id, otp_hash, source, file_path, original_filename,
+                  created_at, expires_at, metadata))
+            self.conn.commit()
+            return True
+        except sqlite3.Error as e:
+            print(f"Error creating session: {e}")
+            return False
+
+    def get_session(self, session_id):
+        """Fetch a session row by its public session_id, or None."""
+        if not self.conn:
+            return None
+        try:
+            cursor = self.conn.cursor()
+            cursor.execute("SELECT * FROM sessions WHERE session_id = ?", (session_id,))
+            return cursor.fetchone()
+        except sqlite3.Error as e:
+            print(f"Error getting session '{session_id}': {e}")
+            return None
+
+    def increment_session_failed_attempts(self, session_id):
+        """Increment failed_attempts for a session and return the new count."""
+        if not self.conn:
+            return None
+        try:
+            cursor = self.conn.cursor()
+            cursor.execute(
+                "UPDATE sessions SET failed_attempts = failed_attempts + 1 WHERE session_id = ?",
+                (session_id,)
+            )
+            self.conn.commit()
+            cursor.execute("SELECT failed_attempts FROM sessions WHERE session_id = ?", (session_id,))
+            result = cursor.fetchone()
+            return result['failed_attempts'] if result else None
+        except sqlite3.Error as e:
+            print(f"Error incrementing failed attempts for session '{session_id}': {e}")
+            return None
+
+    def set_session_status(self, session_id, status):
+        """Update a session's status ('pending', 'verified', 'expired', 'locked')."""
+        if not self.conn:
+            return
+        try:
+            cursor = self.conn.cursor()
+            cursor.execute(
+                "UPDATE sessions SET status = ? WHERE session_id = ?",
+                (status, session_id)
+            )
+            self.conn.commit()
+        except sqlite3.Error as e:
+            print(f"Error setting status for session '{session_id}': {e}")
+
+    def get_expired_sessions(self, now):
+        """Return sessions whose expires_at has passed and aren't already marked expired."""
+        if not self.conn:
+            return []
+        try:
+            cursor = self.conn.cursor()
+            cursor.execute(
+                "SELECT * FROM sessions WHERE expires_at <= ? AND status != 'expired'",
+                (now,)
+            )
+            return cursor.fetchall()
+        except sqlite3.Error as e:
+            print(f"Error getting expired sessions: {e}")
+            return []
+
+    def delete_session(self, session_id):
+        """Remove a session row (called after its temp directory has been cleaned up)."""
+        if not self.conn:
+            return
+        try:
+            cursor = self.conn.cursor()
+            cursor.execute("DELETE FROM sessions WHERE session_id = ?", (session_id,))
+            self.conn.commit()
+        except sqlite3.Error as e:
+            print(f"Error deleting session '{session_id}': {e}")
+
+    # --- NEW: Email intake log methods ---
+    def get_email_intake_log(self, uidvalidity, uid):
+        """Fetch a logged intake outcome for a (uidvalidity, uid) pair, or None."""
+        if not self.conn:
+            return None
+        try:
+            cursor = self.conn.cursor()
+            cursor.execute(
+                "SELECT * FROM email_intake_log WHERE uidvalidity = ? AND uid = ?",
+                (uidvalidity, uid)
+            )
+            return cursor.fetchone()
+        except sqlite3.Error as e:
+            print(f"Error getting email intake log for uid {uid}: {e}")
+            return None
+
+    def log_email_intake(self, uidvalidity, uid, message_id, outcome, session_id):
+        """
+        Record an email intake outcome. Uses INSERT OR IGNORE against the
+        UNIQUE(uidvalidity, uid) constraint so a re-poll racing on the same
+        uid just no-ops instead of double-logging. Returns True if this call
+        actually inserted the row (i.e. the caller should act on the result,
+        such as marking the message Seen), False if it was already logged.
+        """
+        if not self.conn:
+            return False
+        try:
+            cursor = self.conn.cursor()
+            cursor.execute("""
+                INSERT OR IGNORE INTO email_intake_log
+                    (uidvalidity, uid, message_id, outcome, session_id, processed_at)
+                VALUES (?, ?, ?, ?, ?, ?)
+            """, (uidvalidity, uid, message_id, outcome, session_id, datetime.now()))
+            self.conn.commit()
+            return cursor.rowcount == 1
+        except sqlite3.Error as e:
+            print(f"Error logging email intake for uid {uid}: {e}")
+            return False
 
     def get_supplies_status_with_cmyk(self):
         """Get current supplies status including CMYK ink levels."""

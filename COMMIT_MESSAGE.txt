@@ -1,0 +1,41 @@
+Add intake pipeline: SessionManager, Wi-Fi upload, email adapter
+
+Implements Phase 3 (Session Manager) and the intake side of Phases 4-5
+(Wi-Fi Transfer, Email Submission) from roadmap-planning.txt.
+
+- SessionManager (managers/session_manager.py): issues a session-salted,
+  SHA-256-hashed OTP + QR code per intake, backed by a new `sessions`
+  table. Rate-limited to 5 failed attempts; expiry configurable via the
+  settings table. Modality-agnostic by design — neither adapter below
+  reaches into the sessions table directly.
+
+- Wi-Fi upload (managers/adapters/wifi_adapter.py,
+  webapp/routers/upload.py): GET/POST /upload validates MIME + %PDF
+  magic bytes, saves under a UUID filename (no path traversal via the
+  original filename), and creates a session.
+
+- Email intake (managers/adapters/email_adapter.py, email_client.py,
+  managers/email_poller_thread.py): polls a dedicated inbox via
+  ImapClient/SmtpClient wrappers, validates subject keyword + PDF
+  attachment, creates a session, and emails back the OTP/QR. Dedups on
+  IMAP UID + UIDVALIDITY against a new `email_intake_log` table (not
+  sequence numbers, which aren't stable across sessions). Adapted from
+  a greenmail-based prototype rather than ported 1:1 — most notably,
+  OTP/QR generation now belongs solely to SessionManager instead of
+  being duplicated in the email reply path.
+  EmailPollerThreadManager runs poll_inbox() on an interval in a
+  background thread (same start()/stop() shape as WebAppThreadManager)
+  but is not yet wired into main_app.py — no screens consume this
+  pipeline yet.
+
+- config.py/.env.example: all new Wi-Fi/email settings are safely
+  defaulted (greenmail values for email), so existing setups keep
+  working unchanged. Swapping greenmail for the real dedicated Gmail
+  account is meant to be a pure .env change, no code change.
+
+63 new/updated tests, all offline (no greenmail/Gmail/AP/hardware
+required). See SESSION_SUMMARY.md for full details, a testing guide,
+and follow-up work (main_app.py wiring, captive portal setup, pickup
+screens, admin visibility into the new tables).
+
+Co-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>
