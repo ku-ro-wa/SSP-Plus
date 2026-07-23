@@ -8,6 +8,9 @@ class FileBrowserController(QWidget):
     
     # Signals for external communication
     pdf_selected = pyqtSignal(dict)  # pdf_data
+    rescan_clicked = pyqtSignal()
+    add_document_clicked = pyqtSignal()
+    
     
     def __init__(self, main_app, parent=None):
         super().__init__(parent)
@@ -15,6 +18,7 @@ class FileBrowserController(QWidget):
         
         self.model = FileBrowserModel()
         self.view = FileBrowserView()
+        self.source = None
         
         # Setup timeout timer (1 minute = 60000ms)
         self.timeout_timer = QTimer()
@@ -33,12 +37,17 @@ class FileBrowserController(QWidget):
         self.view.back_to_idle_clicked.connect(self._go_back_to_idle)
         self.view.continue_button_clicked.connect(self._continue_to_payment)
         self.view.pdf_button_clicked.connect(self.model.select_pdf)
+        self.view.rescan_button_clicked.connect(self._rescan)
+        self.view.add_document_button_clicked.connect(self._add_document)
+
         
         # Reset timeout on user interaction
         self.view.back_to_idle_clicked.connect(self._reset_timeout)
         self.view.continue_button_clicked.connect(self._reset_timeout)
         self.view.pdf_button_clicked.connect(self._reset_timeout)
-        
+        self.view.rescan_button_clicked.connect(self._reset_timeout)
+        self.view.add_document_button_clicked.connect(self._reset_timeout)
+
         self.view.single_page_clicked.connect(self._set_single_page_view)
         self.view.multipage_clicked.connect(self._set_multipage_view)
         self.view.select_all_clicked.connect(self._select_all_pages)
@@ -50,6 +59,19 @@ class FileBrowserController(QWidget):
         self.view.page_widget_clicked.connect(self._page_widget_clicked)
         self.view.page_checkbox_clicked.connect(self._page_checkbox_clicked)
         self.view.single_page_checkbox_clicked.connect(self._single_page_checkbox_clicked)
+
+        # Reset timeout on all preview interactions
+        self.view.single_page_clicked.connect(self._reset_timeout)
+        self.view.multipage_clicked.connect(self._reset_timeout)
+        self.view.select_all_clicked.connect(self._reset_timeout)
+        self.view.deselect_all_clicked.connect(self._reset_timeout)
+        self.view.prev_page_clicked.connect(self._reset_timeout)
+        self.view.next_page_clicked.connect(self._reset_timeout)
+        self.view.prev_grid_page_clicked.connect(self._reset_timeout)
+        self.view.next_grid_page_clicked.connect(self._reset_timeout)
+        self.view.page_widget_clicked.connect(lambda *_: self._reset_timeout())
+        self.view.page_checkbox_clicked.connect(lambda *_: self._reset_timeout())
+        self.view.single_page_checkbox_clicked.connect(lambda *_: self._reset_timeout())
         
         # --- Model -> Controller -> View ---
         self.model.files_loaded.connect(self.view.load_pdf_files)
@@ -88,10 +110,38 @@ class FileBrowserController(QWidget):
         # Pass data to print options screen
         print(f"🔍 Calling set_pdf_data with PDF: {self.view.selected_pdf['filename']} and pages: {selected_pages_list}")
         options_screen = self.main_app.printing_options_screen
-        options_screen.set_pdf_data(self.view.selected_pdf, selected_pages_list)
+        options_screen.set_pdf_data(self.view.selected_pdf, selected_pages_list, self.source)
         print(f"🔍 Switching to print options screen")
         self.main_app.show_screen('printing_options')
     
+
+    def _rescan(self):
+        """Rescan the current source."""
+        print("Rescan requested")
+
+        if self.source == "usb":
+            self.rescan_clicked.emit()
+
+        elif self.source == "email":
+            self.main_app.email_screen.refresh_files()
+
+        elif self.source == "wifi":
+            self.main_app.wifi_screen.refresh_files()
+
+
+    def _add_document(self):
+        """Go back to upload screen."""
+        print("Add document requested")
+
+        if self.source == "usb":
+            self.main_app.show_screen("usb")
+
+        elif self.source == "email":
+            self.main_app.show_screen("email")
+
+        elif self.source == "wifi":
+            self.main_app.show_screen("wifi")
+
     def _on_analysis_complete(self, pdf_data, analysis_data):
         """Handles completion of PDF analysis."""
         self._current_analysis = analysis_data
@@ -226,3 +276,11 @@ class FileBrowserController(QWidget):
         self.timeout_timer.stop()
         self.timeout_timer.start(60000)
         print("⏰ File browser screen timeout reset")
+        if hasattr(self.main_app, "start_global_countdown"):
+            self.main_app.start_global_countdown(60)
+
+    def set_source(self, source):
+        self.source = source
+        print(f"File browser source set to: {source}")
+        self.view.show_scanner_buttons(source == "scanner")
+        

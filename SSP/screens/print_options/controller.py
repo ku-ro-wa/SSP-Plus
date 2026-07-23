@@ -15,6 +15,7 @@ class PrintOptionsController(QWidget):
         
         self.model = PrintOptionsModel()
         self.view = PrintOptionsScreenView()
+        self.source = None      # usb, wifi, email, scanner
         
         # Setup timeout timer (1 minute = 60000ms)
         self.timeout_timer = QTimer()
@@ -118,7 +119,7 @@ class PrintOptionsController(QWidget):
         
         self.main_app.payment_screen.set_payment_data(payment_data)
         self.main_app.show_screen('payment')
-    
+
     def _go_back(self):
         """Goes back to the file browser screen."""
         print("Print options screen: going back to file browser")
@@ -131,8 +132,9 @@ class PrintOptionsController(QWidget):
     
     # --- Public API for main_app ---
     
-    def set_pdf_data(self, pdf_data, selected_pages):
+    def set_pdf_data(self, pdf_data, selected_pages, source="None"):
         """Sets the PDF data and selected pages for printing."""
+        self.source = source
         self.model.set_pdf_data(pdf_data, selected_pages)
         self.view.update_copies_display(self.model.get_copies())
         self.view.set_bw_mode()
@@ -249,3 +251,5 @@ class PrintOptionsController(QWidget):
         self.timeout_timer.stop()
         self.timeout_timer.start(60000)
         print("⏰ Print options screen timeout reset")
+        if hasattr(self.main_app, "start_global_countdown"):
+            self.main_app.start_global_countdown(60)

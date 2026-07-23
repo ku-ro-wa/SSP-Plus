@@ -49,7 +49,7 @@ class IdleController(QWidget):
     
     def _start_printing(self):
         """Starts the printing process by navigating to USB screen."""
-        self.main_app.show_screen('usb')
+        self.main_app.show_screen('homepage')
     
     def _go_to_admin(self):
         """Opens PIN dialog and navigates to admin screen if PIN is correct."""

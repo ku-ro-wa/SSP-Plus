@@ -53,12 +53,13 @@ class USBController(QWidget):
     
     def _handle_pdf_files_found(self, pdf_files):
         """Handles when PDF files are found on the USB drive."""
+        self.main_app.file_browser_screen.set_source("usb")
         self.main_app.file_browser_screen.load_pdf_files(pdf_files)
         self.main_app.show_screen('file_browser')
     
     def _go_back(self):
         """Navigates back to the idle screen."""
-        self.main_app.show_screen('idle')
+        self.main_app.show_screen('homepage')
     
     # --- Public API for main_app ---
     

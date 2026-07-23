@@ -158,7 +158,7 @@ class PrintOptionsScreenView(QWidget):
     def update_copies_display(self, copies):
         """Updates the copies count display."""
         self.copies_count_label.setText(str(copies))
-    
+
     def set_bw_mode(self):
         """Sets the black and white mode as selected."""
         self._color_mode = "Black and White"

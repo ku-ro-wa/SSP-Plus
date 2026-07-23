@@ -291,6 +291,8 @@ class FileBrowserView(QWidget):
     page_widget_clicked = pyqtSignal(int)
     page_checkbox_clicked = pyqtSignal(int, bool)
     single_page_checkbox_clicked = pyqtSignal(bool)
+    rescan_button_clicked = pyqtSignal()
+    add_document_button_clicked = pyqtSignal()
     
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -592,6 +594,16 @@ class FileBrowserView(QWidget):
         self.continue_btn.setFixedHeight(button_height)
         self.continue_btn.clicked.connect(self.continue_button_clicked.emit)
         self.continue_btn.setVisible(False)
+        self.rescan_button = QPushButton("Rescan")
+        self.rescan_button.setStyleSheet(all_button_style)
+        self.rescan_button.setFixedHeight(button_height)
+        self.rescan_button.clicked.connect(self.rescan_button_clicked.emit)
+        self.rescan_button.setVisible(False)
+        self.add_document_button = QPushButton("Add Another Document")
+        self.add_document_button.setStyleSheet(all_button_style)
+        self.add_document_button.setFixedHeight(button_height)
+        self.add_document_button.clicked.connect(self.add_document_button_clicked.emit)
+        self.add_document_button.setVisible(False)
         self.page_info = QLabel("No PDF selected")
         self.page_info.setStyleSheet("QLabel { color: #36454F; font-size: 14px; background-color: transparent; }")
         self.selected_count_label = QLabel("")
@@ -634,12 +646,22 @@ class FileBrowserView(QWidget):
         self.page_input.hide()
         self.single_page_checkbox.hide()
         bottom_controls.addWidget(self.back_to_idle_btn, 0, Qt.AlignCenter)
+
         bottom_controls.addStretch(1)
+
         bottom_controls.addLayout(pagination_controls)
+
         bottom_controls.addStretch(1)
+
+        # Move page information to the left
         bottom_controls.addWidget(self.page_info, 0, Qt.AlignCenter)
         bottom_controls.addWidget(self.selected_count_label, 0, Qt.AlignCenter)
-        bottom_controls.addStretch(1)
+
+        bottom_controls.addStretch(2)
+
+        # Keep all action buttons together on the far right
+        bottom_controls.addWidget(self.rescan_button, 0, Qt.AlignCenter)
+        bottom_controls.addWidget(self.add_document_button, 0, Qt.AlignCenter)
         bottom_controls.addWidget(self.continue_btn, 0, Qt.AlignCenter)
 
         # STACKED LAYOUT FOR PREVIEW AREA
@@ -934,3 +956,21 @@ class FileBrowserView(QWidget):
     def update_analysis_info(self, analysis_data):
         """Updates the analysis information display."""
         pass  # Not used in this view
+
+    def show_scanner_actions(self, show):
+        self.scanner_actions.setVisible(show)
+
+    def show_scanner_buttons(self, show):
+        self.rescan_button.setVisible(show)
+        self.add_document_button.setVisible(show)
+    
+    def _load_background_image(self):
+        base_dir = get_base_dir()
+        image_path = os.path.join(base_dir, 'assets', 'scanner_screen background.png')
+        if os.path.exists(image_path):
+            pixmap = QPixmap(image_path)
+            self.background_label.setPixmap(pixmap)
+            self.background_label.setScaledContents(True)
+        else:
+            print(f"WARNING: Background image not found at '{image_path}'")
+            self.background_label.setStyleSheet("background-color: #ffffff;")
