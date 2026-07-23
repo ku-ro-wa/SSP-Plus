@@ -99,14 +99,17 @@ def init_db():
     print("OK - Created settings table")
 
     # Create Sessions table (OTP + QR sessions for Wi-Fi/email intake — see managers/session_manager.py)
+    # `files` is a JSON-encoded list of {"path": ..., "original_filename": ...}
+    # objects (one session can carry several uploaded files) rather than a
+    # child table — session file counts are small and nothing needs to query
+    # individual files across sessions.
     cursor.execute('''
     CREATE TABLE IF NOT EXISTS sessions (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         session_id TEXT UNIQUE NOT NULL,
         otp_hash TEXT NOT NULL,
         source TEXT NOT NULL,
-        file_path TEXT NOT NULL,
-        original_filename TEXT,
+        files TEXT NOT NULL,
         status TEXT NOT NULL DEFAULT 'pending',
         failed_attempts INTEGER NOT NULL DEFAULT 0,
         created_at DATETIME NOT NULL,

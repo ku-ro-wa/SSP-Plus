@@ -130,6 +130,22 @@
             font-weight: bold
         }
 
+        .file-list {
+            list-style: none;
+            width: 100%;
+            max-width: 400px;
+            margin: 0 auto 26px;
+            text-align: left
+        }
+
+        .file-list li {
+            background: #f4f4f4;
+            border-radius: 8px;
+            padding: 10px 14px;
+            margin-bottom: 8px;
+            font-size: 15px
+        }
+
         @media(min-width:900px) {
             body {
                 background: linear-gradient(rgba(0, 80, 35, .78), rgba(0, 80, 35, .78)), url("/static/usc_building.jpg");
@@ -202,8 +218,14 @@
                 <header><img src="/static/image.png"></header>
                 <main>
                     <h1>File Upload Successful</h1>
-                    <p class="description">Scan the QR code or use the generated OTP on the kiosk to continue to the
+                    <p class="description">{{ files|length }} file{{ 's' if files|length != 1 else '' }} uploaded
+                        successfully. Scan the QR code or use the generated OTP on the kiosk to continue to the
                         printing configuration.</p>
+                    <ul class="file-list">
+                        {% for f in files %}
+                        <li><i class="fa-solid fa-file-pdf"></i> {{ f.original_filename or f.path.split('/')[-1] }}</li>
+                        {% endfor %}
+                    </ul>
                     <div class="success-layout">
                         <div class="left-column"><img class="qr-image" src="data:image/png;base64,{{ qr }}" alt="QR">
                             <p class="scan-text">Scan with the kiosk</p>

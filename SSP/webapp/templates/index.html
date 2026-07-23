@@ -217,6 +217,77 @@
             cursor:pointer;
 
         }
+
+        /*=========================
+            STAGED FILE LIST
+        =========================*/
+
+        #staged-list{
+
+            list-style:none;
+            width:100%;
+            max-width:360px;
+            margin:20px 0 0;
+
+        }
+
+        #staged-list li{
+
+            display:flex;
+            justify-content:space-between;
+            align-items:center;
+            background:#f4f4f4;
+            border-radius:8px;
+            padding:10px 14px;
+            margin-bottom:10px;
+            font-size:16px;
+            text-align:left;
+
+        }
+
+        #staged-list li button{
+
+            width:auto;
+            background:none;
+            color:#cc0000;
+            border:none;
+            border-radius:0;
+            padding:0 0 0 12px;
+            font-size:20px;
+            font-weight:bold;
+            box-shadow:none;
+
+        }
+
+        #staged-list li button:hover{
+
+            transform:none;
+            box-shadow:none;
+            background:none;
+
+        }
+
+        #confirm-upload{
+
+            margin-top:20px;
+            background:#2E7D32;
+
+        }
+
+        #confirm-upload:hover{
+
+            background:#256B2A;
+
+        }
+
+        #confirm-upload:disabled{
+
+            background:#999;
+            cursor:not-allowed;
+            transform:none;
+            box-shadow:none;
+
+        }
         /*=========================
             MOBILE
         =========================*/
@@ -402,22 +473,35 @@
                 <form
                     method="POST"
                     action="/upload"
-                    enctype="multipart/form-data">
+                    enctype="multipart/form-data"
+                    onsubmit="return false;">
 
                     <input
                         id="pdf-upload"
                         type="file"
-                        name="file"
+                        name="files"
                         accept="application/pdf"
-                        onchange="this.form.submit()"
+                        multiple
                         hidden>
 
-                    <button 
+                    <button
                         type="button"
                         onclick="document.getElementById('pdf-upload').click();">
 
-                        Upload File
+                        Add File(s)
                         <i class="fa-solid fa-arrow-up-from-bracket"></i>
+
+                    </button>
+
+                    <ul id="staged-list"></ul>
+
+                    <button
+                        id="confirm-upload"
+                        type="button"
+                        disabled>
+
+                        Confirm Upload
+                        <i class="fa-solid fa-check"></i>
 
                     </button>
 
@@ -450,6 +534,68 @@
     </div>
 
 </div>
+
+<script>
+    // Native <input> FileLists are replaced (not appended to) on every
+    // picker invocation, so the running selection is tracked here as a
+    // plain JS array instead, spanning as many "Add File(s)" clicks as
+    // the user makes before pressing Confirm.
+    let stagedFiles = [];
+
+    const input = document.getElementById('pdf-upload');
+    const listEl = document.getElementById('staged-list');
+    const confirmBtn = document.getElementById('confirm-upload');
+
+    input.addEventListener('change', () => {
+        for (const f of input.files) stagedFiles.push(f);
+        input.value = ''; // reset so picking the same file again still fires 'change'
+        renderStagedList();
+    });
+
+    function renderStagedList() {
+        listEl.innerHTML = '';
+        stagedFiles.forEach((f, i) => {
+            const li = document.createElement('li');
+
+            const name = document.createElement('span');
+            name.textContent = f.name;
+            li.appendChild(name);
+
+            const removeBtn = document.createElement('button');
+            removeBtn.type = 'button';
+            removeBtn.textContent = '×';
+            removeBtn.setAttribute('aria-label', 'Remove ' + f.name);
+            removeBtn.onclick = () => {
+                stagedFiles.splice(i, 1);
+                renderStagedList();
+            };
+            li.appendChild(removeBtn);
+
+            listEl.appendChild(li);
+        });
+        confirmBtn.disabled = stagedFiles.length === 0;
+    }
+
+    confirmBtn.addEventListener('click', async () => {
+        confirmBtn.disabled = true;
+        confirmBtn.textContent = 'Uploading…';
+
+        const formData = new FormData();
+        for (const f of stagedFiles) formData.append('files', f, f.name);
+
+        try {
+            const response = await fetch('/upload', { method: 'POST', body: formData });
+            const html = await response.text();
+            document.open();
+            document.write(html);
+            document.close();
+        } catch (e) {
+            confirmBtn.disabled = false;
+            confirmBtn.textContent = 'Confirm Upload';
+            alert('Upload failed: ' + e);
+        }
+    });
+</script>
 
 </body>
 

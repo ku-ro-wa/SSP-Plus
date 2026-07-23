@@ -87,7 +87,7 @@ class TestHandleMessage:
         assert result.outcome == "accepted"
         assert result.session is not None
         assert result.sender == "alice@example.com"
-        with open(result.session.file_path, "rb") as f:
+        with open(result.session.files[0]['path'], "rb") as f:
             assert f.read() == PDF_BYTES
 
     def test_subject_match_is_case_insensitive(self, tmp_path):
@@ -200,7 +200,9 @@ class TestPollInbox:
 class TestSendResponse:
     def test_email_contains_otp_and_qr_attachment(self, tmp_path):
         adapter, db, imap, smtp = _make_adapter(tmp_path)
-        session = adapter.session_manager.create_session("email", "/tmp/fake.pdf")
+        session = adapter.session_manager.create_session(
+            "email", [{"path": "/tmp/fake.pdf", "original_filename": "fake.pdf"}]
+        )
 
         adapter.send_response("bob@example.com", session)
 

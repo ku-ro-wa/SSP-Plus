@@ -1,5 +1,6 @@
 import base64
 from pathlib import Path
+from typing import List
 
 from fastapi import APIRouter, Depends, File, Form, Request, UploadFile
 from fastapi.responses import HTMLResponse
@@ -30,16 +31,12 @@ async def upload_form(request: Request):
 @router.post("/upload", response_class=HTMLResponse)
 async def upload_file(
     request: Request,
-    file: UploadFile = File(...),
+    files: List[UploadFile] = File(...),
     metadata: str = Form(None),
     wifi_adapter=Depends(get_wifi_adapter),
 ):
-    success, message, session = wifi_adapter.handle_upload(
-        file_obj=file.file,
-        filename=file.filename,
-        content_type=file.content_type,
-        metadata=metadata,
-    )
+    uploads = [(f.file, f.filename, f.content_type) for f in files]
+    success, message, session = wifi_adapter.handle_upload(uploads, metadata=metadata)
 
     if not success:
         # Re-show the upload page with the error banner
@@ -62,5 +59,6 @@ async def upload_file(
             "request": request,
             "qr": qr_b64,
             "otp": session.otp,
+            "files": session.files,
         },
     )

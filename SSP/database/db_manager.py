@@ -1,5 +1,6 @@
 # database/db_manager.py
 
+import json
 import sqlite3
 import os
 from datetime import datetime
@@ -324,20 +325,22 @@ class DatabaseManager:
 
     # --- NEW: Session methods (OTP + QR intake sessions) ---
     def create_session(
-        self, session_id, otp_hash, source, file_path, original_filename,
+        self, session_id, otp_hash, source, files,
         created_at, expires_at, metadata=None
     ):
-        """Insert a new intake session. Returns True on success."""
+        """Insert a new intake session. `files` is a list of
+        {"path": ..., "original_filename": ...} dicts, JSON-encoded for
+        storage. Returns True on success."""
         if not self.conn:
             return False
         try:
             cursor = self.conn.cursor()
             cursor.execute("""
                 INSERT INTO sessions
-                    (session_id, otp_hash, source, file_path, original_filename,
+                    (session_id, otp_hash, source, files,
                      status, failed_attempts, created_at, expires_at, metadata)
-                VALUES (?, ?, ?, ?, ?, 'pending', 0, ?, ?, ?)
-            """, (session_id, otp_hash, source, file_path, original_filename,
+                VALUES (?, ?, ?, ?, 'pending', 0, ?, ?, ?)
+            """, (session_id, otp_hash, source, json.dumps(files),
                   created_at, expires_at, metadata))
             self.conn.commit()
             return True

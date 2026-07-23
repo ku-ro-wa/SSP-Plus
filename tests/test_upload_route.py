@@ -4,6 +4,8 @@ via TestClient (no real Uvicorn socket). The get_wifi_adapter dependency is
 overridden with one wired to a temp dir and the same in-memory FakeDBManager
 used elsewhere, so no real filesystem location or SQLite DB is touched.
 """
+import os
+
 from SSP.webapp.main import app
 from fastapi.testclient import TestClient
 from webapp.dependencies import get_wifi_adapter
@@ -40,7 +42,7 @@ class TestPostUpload:
         try:
             response = client.post(
                 "/upload",
-                files={"file": ("document.pdf", PDF_BYTES, "application/pdf")},
+                files=[("files", ("document.pdf", PDF_BYTES, "application/pdf"))],
             )
         finally:
             app.dependency_overrides.pop(get_wifi_adapter, None)
@@ -49,12 +51,29 @@ class TestPostUpload:
         assert 'id="otp-display"' in response.text
         assert "data:image/png;base64," in response.text
 
+    def test_multiple_valid_pdfs_returns_otp_and_qr_with_all_filenames(self, tmp_path):
+        app.dependency_overrides[get_wifi_adapter] = _override_with_temp_adapter(tmp_path)
+        try:
+            response = client.post(
+                "/upload",
+                files=[
+                    ("files", ("a.pdf", PDF_BYTES, "application/pdf")),
+                    ("files", ("b.pdf", PDF_BYTES, "application/pdf")),
+                ],
+            )
+        finally:
+            app.dependency_overrides.pop(get_wifi_adapter, None)
+
+        assert response.status_code == 200
+        assert "a.pdf" in response.text
+        assert "b.pdf" in response.text
+
     def test_non_pdf_rejected_with_400(self, tmp_path):
         app.dependency_overrides[get_wifi_adapter] = _override_with_temp_adapter(tmp_path)
         try:
             response = client.post(
                 "/upload",
-                files={"file": ("document.png", b"not a pdf", "image/png")},
+                files=[("files", ("document.png", b"not a pdf", "image/png"))],
             )
         finally:
             app.dependency_overrides.pop(get_wifi_adapter, None)
@@ -66,9 +85,25 @@ class TestPostUpload:
         try:
             response = client.post(
                 "/upload",
-                files={"file": ("document.pdf", b"not really a pdf", "application/pdf")},
+                files=[("files", ("document.pdf", b"not really a pdf", "application/pdf"))],
             )
         finally:
             app.dependency_overrides.pop(get_wifi_adapter, None)
 
         assert response.status_code == 400
+
+    def test_batch_rejected_with_400_if_any_file_invalid(self, tmp_path):
+        app.dependency_overrides[get_wifi_adapter] = _override_with_temp_adapter(tmp_path)
+        try:
+            response = client.post(
+                "/upload",
+                files=[
+                    ("files", ("good.pdf", PDF_BYTES, "application/pdf")),
+                    ("files", ("bad.pdf", b"not a pdf", "application/pdf")),
+                ],
+            )
+        finally:
+            app.dependency_overrides.pop(get_wifi_adapter, None)
+
+        assert response.status_code == 400
+        assert os.listdir(tmp_path / "uploads") == [] if (tmp_path / "uploads").is_dir() else True

@@ -7,7 +7,7 @@ create_session path without touching sqlite or a running server.
 import io
 import os
 
-from managers.adapters.wifi_adapter import WifiAdapter
+from managers.adapters.wifi_adapter import WifiAdapter, MAX_FILES_PER_UPLOAD
 from managers.session_manager import SessionManager
 from tests.test_session_manager import FakeDBManager
 
@@ -26,25 +26,26 @@ class TestHandleUpload:
     def test_accepts_valid_pdf(self, tmp_path):
         adapter, db, upload_dir = _make_adapter(tmp_path)
         success, message, session = adapter.handle_upload(
-            io.BytesIO(PDF_BYTES), "document.pdf", "application/pdf"
+            [(io.BytesIO(PDF_BYTES), "document.pdf", "application/pdf")]
         )
         assert success is True
         assert session is not None
-        assert os.path.dirname(session.file_path) == upload_dir
-        with open(session.file_path, "rb") as f:
+        assert len(session.files) == 1
+        assert os.path.dirname(session.files[0]['path']) == upload_dir
+        with open(session.files[0]['path'], "rb") as f:
             assert f.read() == PDF_BYTES
 
     def test_accepts_content_type_with_charset_param(self, tmp_path):
         adapter, db, upload_dir = _make_adapter(tmp_path)
         success, message, session = adapter.handle_upload(
-            io.BytesIO(PDF_BYTES), "document.pdf", "application/pdf; charset=binary"
+            [(io.BytesIO(PDF_BYTES), "document.pdf", "application/pdf; charset=binary")]
         )
         assert success is True
 
     def test_rejects_wrong_mime_type(self, tmp_path):
         adapter, db, upload_dir = _make_adapter(tmp_path)
         success, message, session = adapter.handle_upload(
-            io.BytesIO(PDF_BYTES), "document.png", "image/png"
+            [(io.BytesIO(PDF_BYTES), "document.png", "image/png")]
         )
         assert success is False
         assert session is None
@@ -53,7 +54,7 @@ class TestHandleUpload:
     def test_rejects_missing_pdf_magic_bytes(self, tmp_path):
         adapter, db, upload_dir = _make_adapter(tmp_path)
         success, message, session = adapter.handle_upload(
-            io.BytesIO(b"not actually a pdf"), "document.pdf", "application/pdf"
+            [(io.BytesIO(b"not actually a pdf"), "document.pdf", "application/pdf")]
         )
         assert success is False
         assert "PDF" in message
@@ -61,14 +62,14 @@ class TestHandleUpload:
     def test_rejects_empty_file(self, tmp_path):
         adapter, db, upload_dir = _make_adapter(tmp_path)
         success, message, session = adapter.handle_upload(
-            io.BytesIO(b""), "document.pdf", "application/pdf"
+            [(io.BytesIO(b""), "document.pdf", "application/pdf")]
         )
         assert success is False
 
     def test_rejects_oversized_file(self, tmp_path):
         adapter, db, upload_dir = _make_adapter(tmp_path, max_size_bytes=10)
         success, message, session = adapter.handle_upload(
-            io.BytesIO(PDF_BYTES), "document.pdf", "application/pdf"
+            [(io.BytesIO(PDF_BYTES), "document.pdf", "application/pdf")]
         )
         assert success is False
         assert "limit" in message.lower()
@@ -76,16 +77,17 @@ class TestHandleUpload:
     def test_malicious_filename_does_not_escape_upload_dir(self, tmp_path):
         adapter, db, upload_dir = _make_adapter(tmp_path)
         success, message, session = adapter.handle_upload(
-            io.BytesIO(PDF_BYTES), "../../etc/passwd", "application/pdf"
+            [(io.BytesIO(PDF_BYTES), "../../etc/passwd", "application/pdf")]
         )
         assert success is True
-        assert os.path.dirname(session.file_path) == upload_dir
-        assert os.path.commonpath([upload_dir, session.file_path]) == upload_dir
+        assert os.path.dirname(session.files[0]['path']) == upload_dir
+        assert os.path.commonpath([upload_dir, session.files[0]['path']]) == upload_dir
 
     def test_metadata_passed_through_to_session(self, tmp_path):
         adapter, db, upload_dir = _make_adapter(tmp_path)
         success, message, session = adapter.handle_upload(
-            io.BytesIO(PDF_BYTES), "document.pdf", "application/pdf", metadata="note: rush order"
+            [(io.BytesIO(PDF_BYTES), "document.pdf", "application/pdf")],
+            metadata="note: rush order",
         )
         assert success is True
         assert db.sessions[session.session_id]['metadata'] == "note: rush order"
@@ -95,3 +97,47 @@ class TestHandleUpload:
         db = FakeDBManager()
         WifiAdapter(SessionManager(db), upload_dir, 1024 * 1024)
         assert os.path.isdir(upload_dir)
+
+    def test_accepts_multiple_valid_pdfs(self, tmp_path):
+        adapter, db, upload_dir = _make_adapter(tmp_path)
+        success, message, session = adapter.handle_upload([
+            (io.BytesIO(PDF_BYTES), "a.pdf", "application/pdf"),
+            (io.BytesIO(PDF_BYTES), "b.pdf", "application/pdf"),
+            (io.BytesIO(PDF_BYTES), "c.pdf", "application/pdf"),
+        ])
+        assert success is True
+        assert len(session.files) == 3
+        names = {f['original_filename'] for f in session.files}
+        assert names == {"a.pdf", "b.pdf", "c.pdf"}
+        for f in session.files:
+            with open(f['path'], "rb") as fh:
+                assert fh.read() == PDF_BYTES
+
+    def test_rejects_whole_batch_if_one_file_invalid(self, tmp_path):
+        adapter, db, upload_dir = _make_adapter(tmp_path)
+        success, message, session = adapter.handle_upload([
+            (io.BytesIO(PDF_BYTES), "a.pdf", "application/pdf"),
+            (io.BytesIO(b"not a pdf"), "bad.pdf", "application/pdf"),
+            (io.BytesIO(PDF_BYTES), "c.pdf", "application/pdf"),
+        ])
+        assert success is False
+        assert session is None
+        assert "bad.pdf" in message
+        # All-or-nothing: nothing from the batch should have been written to disk
+        assert os.listdir(upload_dir) == [] if os.path.isdir(upload_dir) else True
+
+    def test_rejects_batch_exceeding_max_file_count(self, tmp_path):
+        adapter, db, upload_dir = _make_adapter(tmp_path)
+        uploads = [
+            (io.BytesIO(PDF_BYTES), f"doc{i}.pdf", "application/pdf")
+            for i in range(MAX_FILES_PER_UPLOAD + 1)
+        ]
+        success, message, session = adapter.handle_upload(uploads)
+        assert success is False
+        assert str(MAX_FILES_PER_UPLOAD) in message
+
+    def test_rejects_empty_upload_list(self, tmp_path):
+        adapter, db, upload_dir = _make_adapter(tmp_path)
+        success, message, session = adapter.handle_upload([])
+        assert success is False
+        assert session is None

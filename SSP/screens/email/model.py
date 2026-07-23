@@ -6,7 +6,7 @@ from managers.session_manager import SessionManager
 
 class EmailModel(QObject):
     """Handles data and logic for the Email upload screen."""
-    otp_result = pyqtSignal(bool, str, str)  # (is_valid, message, file_path)
+    otp_result = pyqtSignal(bool, str, list)  # (is_valid, message, files)
 
     def __init__(self):
         super().__init__()
@@ -18,12 +18,12 @@ class EmailModel(QObject):
         otp_text = otp_text.strip()
 
         if not otp_text:
-            self.otp_result.emit(False, "Please enter a code.", "")
+            self.otp_result.emit(False, "Please enter a code.", [])
             return
 
         if not otp_text.isdigit() or len(otp_text) != 6:
-            self.otp_result.emit(False, "Invalid code", "")
+            self.otp_result.emit(False, "Invalid code", [])
             return
 
-        success, message, file_path = self.session_manager.verify_otp_for_source("email", otp_text)
-        self.otp_result.emit(success, message, file_path or "")
+        success, message, files = self.session_manager.verify_otp_for_source("email", otp_text)
+        self.otp_result.emit(success, message, files or [])

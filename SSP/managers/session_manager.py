@@ -2,8 +2,9 @@
 #
 # Core of the Wi-Fi/email intake pipeline (see project_objectives.txt #7).
 # Modality-agnostic on purpose: email_adapter and wifi_adapter both call
-# create_session() with a file already validated and saved to disk, and get
-# back a single Session shape (session_id, OTP, QR PNG bytes, expiry). Each
+# create_session() with one or more files already validated and saved to
+# disk, and get back a single Session shape (session_id, OTP, QR PNG bytes,
+# expiry). Each
 # adapter decides how to *deliver* that Session — email_adapter attaches it
 # to an SMTP reply, wifi_adapter renders it on the upload confirmation page —
 # session_manager itself never branches on source.
@@ -15,6 +16,7 @@
 
 import hashlib
 import io
+import json
 import os
 import secrets
 import shutil
@@ -32,7 +34,7 @@ class Session:
     session_id: str
     otp: str
     qr_bytes: bytes
-    file_path: str
+    files: list  # [{"path": ..., "original_filename": ...}, ...]
     expires_at: datetime
 
 
@@ -65,13 +67,12 @@ class SessionManager:
         except (TypeError, ValueError):
             return DEFAULT_EXPIRY_MINUTES
 
-    def create_session(
-        self, source: str, file_path: str, original_filename: str = None, metadata: str = None
-    ) -> Session:
+    def create_session(self, source: str, files: list, metadata: str = None) -> Session:
         """
-        Register a new intake session for a file that's already been
-        validated and saved to disk by the calling adapter.
+        Register a new intake session for one or more files that are
+        already validated and saved to disk by the calling adapter.
 
+        files: list of {"path": ..., "original_filename": ...} dicts.
         source: 'email' or 'wifi' — stored for reporting, doesn't affect behavior.
         """
         session_id = secrets.token_hex(8)
@@ -83,8 +84,7 @@ class SessionManager:
             session_id=session_id,
             otp_hash=_hash_otp(session_id, otp),
             source=source,
-            file_path=file_path,
-            original_filename=original_filename,
+            files=files,
             created_at=created_at,
             expires_at=expires_at,
             metadata=metadata,
@@ -97,7 +97,7 @@ class SessionManager:
             session_id=session_id,
             otp=otp,
             qr_bytes=qr_bytes,
-            file_path=file_path,
+            files=files,
             expires_at=expires_at,
         )
 
@@ -116,7 +116,8 @@ class SessionManager:
         pending/locked sessions for `source` and hash-compares — read-only,
         so looping over unrelated candidates never spuriously locks them
         out. Only a matching hash falls through to verify_otp(), which
-        performs the actual (mutating) verification.
+        performs the actual (mutating) verification. Returns
+        (success, message, files).
         """
         for row in self.db_manager.get_verifiable_sessions(source):
             if _hash_otp(row['session_id'], otp) == row['otp_hash']:
@@ -126,7 +127,7 @@ class SessionManager:
     def verify_otp(self, session_id: str, otp: str):
         """
         Validate an OTP against a session (QR scan or manual entry both land
-        here). Returns (success, message, file_path).
+        here). Returns (success, message, files).
         """
         row = self.db_manager.get_session(session_id)
         if row is None:
@@ -143,7 +144,7 @@ class SessionManager:
             return False, "Session expired", None
 
         if row['status'] == 'verified':
-            return True, "Session already verified", row['file_path']
+            return True, "Session already verified", json.loads(row['files'])
 
         if _hash_otp(session_id, otp) != row['otp_hash']:
             attempts = self.db_manager.increment_session_failed_attempts(session_id)
@@ -153,7 +154,7 @@ class SessionManager:
             return False, "Incorrect OTP", None
 
         self.db_manager.set_session_status(session_id, 'verified')
-        return True, "Session verified", row['file_path']
+        return True, "Session verified", json.loads(row['files'])
 
     def cleanup_expired_sessions(self) -> int:
         """
@@ -165,14 +166,15 @@ class SessionManager:
         expired = self.db_manager.get_expired_sessions(datetime.now())
         cleaned = 0
         for row in expired:
-            file_path = row['file_path']
-            try:
-                if os.path.isdir(file_path):
-                    shutil.rmtree(file_path, ignore_errors=True)
-                elif os.path.isfile(file_path):
-                    os.remove(file_path)
-            except OSError as e:
-                print(f"Error removing session file '{file_path}': {e}")
+            for f in json.loads(row['files']):
+                file_path = f['path']
+                try:
+                    if os.path.isdir(file_path):
+                        shutil.rmtree(file_path, ignore_errors=True)
+                    elif os.path.isfile(file_path):
+                        os.remove(file_path)
+                except OSError as e:
+                    print(f"Error removing session file '{file_path}': {e}")
             self.db_manager.delete_session(row['session_id'])
             cleaned += 1
         return cleaned

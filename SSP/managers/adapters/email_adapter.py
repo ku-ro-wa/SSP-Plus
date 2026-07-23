@@ -118,8 +118,7 @@ class EmailAdapter:
 
             session = self.session_manager.create_session(
                 source="email",
-                file_path=dest_path,
-                original_filename=pdf_part.get_filename(),
+                files=[{"path": dest_path, "original_filename": pdf_part.get_filename()}],
                 metadata=sender,
             )
             return MessageResult("accepted", session, message_id, sender)
