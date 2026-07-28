@@ -164,26 +164,7 @@ class USBScreenModel(QObject):
                 print("🔄 Cleared USB manager's known drives cache")
             
             current_drives = self.usb_manager.get_usb_drives()
-             # --- DEV BYPASS: no real USB needed in SIM_MODE ---
-        
-            if SIM_MODE:
-                test_folder = os.path.abspath(
-                    os.path.join(
-                        os.path.dirname(__file__),
-                        '..', '..', '..',
-                        'test_pdfs'
-                    )
-                )
 
-                os.makedirs(test_folder, exist_ok=True)
-
-                print(f"[SIM] Using test folder: {test_folder}")
-
-                current_drives = [test_folder]
-
-            else:
-                current_drives = self.usb_manager.get_usb_drives()
-            #===============================
             if current_drives:
                 self.handle_usb_scan_result(current_drives)
             else:
@@ -235,14 +216,6 @@ class USBScreenModel(QObject):
     
     def handle_usb_scan_result(self, usb_drives):
         """Processes the results of a USB scan."""
-        print(f"usb_drives = {usb_drives}")
-
-        drive_path = usb_drives[0]
-
-        print(f"drive_path = {drive_path}")
-
-        self.scan_files_from_drive(drive_path)
-
         if not usb_drives:
             self.status_changed.emit("No USB drives found. Please insert a drive.", 'warning')
             self.start_usb_monitoring()
