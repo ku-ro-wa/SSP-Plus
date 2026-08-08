@@ -40,6 +40,7 @@ from managers.email_poller_thread import EmailPollerThreadManager
 from managers.sms_manager import cleanup_sms
 from managers.persistent_gpio import cleanup_persistent_gpio
 from config import get_config
+from ui.theme import apply_theme
 
 try:
     from managers.usb_file_manager import USBFileManager
@@ -93,8 +94,14 @@ class PrintingSystemApp(QMainWindow):
         from PyQt5.QtWidgets import QLabel
         from PyQt5.QtCore import Qt
 
+        timer_label_width, timer_label_height, timer_label_margin = 230, 40, 10
         self.global_timer_label = QLabel("Remaining Time: 60s", self)
-        self.global_timer_label.setGeometry(1040, 10, 230, 40)
+        self.global_timer_label.setGeometry(
+            self.width() - timer_label_width - timer_label_margin,
+            timer_label_margin,
+            timer_label_width,
+            timer_label_height,
+        )
         self.global_timer_label.setAlignment(Qt.AlignCenter)
         self.global_timer_label.setStyleSheet("""
             QLabel {
@@ -234,17 +241,17 @@ class PrintingSystemApp(QMainWindow):
     
     def _setup_display(self):
         """
-        Configure display settings - keep original resolution but go fullscreen.
+        Configure display settings using the real screen resolution, then go fullscreen.
         """
-        # Set the original window size
-        self.setGeometry(100, 100, 1280, 720)
-        self.setMinimumSize(1280, 720)
-        
+        screen_geometry = QApplication.primaryScreen().geometry()
+        self.setGeometry(screen_geometry)
+        self.setMinimumSize(screen_geometry.size())
+
         # Set window flags for kiosk-like behavior
         self.setWindowFlags(self.windowFlags() | QtCore.Qt.WindowType.FramelessWindowHint)
-        
+
         # Go fullscreen on startup
-        print("🖥️ Starting in fullscreen mode")
+        print(f"🖥️ Starting in fullscreen mode ({screen_geometry.width()}x{screen_geometry.height()})")
         self.showFullScreen()
     
     def _connect_thread_managers(self):
@@ -801,6 +808,7 @@ def main():
         app = QApplication(sys.argv) # Main thread init
         app.setApplicationName("Printing System GUI")
         app.setApplicationVersion("1.0")
+        apply_theme(app)
         window = PrintingSystemApp()
 
         # Show window (size and mode determined by _setup_display)
