@@ -87,6 +87,8 @@ class EmailController(QWidget):
         self.main_app.show_screen('homepage')
 
     def _reset_timeout(self):
+        if self.main_app.stacked_widget.currentWidget() is not self:
+            return
         self.timeout_timer.stop()
         self.timeout_timer.start(60000)
         if hasattr(self.main_app, "start_global_countdown"):

@@ -76,6 +76,10 @@ QPushButton#PrimaryButton:hover {{
 QPushButton#PrimaryButton:pressed {{
     background-color: {COLORS["primary_pressed"]};
 }}
+QPushButton#PrimaryButton:disabled {{
+    background-color: {COLORS["border_strong"]};
+    color: {COLORS["text_muted"]};
+}}
 """
 
 SECONDARY_BUTTON_QSS = f"""
@@ -115,11 +119,12 @@ _STATUS_BANNER_VARIANTS = {
     "success": (COLORS["success"], COLORS["success_bg"]),
     "warning": (COLORS["warning"], COLORS["warning_bg"]),
     "error": (COLORS["danger"], COLORS["danger_bg"]),
+    "info": (COLORS["text_secondary"], COLORS["bg_subtle"]),
 }
 
 
 def status_banner_qss(variant: str) -> str:
-    """QSS for StatusBanner in a given state: 'success' | 'warning' | 'error'."""
+    """QSS for StatusBanner in a given state: 'success' | 'warning' | 'error' | 'info'."""
     color, bg = _STATUS_BANNER_VARIANTS[variant]
     return f"""
     QFrame#StatusBanner {{

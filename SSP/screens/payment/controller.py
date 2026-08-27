@@ -95,16 +95,6 @@ class PaymentController(QWidget):
         print("DEBUG: Payment controller on_enter() completed")
         print("=== PAYMENT CONTROLLER ON_ENTER END ===")
     
-    def on_leave(self):
-        """Called when leaving the payment screen."""
-        print("*** PAYMENT CONTROLLER ON_LEAVE METHOD CALLED ***")
-        # Stop timeout timer
-        self.timeout_timer.stop()
-        print("TIMEOUT: Payment screen timeout stopped")
-        # Disable payment pins
-        self.model.on_leave()
-        print("*** PAYMENT CONTROLLER ON_LEAVE COMPLETED ***")
-    
     def go_back(self):
         """Public method to go back to print options screen."""
         self.model.go_back()
@@ -142,9 +132,14 @@ class PaymentController(QWidget):
     
     def on_leave(self):
         """Called by main_app when leaving this screen."""
+        print("*** PAYMENT CONTROLLER ON_LEAVE METHOD CALLED ***")
         # Stop timeout timer
         self.timeout_timer.stop()
-    
+        print("TIMEOUT: Payment screen timeout stopped")
+        # Disable payment pins
+        self.model.on_leave()
+        print("*** PAYMENT CONTROLLER ON_LEAVE COMPLETED ***")
+
     def _on_timeout(self):
         """Handle timeout - return to idle screen."""
         print("TIMEOUT: Payment screen timeout - returning to idle screen")
@@ -156,6 +151,8 @@ class PaymentController(QWidget):
     
     def _reset_timeout(self):
         """Reset the timeout timer (call on user activity)."""
+        if self.main_app.stacked_widget.currentWidget() is not self:
+            return
         self.timeout_timer.stop()
         self.timeout_timer.start(60000)
         print("TIMEOUT: Payment screen timeout reset")

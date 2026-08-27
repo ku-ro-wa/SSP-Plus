@@ -96,6 +96,8 @@ class USBController(QWidget):
     
     def _reset_timeout(self):
         """Reset the timeout timer (call on user activity)."""
+        if self.main_app.stacked_widget.currentWidget() is not self:
+            return
         self.timeout_timer.stop()
         self.timeout_timer.start(60000)
         print("⏰ USB screen timeout reset")

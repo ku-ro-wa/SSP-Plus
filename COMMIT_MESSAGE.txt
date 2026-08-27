@@ -1,58 +1,63 @@
-Redesign idle/homepage/wifi/email/scanner UI, fix real-resolution display
+Wire up zoom controls and fix selection UI in the print/scan file editor
 
-Notion-inspired visual redesign of the kiosk GUI, done pilot-first: idle
-and homepage landed first and were validated before the same pattern was
-rolled out to wifi/email/scanner. Not tied to a roadmap-planning.txt
-phase — this is UI/UX polish on top of the already-implemented intake
-pipeline, not new pipeline functionality.
+Polish pass on file_browser, the page-selection editor shared by both
+the print flow and the scan flow (scanner routes into it via
+set_source("scanner")). Not tied to a roadmap-planning.txt phase —
+this is UI/UX polish, built on top of file_browser's own Phase B
+theming rewrite (Header/BackButton/theme tokens, DragScrollArea wired
+in, the #fffff CSS typo fixed) that arrived in the working tree
+already uncommitted from a separate, not-yet-summarized prior session.
+That rewrite is the exact item KIOSK_UI_REDESIGN_SESSION_SUMMARY.md's
+follow-up list flagged as unstarted; this commit is not it and does
+not re-describe it.
 
-- Shared design system (ui/theme.py, ui/widgets.py, ui/icons.py, new):
-  design tokens (COLORS/SPACING/RADIUS/FONT) folded into QSS via
-  f-strings, since Qt Style Sheets have no var()/custom-property
-  support. Widgets scoped with setObjectName() so rules like :hover
-  can't leak across screens. Centralizes Header, Card (replacing three
-  copy-pasted ClickableCard classes), PrimaryButton/SecondaryButton,
-  and this phase's new BackButton/StatusBanner. Single light theme by
-  design — fixed-hardware kiosk, no user theme setting to serve.
+- Zoom controls (screens/file_browser/view.py, controller.py,
+  pdf_preview_widget.py): the zoom backend (PDFPreviewWidget.zoomIn/
+  zoomOut/resetZoom, controller._zoom_in/_zoom_out/_zoom_reset) already
+  existed but had no UI — no button, and update_zoom_label() referenced
+  a self.zoom_label that was never created, so it would have raised
+  AttributeError the first time anything called it. Added +/-/Reset
+  buttons and a live percentage label to single-page view, wired
+  through new zoom_in_clicked/zoom_out_clicked/zoom_reset_clicked
+  signals. Also fixed a real bug found while wiring it up:
+  PDFPreviewWidget.paintEvent() computed zoom as a raw multiplier on
+  the PDF's native (very high-DPI) pixel size instead of the
+  fit-to-widget size, so the first zoom-in click would have jumped
+  discontinuously instead of scaling smoothly from 100%.
 
-- Baked-in banner removal (assets/*_screen background.png): the
-  green/gold banner on every screen turned out to be painted directly
-  into the background PNGs, not a Qt widget. Erased via PIL, measuring
-  each banner's exact pixel extent before painting over it and
-  re-verifying pure white afterward.
+- Selection outline & fill colors (screens/file_browser/view.py): the
+  page-selection UI (grid thumbnail frames, both checkboxes, the
+  preview container border, the selected-count label) all keyed off
+  COLORS['success'], which is the literal same hex as COLORS['primary']
+  — every primary button in the app. Added PAGE_OUTLINE_COLOR (grey)
+  and PAGE_SELECTED_COLOR (near-black), scoped to file_browser only so
+  the shared 'success' token (still used correctly elsewhere, e.g.
+  status banners) wasn't touched. Also fixed a bug where a page's
+  initial-render border ignored the checked constructor argument, and
+  a follow-on bug where the checked-state frame used a 3px border vs.
+  2px unchecked, visibly shrinking the thumbnail's content area on
+  select — both states now share one border width.
 
-- Real kiosk resolution (main_app.py): replaced hardcoded
-  setGeometry(100, 100, 1280, 720) with
-  QApplication.primaryScreen().geometry() so the app targets whatever
-  display it actually runs on (real hardware is 1920x1080) instead of
-  an assumed resolution. global_timer_label's position is now computed
-  from the window width instead of a hardcoded x=1040.
+- Checkmark icon (new assets/icons/checkbox-checked.svg,
+  screens/file_browser/view.py): replaced a flat black-fill checked
+  checkbox with a rounded-square + checkmark icon matching a
+  user-supplied reference image, since QSS can't draw a checkmark path
+  directly on QCheckBox::indicator. Wired via QSS image: url(...)
+  through ui/icons.py's existing icon_path() helper. Verified by
+  rasterizing the SVG through the project's own PyQt5 QSvgRenderer at
+  both preview size and the actual 20x20 on-screen indicator size.
 
-- Homepage layout (screens/homepage/view.py): cards rearranged into a
-  2x2 grid per feedback; fixed content clipping past the bottom of the
-  screen by replacing fixed addSpacing() calls with addStretch(), which
-  was overflowing on screens shorter than the layout was tuned for.
-
-- Rollout phase — wifi/email/scanner (screens/{wifi,email,scanner}/view.py):
-  rewritten onto the shared ui/ package (Header, BackButton, Card,
-  StatusBanner), deleting all three copies of the local ClickableCard
-  class. Card gained an extra_widget param so wifi/email's "Enter Code"
-  card can embed its OTP input + Send button. Fixed a duplicate
-  send_otp_clicked signal declaration in both wifi and email views, and
-  gave scanner a busy-state disable on its Start Scan card so it can't
-  be re-tapped mid-scan. All three screens' controllers/models were
-  re-verified against the rewritten views and needed zero changes.
-
-- Dead code removal (screens/dialogs/payment_suggestion_dialog/,
-  deleted): a 500x400 popup superseded by payment/view.py's inline
-  suggestion_label, per an existing comment in payment/controller.py
-  confirming the popup path was already retired. Zero remaining
-  references confirmed via repo-wide grep before deletion.
-
-75 tests passing (no new test coverage added — this is a UI-layer
-change with no new business logic); lint clean on every touched file.
-See KIOSK_UI_REDESIGN_SESSION_SUMMARY.md for full details, a testing
-guide, and follow-up work (Phase B: usb/print_options/file_browser/
-payment; Phase C: admin/data_viewer/thank_you/PIN dialog).
+75 tests passing, no new failures; lint introduces no new violations.
+Diff scope was verified, not assumed: file_browser/controller.py and
+view.py were already modified before this session started, so the
+lines above were isolated by reverse-applying every edit made in this
+conversation onto a scratch copy and diffing the result against both
+the current file and the last commit — not by trusting `git diff`
+against HEAD, which would have conflated this session's ~6/~73 changed
+lines with the prior session's ~680-line file_browser rewrite plus
+unrelated usb/print_options/payment/ui-theme.py work sitting in the
+same working tree. None of that prior work has a session summary yet.
+See FILE_EDITOR_ZOOM_AND_SELECTION_SESSION_SUMMARY.md for full details,
+a testing guide, and follow-up work.
 
 Co-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>

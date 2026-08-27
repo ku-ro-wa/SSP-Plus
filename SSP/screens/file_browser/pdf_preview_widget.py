@@ -114,23 +114,18 @@ class PDFPreviewWidget(QWidget):
         if self._pixmap is None:
             return
         
-        # Calculate scaled pixmap size: fit entire page to widget by default
+        # Zoom is relative to the "fit entire page to widget" size, so 100% always
+        # means fit-to-widget and zooming in/out scales up/down from there.
         pixmap_size = self._pixmap.size()
         widget_rect = self.rect()
-        if self._zoom_factor == 1.0:
-            # Fit-to-widget behavior at default zoom
-            scale_w = widget_rect.width() / max(1, pixmap_size.width())
-            scale_h = widget_rect.height() / max(1, pixmap_size.height())
-            fit_scale = min(scale_w, scale_h)
-            scaled_size = QSize(
-                int(pixmap_size.width() * fit_scale),
-                int(pixmap_size.height() * fit_scale)
-            )
-        else:
-            scaled_size = QSize(
-                int(pixmap_size.width() * self._zoom_factor),
-                int(pixmap_size.height() * self._zoom_factor)
-            )
+        scale_w = widget_rect.width() / max(1, pixmap_size.width())
+        scale_h = widget_rect.height() / max(1, pixmap_size.height())
+        fit_scale = min(scale_w, scale_h)
+        scale = fit_scale * self._zoom_factor
+        scaled_size = QSize(
+            int(pixmap_size.width() * scale),
+            int(pixmap_size.height() * scale)
+        )
         
         # Calculate position to center the pixmap
         # Center image without panning

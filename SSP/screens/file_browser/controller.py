@@ -59,6 +59,9 @@ class FileBrowserController(QWidget):
         self.view.page_widget_clicked.connect(self._page_widget_clicked)
         self.view.page_checkbox_clicked.connect(self._page_checkbox_clicked)
         self.view.single_page_checkbox_clicked.connect(self._single_page_checkbox_clicked)
+        self.view.zoom_in_clicked.connect(self._zoom_in)
+        self.view.zoom_out_clicked.connect(self._zoom_out)
+        self.view.zoom_reset_clicked.connect(self._zoom_reset)
 
         # Reset timeout on all preview interactions
         self.view.single_page_clicked.connect(self._reset_timeout)
@@ -72,6 +75,9 @@ class FileBrowserController(QWidget):
         self.view.page_widget_clicked.connect(lambda *_: self._reset_timeout())
         self.view.page_checkbox_clicked.connect(lambda *_: self._reset_timeout())
         self.view.single_page_checkbox_clicked.connect(lambda *_: self._reset_timeout())
+        self.view.zoom_in_clicked.connect(self._reset_timeout)
+        self.view.zoom_out_clicked.connect(self._reset_timeout)
+        self.view.zoom_reset_clicked.connect(self._reset_timeout)
         
         # --- Model -> Controller -> View ---
         self.model.files_loaded.connect(self.view.load_pdf_files)
@@ -273,6 +279,8 @@ class FileBrowserController(QWidget):
     
     def _reset_timeout(self):
         """Reset the timeout timer (call on user activity)."""
+        if self.main_app.stacked_widget.currentWidget() is not self:
+            return
         self.timeout_timer.stop()
         self.timeout_timer.start(60000)
         print("⏰ File browser screen timeout reset")
