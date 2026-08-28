@@ -26,7 +26,7 @@ Run this project's verification suite from the repo root (`SSP-Plus/`, the direc
    - GUI/thread boot: `SIM_MODE=true timeout 8 .venv/bin/python SSP/main_app.py`, confirm it starts without a traceback and exits cleanly on the timeout (not a crash).
    - Webapp: start it under `SIM_MODE`, then `curl -s -o /dev/null -w "%{http_code}\n" http://127.0.0.1:8000/` and `.../docs`, confirm both return 200. Kill the process afterward.
 
-4. **Report.** End with a short summary: test count, lint status, smoke-check result (if run). Match the tone of the "Testing guide" section in this repo's `*_SESSION_SUMMARY.md` files — factual, specific counts, no padding.
+4. **Report.** End with a short summary: test count, lint status, smoke-check result (if run). Match the tone of the "Testing guide" section in this repo's `*_SESSION_SUMMARY.md` files (in `docs/session-summaries/`) — factual, specific counts, no padding.
 
 ## What this skill does not do
 

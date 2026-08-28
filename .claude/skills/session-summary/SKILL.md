@@ -1,12 +1,12 @@
 ---
 name: session-summary
-description: Use when the user asks to "write a session summary", "summarize this session", "document what we built", or at the natural end of a substantial work session in this repo. Produces a SESSION_SUMMARY.md at the repo root matching this project's established format (see SESSION_MANAGER_SESSION_SUMMARY.md, GUI_BACKEND_WIRING_SESSION_SUMMARY.md, MULTI_FILE_WIFI_UPLOAD_SESSION_SUMMARY.md for reference).
+description: Use when the user asks to "write a session summary", "summarize this session", "document what we built", or at the natural end of a substantial work session in this repo. Produces a SESSION_SUMMARY.md in docs/session-summaries/ matching this project's established format (see docs/session-summaries/SESSION_MANAGER_SESSION_SUMMARY.md, GUI_BACKEND_WIRING_SESSION_SUMMARY.md, MULTI_FILE_WIFI_UPLOAD_SESSION_SUMMARY.md for reference).
 version: 1.0.0
 ---
 
 # Session Summary
 
-Produce a `<TOPIC>_SESSION_SUMMARY.md` file at the repo root (`SSP-Plus/`) documenting the work done this session, in the exact format this project already uses. Read one of the existing `*_SESSION_SUMMARY.md` files first if you haven't seen this repo's summaries before — the format below is compressed from them, but the real documents show the tone and level of detail expected.
+Produce a `<TOPIC>_SESSION_SUMMARY.md` file in `docs/session-summaries/` (under the repo root `SSP-Plus/`) documenting the work done this session, in the exact format this project already uses. Read one of the existing `*_SESSION_SUMMARY.md` files first if you haven't seen this repo's summaries before — the format below is compressed from them, but the real documents show the tone and level of detail expected.
 
 ## What makes these docs distinctive
 
@@ -74,6 +74,6 @@ Manual, end-to-end (needs the real thing running):
 
 ## Output
 
-- Filename: `<TOPIC>_SESSION_SUMMARY.md` in `SCREAMING_SNAKE_CASE`, matching the existing naming convention, written to the repo root (`SSP-Plus/`, the directory containing `CLAUDE.md` and `Makefile` — not the outer container folder if one exists above it).
+- Filename: `<TOPIC>_SESSION_SUMMARY.md` in `SCREAMING_SNAKE_CASE`, matching the existing naming convention, written to `docs/session-summaries/` under the repo root (`SSP-Plus/`, the directory containing `CLAUDE.md` and `Makefile` — not the outer container folder if one exists above it).
 - If the topic isn't obvious from the session, ask the user for a short slug rather than guessing.
 - Only include sections that apply (e.g. skip "Bugs fixed along the way" if there weren't any) — don't pad the template with empty sections.

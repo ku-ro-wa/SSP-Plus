@@ -1,8 +1,8 @@
 """Reusable slide builders for SSP-Plus progress-update decks.
 
-Matches the visual style of progress_update_2026-07-16.pptx and
-progress_update_2026-07-23.pptx — see ../reference/style.md for the design
-spec this was derived from. One function per recurring slide type; a new
+Matches the visual style of the decks in docs/progress-updates/ (e.g.
+progress_update_2026-07-16.pptx, progress_update_2026-07-23.pptx) — see
+../reference/style.md for the design spec this was derived from. One function per recurring slide type; a new
 deck should be a short content script that calls these, not hand-built
 shapes/XML.
 
@@ -29,7 +29,7 @@ Usage sketch:
     add_next_steps_slide(prs, "What's Next",
                           [("Verify on the Kiosk", "one sentence description"),
                            ("Add Browser Coverage", "one sentence description")])
-    save(prs, "progress_update_2026-08-07.pptx")
+    save(prs, "docs/progress-updates/progress_update_2026-08-07.pptx")
 """
 
 from pptx import Presentation

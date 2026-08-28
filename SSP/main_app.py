@@ -243,7 +243,13 @@ class PrintingSystemApp(QMainWindow):
         """
         Configure display settings using the real screen resolution, then go fullscreen.
         """
-        screen_geometry = QApplication.primaryScreen().geometry()
+        # availableGeometry() (not geometry()) excludes space reserved by OS
+        # chrome (macOS menu bar + Dock on a dev laptop). Sizing to the full
+        # screen geometry there caused the window manager to shift the window
+        # down to clear the menu bar without shrinking it, pushing the bottom
+        # controls bar off the visible screen. The real kiosk display has no
+        # such chrome, so availableGeometry() == geometry() there.
+        screen_geometry = QApplication.primaryScreen().availableGeometry()
         self.setGeometry(screen_geometry)
         self.setMinimumSize(screen_geometry.size())
 

@@ -10,7 +10,7 @@ version: 1.0.0
 
 ## Source of truth
 
-Derive the message **from the session's `*_SESSION_SUMMARY.md`** at the repo root — don't re-research the change independently. If the summary doesn't exist yet, run the `session-summary` skill first (or ask the user which existing summary to use, if more than one is in play and it's ambiguous).
+Derive the message **from the session's `*_SESSION_SUMMARY.md`** in `docs/session-summaries/` — don't re-research the change independently. If the summary doesn't exist yet, run the `session-summary` skill first (or ask the user which existing summary to use, if more than one is in play and it's ambiguous).
 
 ## Template
 
@@ -19,7 +19,7 @@ Matches the current `COMMIT_MESSAGE.txt` and this repo's `git log` style:
 ```
 <Title — short imperative summary, e.g. "Add intake pipeline: SessionManager, Wi-Fi upload, email adapter">
 
-<1-2 sentence paragraph giving roadmap/phase context — reference roadmap-planning.txt
+<1-2 sentence paragraph giving roadmap/phase context — reference docs/roadmap-planning.txt
 phases by name/number when the change maps to one.>
 
 - <Component 1> (`path/to/file.py`, `path/to/other.py`): dense technical description
@@ -30,7 +30,7 @@ phases by name/number when the change maps to one.>
 - <Component N> (`path/to/file.py`): ...
 
 <Closing paragraph: test count/status (pulled from the summary's Testing guide),
-plus a pointer — "See <FILE>_SESSION_SUMMARY.md for full details, a testing guide,
+plus a pointer — "See docs/session-summaries/<FILE>_SESSION_SUMMARY.md for full details, a testing guide,
 and follow-up work.">
 
 Co-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>
@@ -40,7 +40,7 @@ Mapping from the session summary:
 - Title ← distilled from the summary's `# Session Summary — <Title>` line, reworded as an imperative commit title.
 - Context paragraph ← the summary's `**Scope:**` line, expanded slightly if needed.
 - Bullet list ← one bullet per `### N. <subsection>` in "What this session built", each bullet naming the file(s) from that subsection's heading/the "Files touched" table and compressing the paragraph's design rationale into 1-3 sentences.
-- Closing paragraph ← the pass count from "## Testing guide" + a pointer to the summary filename.
+- Closing paragraph ← the pass count from "## Testing guide" + a pointer to the summary's path (`docs/session-summaries/<FILE>_SESSION_SUMMARY.md`).
 
 ## Output
 

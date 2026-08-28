@@ -1,16 +1,16 @@
 ---
 name: progress-slidedeck
-description: Use when the user asks to "make a progress slide deck", "build a progress update", "create a slideshow/presentation of what we did", or wants a PowerPoint summarizing one or more sessions of work in this repo. Produces a progress_update_<date>.pptx at the repo root matching the visual style of the existing progress_update_2026-07-16.pptx and progress_update_2026-07-23.pptx decks.
+description: Use when the user asks to "make a progress slide deck", "build a progress update", "create a slideshow/presentation of what we did", or wants a PowerPoint summarizing one or more sessions of work in this repo. Produces a progress_update_<date>.pptx in docs/progress-updates/ matching the visual style of the existing decks there (progress_update_2026-07-16.pptx, progress_update_2026-07-23.pptx).
 version: 1.0.0
 ---
 
 # Progress Slide Deck
 
-Produce a `progress_update_<YYYY-MM-DD>.pptx` at the repo root (`SSP-Plus/`), styled to match the two existing decks in this repo. Read `reference/style.md` (in this skill's directory) for the full palette/layout spec before writing content — don't re-derive it from scratch or improvise new colors.
+Produce a `progress_update_<YYYY-MM-DD>.pptx` in `docs/progress-updates/` (under the repo root `SSP-Plus/`), styled to match the existing decks in that folder. Read `reference/style.md` (in this skill's directory) for the full palette/layout spec before writing content — don't re-derive it from scratch or improvise new colors.
 
 ## Process
 
-1. **Gather content.** Prefer reading the relevant `*_SESSION_SUMMARY.md` file(s) at the repo root as the source of truth (run the `session-summary` skill first if one doesn't exist yet for this session's work) rather than re-deriving from git. If summarizing multiple sessions, one deck can cover all of them (the July 23 example covers two).
+1. **Gather content.** Prefer reading the relevant `*_SESSION_SUMMARY.md` file(s) in `docs/session-summaries/` as the source of truth (run the `session-summary` skill first if one doesn't exist yet for this session's work) rather than re-deriving from git. If summarizing multiple sessions, one deck can cover all of them (the July 23 example covers two).
 
 2. **Ensure `python-pptx` is available:**
    ```bash
@@ -28,7 +28,7 @@ Produce a `progress_update_<YYYY-MM-DD>.pptx` at the repo root (`SSP-Plus/`), st
    - `add_stats_slide(...)` — pull the pass count straight from the summary's `## Testing guide` fenced block; "Covered Offline" = what `make test` actually exercises, "Needs the Real Thing" = the summary's manual/end-to-end steps.
    - `add_next_steps_slide(...)` — pull directly from the summary's `## Future considerations`, condensing each to a title + one sentence.
 
-5. **Save** as `progress_update_<YYYY-MM-DD>.pptx` at the repo root, using today's date.
+5. **Save** as `docs/progress-updates/progress_update_<YYYY-MM-DD>.pptx`, using today's date.
 
 ## Verifying the output
 
@@ -36,7 +36,7 @@ Produce a `progress_update_<YYYY-MM-DD>.pptx` at the repo root (`SSP-Plus/`), st
 ```bash
 .venv/bin/python -c "
 from pptx import Presentation
-prs = Presentation('progress_update_<date>.pptx')
+prs = Presentation('docs/progress-updates/progress_update_<date>.pptx')
 for i, s in enumerate(prs.slides, 1):
     print(i, [sh.text_frame.text for sh in s.shapes if sh.has_text_frame and sh.text_frame.text.strip()])
 "

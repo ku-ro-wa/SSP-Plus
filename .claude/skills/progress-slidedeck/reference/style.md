@@ -1,7 +1,7 @@
 # Progress deck style spec
 
-Reverse-engineered from `progress_update_2026-07-16.pptx` and
-`progress_update_2026-07-23.pptx` (both generated with `python-pptx` — confirmed
+Reverse-engineered from `docs/progress-updates/progress_update_2026-07-16.pptx` and
+`docs/progress-updates/progress_update_2026-07-23.pptx` (both generated with `python-pptx` — confirmed
 via `docProps/core.xml`'s `<dc:description>`). Unzip either file and grep
 `ppt/slides/slide*.xml` for `srgbClr`/`typeface` to re-derive if this drifts.
 
