@@ -22,7 +22,6 @@ class ThankYouController(QWidget):
     def _connect_signals(self):
         """Connect signals from the view to the model and vice-versa."""
         # --- View -> Controller ---
-        self.view.finish_button_clicked.connect(self._finish_printing)
         self.view.admin_override_clicked.connect(self._handle_admin_override)
         
         # --- Model -> View ---
@@ -30,10 +29,6 @@ class ThankYouController(QWidget):
         self.model.redirect_to_idle.connect(self._go_to_idle)
         self.model.admin_override_requested.connect(self._show_admin_override_button)
         self.model.admin_override_hidden.connect(self._hide_admin_override_button)
-    
-    def _finish_printing(self):
-        """Handles the finish printing action."""
-        self.model.finish_printing()
     
     def _update_status_display(self, status_text, subtitle_text):
         """Updates the status display in the view."""

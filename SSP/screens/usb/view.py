@@ -67,7 +67,7 @@ class USBScreenView(QWidget):
         self.safety_warning_banner = StatusBanner()
 
         # Button Creation
-        self.back_button = BackButton("Back to Main")
+        self.back_button = BackButton("Back to Input Selection")
 
         # --- Layout Assembly ---
         fg_layout.addStretch(3)

@@ -13,7 +13,7 @@ from PyQt5.QtWidgets import (
 
 from ui.icons import icon, icon_path, svg_widget
 from ui.theme import (
-    CARD_QSS, COLORS, FONT, HEADER_QSS, PRIMARY_BUTTON_QSS, RADIUS,
+    CARD_QSS, COLORS, DANGER_BUTTON_QSS, FONT, HEADER_QSS, PRIMARY_BUTTON_QSS, RADIUS,
     SECONDARY_BUTTON_QSS, status_banner_qss,
 )
 
@@ -23,9 +23,12 @@ class LogoMark(QFrame):
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setFixedSize(32, 32)
+        self.setFixedSize(38, 38)
+        # Header is now dark, so the tile keeps its dark fill and gains a light
+        # border for contrast rather than being inverted like the rest of the bar.
         self.setStyleSheet(
-            f"background-color: {COLORS['text']}; border-radius: {RADIUS['sm']}px;"
+            f"background-color: {COLORS['text']}; border-radius: {RADIUS['sm']}px; "
+            f"border: 1px solid {COLORS['border_strong']};"
         )
 
         layout = QVBoxLayout(self)
@@ -34,7 +37,7 @@ class LogoMark(QFrame):
         mark_label = QLabel("AIO")
         mark_label.setAlignment(Qt.AlignCenter)
         mark_label.setStyleSheet(
-            f"color: {COLORS['bg']}; font-size: 9px; font-weight: 700; "
+            f"color: {COLORS['bg']}; font-size: 10px; font-weight: 700; "
             f"background: transparent; border: none;"
         )
         layout.addWidget(mark_label)
@@ -48,17 +51,18 @@ class Header(QFrame):
         super().__init__(parent)
         self.setObjectName("Header")
         self.setStyleSheet(HEADER_QSS)
-        self.setFixedHeight(56)
+        self.setFixedHeight(72)
 
         layout = QHBoxLayout(self)
-        layout.setContentsMargins(24, 0, 24, 0)
-        layout.setSpacing(10)
+        layout.setContentsMargins(28, 0, 28, 0)
+        layout.setSpacing(12)
 
         layout.addWidget(LogoMark())
 
         wordmark_label = QLabel("AIO SPARK")
         wordmark_label.setStyleSheet(
-            f"color: {COLORS['text']}; font-size: {FONT['size_lg']}px; font-weight: 700;"
+            f"color: {COLORS['bg']}; font-size: {FONT['size_xl']}px; font-weight: 700; "
+            f"letter-spacing: 0.5px;"
         )
         layout.addWidget(wordmark_label)
         layout.addStretch()
@@ -145,6 +149,17 @@ class BackButton(SecondaryButton):
     def __init__(self, text: str = "Back", parent=None):
         super().__init__(text, parent)
         self.setIcon(icon('back'))
+
+
+class DangerButton(QPushButton):
+    """Filled red button for genuinely destructive / override actions only.
+    Same footprint as PrimaryButton."""
+
+    def __init__(self, text: str, parent=None):
+        super().__init__(text, parent)
+        self.setObjectName("DangerButton")
+        self.setCursor(Qt.PointingHandCursor)
+        self.setStyleSheet(DANGER_BUTTON_QSS)
 
 
 class StatusBanner(QFrame):

@@ -40,7 +40,7 @@ from managers.email_poller_thread import EmailPollerThreadManager
 from managers.sms_manager import cleanup_sms
 from managers.persistent_gpio import cleanup_persistent_gpio
 from config import get_config
-from ui.theme import apply_theme
+from ui.theme import apply_theme, COLORS
 
 try:
     from managers.usb_file_manager import USBFileManager
@@ -94,7 +94,7 @@ class PrintingSystemApp(QMainWindow):
         from PyQt5.QtWidgets import QLabel
         from PyQt5.QtCore import Qt
 
-        timer_label_width, timer_label_height, timer_label_margin = 230, 40, 10
+        timer_label_width, timer_label_height, timer_label_margin = 260, 48, 12
         self.global_timer_label = QLabel("Remaining Time: 60s", self)
         self.global_timer_label.setGeometry(
             self.width() - timer_label_width - timer_label_margin,
@@ -103,15 +103,18 @@ class PrintingSystemApp(QMainWindow):
             timer_label_height,
         )
         self.global_timer_label.setAlignment(Qt.AlignCenter)
-        self.global_timer_label.setStyleSheet("""
-            QLabel {
-                background-color: rgba(0,0,0,170);
+        # Blends into the dark header (same fill) with a white border for contrast,
+        # rather than sitting on top as a separate jet-black pill.
+        self.global_timer_label.setStyleSheet(f"""
+            QLabel {{
+                background-color: {COLORS['text']};
                 color: white;
-                font-size: 18px;
+                font-size: 20px;
                 font-weight: bold;
-                border-radius: 8px;
-                padding: 4px;
-            }
+                border: 1px solid #FFFFFF;
+                border-radius: 10px;
+                padding: 8px 18px;
+            }}
         """)
         self.global_timer_label.hide()
 

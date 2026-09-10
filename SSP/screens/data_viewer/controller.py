@@ -1,6 +1,5 @@
 # screens/data_viewer/controller.py
 
-import os
 from PyQt5.QtWidgets import QWidget, QGridLayout, QMessageBox
 
 from .model import DataViewerModel
@@ -25,9 +24,7 @@ class DataViewerController(QWidget):
             print(f"❌ ERROR: Failed to initialize DataViewerModel: {e}")
             raise
         
-        # Pass the background image path to the view
-        background_path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), 'assets', 'data_viewer_screen background.png')
-        self.view = DataViewerScreenView(background_path)
+        self.view = DataViewerScreenView()
         
         layout = QGridLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)

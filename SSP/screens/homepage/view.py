@@ -1,17 +1,12 @@
 # screens/landing/view.py
 
-import os
 from PyQt5.QtWidgets import (
-    QWidget, QVBoxLayout, QGridLayout, QHBoxLayout, QLabel, QStackedLayout
+    QWidget, QVBoxLayout, QGridLayout, QHBoxLayout, QLabel
 )
 from PyQt5.QtCore import Qt, pyqtSignal
-from PyQt5.QtGui import QPixmap
 
 from ui.theme import COLORS, FONT
 from ui.widgets import Card, Header
-
-def get_base_dir():
-    return os.path.abspath(os.path.join(os.path.dirname(__file__), '../..'))
 
 
 class HomepageScreenView(QWidget):
@@ -24,27 +19,14 @@ class HomepageScreenView(QWidget):
         self.setup_ui()
 
     def setup_ui(self):
-        main_layout = QStackedLayout(self)
-        main_layout.setContentsMargins(0, 0, 0, 0)
-        main_layout.setStackingMode(QStackedLayout.StackAll)
-        self.setLayout(main_layout)
-
-        # Background
-        self.background_label = QLabel()
-        self._load_background_image()
-
-        # Foreground
-        foreground_widget = QWidget()
-        foreground_widget.setStyleSheet("background-color: transparent;")
-
-        outer_layout = QVBoxLayout(foreground_widget)
+        outer_layout = QVBoxLayout(self)
         outer_layout.setContentsMargins(0, 0, 0, 0)
         outer_layout.setSpacing(0)
 
         outer_layout.addWidget(Header())
 
         content = QWidget()
-        content.setStyleSheet("background-color: transparent;")
+        content.setStyleSheet(f"background-color: {COLORS['bg']};")
         fg_layout = QVBoxLayout(content)
         fg_layout.setContentsMargins(120, 24, 120, 24)
         fg_layout.setSpacing(8)
@@ -95,18 +77,3 @@ class HomepageScreenView(QWidget):
         grid_wrapper.addStretch()
         fg_layout.addLayout(grid_wrapper)
         fg_layout.addStretch(2)
-
-        main_layout.addWidget(self.background_label)
-        main_layout.addWidget(foreground_widget)
-        main_layout.setCurrentWidget(foreground_widget)
-
-    def _load_background_image(self):
-        base_dir = get_base_dir()
-        image_path = os.path.join(base_dir, 'assets', 'upload_method_screen background.png')
-        if os.path.exists(image_path):
-            pixmap = QPixmap(image_path)
-            self.background_label.setPixmap(pixmap)
-            self.background_label.setScaledContents(True)
-        else:
-            print(f"WARNING: Background image not found at '{image_path}'")
-            self.background_label.setStyleSheet("background-color: #ffffff;")

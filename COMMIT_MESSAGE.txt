@@ -1,63 +1,84 @@
-Wire up zoom controls and fix selection UI in the print/scan file editor
+Migrate the final four screens to the shared UI design system; strip all background PNGs
 
-Polish pass on file_browser, the page-selection editor shared by both
-the print flow and the scan flow (scanner routes into it via
-set_source("scanner")). Not tied to a roadmap-planning.txt phase —
-this is UI/UX polish, built on top of file_browser's own Phase B
-theming rewrite (Header/BackButton/theme tokens, DragScrollArea wired
-in, the #fffff CSS typo fixed) that arrived in the working tree
-already uncommitted from a separate, not-yet-summarized prior session.
-That rewrite is the exact item KIOSK_UI_REDESIGN_SESSION_SUMMARY.md's
-follow-up list flagged as unstarted; this commit is not it and does
-not re-describe it.
+Final phase of the Notion-inspired UI redesign. Predecessors: the
+idle/homepage pilot plus wifi/email/scanner (KIOSK_UI_REDESIGN_SESSION_SUMMARY.md),
+then a pass that migrated usb/print_options/file_browser/payment. Not tied
+to a roadmap-planning.txt phase — this is the UI/UX migration finishing the
+last unmigrated surfaces and removing every full-window background image
+from the app. User decisions for this pass: plain white body + Header
+everywhere with the background PNGs deleted entirely, fix all the dead code
+found on the way, and migrate *and* enlarge the PIN dialog.
 
-- Zoom controls (screens/file_browser/view.py, controller.py,
-  pdf_preview_widget.py): the zoom backend (PDFPreviewWidget.zoomIn/
-  zoomOut/resetZoom, controller._zoom_in/_zoom_out/_zoom_reset) already
-  existed but had no UI — no button, and update_zoom_label() referenced
-  a self.zoom_label that was never created, so it would have raised
-  AttributeError the first time anything called it. Added +/-/Reset
-  buttons and a live percentage label to single-page view, wired
-  through new zoom_in_clicked/zoom_out_clicked/zoom_reset_clicked
-  signals. Also fixed a real bug found while wiring it up:
-  PDFPreviewWidget.paintEvent() computed zoom as a raw multiplier on
-  the PDF's native (very high-DPI) pixel size instead of the
-  fit-to-widget size, so the first zoom-in click would have jumped
-  discontinuously instead of scaling smoothly from 100%.
+- Shared theme additions (`SSP/ui/theme.py`, `SSP/ui/widgets.py`): added
+  token-built `GROUPBOX_QSS` / `INPUT_QSS` / `TABLE_QSS` / `TAB_QSS` so
+  per-screen code stays declarative (mirrors the existing `CARD_QSS` /
+  `PRIMARY_BUTTON_QSS` shape), plus `severity_color(value, warn_at, crit_at)`
+  returning the danger/warning/success token for a supply level. New
+  `DangerButton` widget — filled-red, `PrimaryButton` footprint — for
+  genuine override/error actions only, keeping the "red = errors only" rule
+  from the earlier phases.
 
-- Selection outline & fill colors (screens/file_browser/view.py): the
-  page-selection UI (grid thumbnail frames, both checkboxes, the
-  preview container border, the selected-count label) all keyed off
-  COLORS['success'], which is the literal same hex as COLORS['primary']
-  — every primary button in the app. Added PAGE_OUTLINE_COLOR (grey)
-  and PAGE_SELECTED_COLOR (near-black), scoped to file_browser only so
-  the shared 'success' token (still used correctly elsewhere, e.g.
-  status banners) wasn't touched. Also fixed a bug where a page's
-  initial-render border ignored the checked constructor argument, and
-  a follow-on bug where the checked-state frame used a 3px border vs.
-  2px unchecked, visibly shrinking the thumbnail's content area on
-  select — both states now share one border width.
+- admin (`screens/admin/view.py`, `screens/admin/controller.py`): rewritten
+  onto `Header` + white body + `GROUPBOX_QSS` groups, 44px stepper buttons,
+  `BackButton` ("Back to Main Screen") and a `SecondaryButton` ("View Data
+  Logs"). Collapsed the duplicate `update_paper_count_display` /
+  `update_coin_count_display` definitions (the dead ones referenced
+  `self.*_input` widgets that never existed). Low-supply warnings were
+  computed but never applied — `severity_color` now tints the paper/coin
+  count labels and the CMYK field borders by level (paper/coin warn 50 /
+  crit 20, ink warn 25 / crit 10, matching `admin/model.py`). Controller no
+  longer builds or passes a background path.
 
-- Checkmark icon (new assets/icons/checkbox-checked.svg,
-  screens/file_browser/view.py): replaced a flat black-fill checked
-  checkbox with a rounded-square + checkmark icon matching a
-  user-supplied reference image, since QSS can't draw a checkmark path
-  directly on QCheckBox::indicator. Wired via QSS image: url(...)
-  through ui/icons.py's existing icon_path() helper. Verified by
-  rasterizing the SVG through the project's own PyQt5 QSvgRenderer at
-  both preview size and the actual 20x20 on-screen indicator size.
+- data_viewer (`screens/data_viewer/view.py`,
+  `screens/data_viewer/controller.py`): rewritten onto `Header` + white body
+  + `TAB_QSS` / `TABLE_QSS` light palette (was a dark-green tab bar over
+  white tables), `BackButton` ("Back to Admin"). Deleted the dead
+  `get_button_style`. Controller drops the background path.
 
-75 tests passing, no new failures; lint introduces no new violations.
-Diff scope was verified, not assumed: file_browser/controller.py and
-view.py were already modified before this session started, so the
-lines above were isolated by reverse-applying every edit made in this
-conversation onto a scratch copy and diffing the result against both
-the current file and the last commit — not by trusting `git diff`
-against HEAD, which would have conflated this session's ~6/~73 changed
-lines with the prior session's ~680-line file_browser rewrite plus
-unrelated usb/print_options/payment/ui-theme.py work sitting in the
-same working tree. None of that prior work has a session summary yet.
-See FILE_EDITOR_ZOOM_AND_SELECTION_SESSION_SUMMARY.md for full details,
-a testing guide, and follow-up work.
+- thank_you (`screens/thank_you/view.py`, `screens/thank_you/controller.py`,
+  `screens/thank_you/model.py`): rewritten onto `Header` + centred white
+  body + token status colours — `model.get_status_style` now maps
+  printing/waiting/completed/error to the text/warning/success/danger tokens
+  instead of bootstrap hex — with a `DangerButton` "Admin Override".
+  Removed the hidden-but-still-wired "Simulate Print Finished" button
+  entirely (widget, `finish_button_clicked` signal, `get_finish_button_style`,
+  controller `_finish_printing` + its connect); the public
+  `ThankYouController.finish_printing()` is kept — `main_app.py` still calls
+  it.
+
+- pin_dialog (`screens/dialogs/pin_dialog/view.py`): migrated + enlarged for
+  the 1920x1080 kiosk — fixed 320x450 popup to 460x640, token-built QSS
+  replacing the four `get_*_style` helpers, 76px keypad keys, digits as
+  neutral buttons with a `COLORS['primary']` fill on the checkmark key.
+
+- Background PNGs removed app-wide (`screens/{idle,homepage,wifi,email,scanner}/view.py`,
+  `screens/idle/model.py`, `screens/idle/controller.py`): these five screens
+  still layered the shared `Header` over a now-blank leftover PNG via
+  `QStackedLayout(StackAll)`. All collapsed to a plain `QVBoxLayout(self)` +
+  `Header` + white body; `background_label` / `_load_background_image` /
+  `paintEvent` / `get_base_dir` and the `QPixmap` / `QPainter` /
+  `QStackedLayout` imports deleted. `idle/model.py` lost
+  `background_image_path` / `_load_background_image` /
+  `get_background_image_path` / the `background_image_loaded` signal;
+  `idle/controller.py` lost the matching connect.
+
+- Asset deletion (`SSP/assets/*background*.png`): all 12 files deleted;
+  `SSP/assets/` now holds only `icons/`. A repo-wide grep confirmed the only
+  references were the screen views edited here — nothing in `tests/`,
+  `webapp/`, or `managers/`.
+
+`make test` -> 75 passed. `make lint` is clean on every authored/rewritten
+file at `--max-line-length=120` (whole-repo lint still reports the
+pre-existing W293/E302/E722/F541 baseline in files only line-edited here).
+The full app was booted with `SIM_MODE=true QT_QPA_PLATFORM=offscreen` and
+every one of the 12 stacked screens plus the PIN dialog was grabbed: all
+render with the dark `Header` on a white body, no black flash, no
+missing-image fallback. Not exercised live (no display in this environment):
+interactive click-through on real hardware — admin +/- and refill
+round-trips against the DB, `data_viewer` tables with real rows, the
+`thank_you` error -> PIN -> admin-override flow, and PIN validation. See
+docs/session-summaries/KIOSK_UI_REDESIGN_FINAL_PHASE_SESSION_SUMMARY.md for
+full details, a testing guide, and follow-up work.
 
 Co-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01Gjq8GPUMotHabpUcFDnxKy

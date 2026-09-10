@@ -1,6 +1,5 @@
 # screens/admin/controller.py
 
-import os
 from PyQt5.QtWidgets import QWidget, QGridLayout
 
 from .model import AdminModel
@@ -13,9 +12,7 @@ class AdminController(QWidget):
         self.main_app = main_app
 
         self.model = AdminModel()
-        # Pass the background image path to the view
-        background_path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), 'assets', 'admin_panel_screen background.png')
-        self.view = AdminScreenView(background_path)
+        self.view = AdminScreenView()
         
         # Connect to database thread manager if available
         if hasattr(main_app, 'db_threader'):
