@@ -1,84 +1,72 @@
-Migrate the final four screens to the shared UI design system; strip all background PNGs
+Run the Wi-Fi upload and email submission workflows end-to-end in sim
 
-Final phase of the Notion-inspired UI redesign. Predecessors: the
-idle/homepage pilot plus wifi/email/scanner (KIOSK_UI_REDESIGN_SESSION_SUMMARY.md),
-then a pass that migrated usb/print_options/file_browser/payment. Not tied
-to a roadmap-planning.txt phase — this is the UI/UX migration finishing the
-last unmigrated surfaces and removing every full-window background image
-from the app. User decisions for this pass: plain white body + Header
-everywhere with the background PNGs deleted entirely, fix all the dead code
-found on the way, and migrate *and* enlarge the PIN dialog.
+Closes the config/TLS/UX gaps that kept the two intake workflows from being
+driveable from a laptop via `make run-sim`. The plumbing was built and
+unit-tested across roadmap-planning.txt Phase 4 (Wi-Fi Transfer) and Phase 5
+(Email Submission) in GUI_BACKEND_WIRING_SESSION_SUMMARY.md and
+MULTI_FILE_WIFI_UPLOAD_SESSION_SUMMARY.md; this pass points it at a real Gmail
+account, a real (self-signed) TLS story, and makes the kiosk screens
+self-explanatory. Issue #7. See
+docs/session-summaries/WIFI_EMAIL_END_TO_END_SESSION_SUMMARY.md and
+docs/adr/0001-wifi-portal-in-process-uvicorn-self-signed-tls.md.
 
-- Shared theme additions (`SSP/ui/theme.py`, `SSP/ui/widgets.py`): added
-  token-built `GROUPBOX_QSS` / `INPUT_QSS` / `TABLE_QSS` / `TAB_QSS` so
-  per-screen code stays declarative (mirrors the existing `CARD_QSS` /
-  `PRIMARY_BUTTON_QSS` shape), plus `severity_color(value, warn_at, crit_at)`
-  returning the danger/warning/success token for a supply level. New
-  `DangerButton` widget — filled-red, `PrimaryButton` footprint — for
-  genuine override/error actions only, keeping the "red = errors only" rule
-  from the earlier phases.
+- Env-gated TLS for the Wi-Fi portal (`SSP/managers/webapp_thread.py`,
+  `SSP/config.py`, `SSP/main_app.py`): new `WebAppThreadManager.from_config()`
+  (mirrors `EmailPollerThreadManager.from_config()`) serves HTTPS only when
+  `WIFI_TLS_CERTFILE` / `WIFI_TLS_KEYFILE` both resolve to files that exist,
+  otherwise plain HTTP after one warning line — so a developer who never ran
+  the cert script still gets a working `make run-sim`. `main_app` switches
+  from the bare constructor to `.from_config()`. `wifi_portal_url()` now takes
+  the server's real `tls_enabled` state (passed from `main_app.webapp_thread`)
+  so the displayed URL can't disagree with the running server; the file-stat
+  path survives only as a standalone/test fallback. The two new config
+  properties are `KeyError`-guarded with `certs/cert.pem` / `certs/key.pem`
+  defaults, matching every other `email_*` / `wifi_*` property (doc
+  reconciliation flagged as follow-up).
 
-- admin (`screens/admin/view.py`, `screens/admin/controller.py`): rewritten
-  onto `Header` + white body + `GROUPBOX_QSS` groups, 44px stepper buttons,
-  `BackButton` ("Back to Main Screen") and a `SecondaryButton` ("View Data
-  Logs"). Collapsed the duplicate `update_paper_count_display` /
-  `update_coin_count_display` definitions (the dead ones referenced
-  `self.*_input` widgets that never existed). Low-supply warnings were
-  computed but never applied — `severity_color` now tints the paper/coin
-  count labels and the CMYK field borders by level (paper/coin warn 50 /
-  crit 20, ink warn 25 / crit 10, matching `admin/model.py`). Controller no
-  longer builds or passes a background path.
+- Real Gmail wiring (`.env`, `.env.example`): the IMAP/SMTP swap is pure
+  config, so `.env` gets the full `EMAIL_*` block with real Gmail endpoints
+  (`imap.gmail.com:993`, `smtp.gmail.com:465`, `EMAIL_USE_SSL=true`) and
+  blank `EMAIL_USER` / `EMAIL_PASSWORD` for the operator to fill by hand — the
+  App Password never passes through a tool. Poll interval relaxed to 20s.
+  `.env.example` now ships the Gmail values as the active keys with greenmail
+  demoted to a labelled commented block for offline dev; `config.py` defaults
+  still point at greenmail so a trimmed `.env` also works offline.
 
-- data_viewer (`screens/data_viewer/view.py`,
-  `screens/data_viewer/controller.py`): rewritten onto `Header` + white body
-  + `TAB_QSS` / `TABLE_QSS` light palette (was a dark-green tab bar over
-  white tables), `BackButton` ("Back to Admin"). Deleted the dead
-  `get_button_style`. Controller drops the background path.
+- Self-explanatory kiosk screens (`SSP/screens/wifi/*`, `SSP/screens/email/*`,
+  new `SSP/ui/qr.py`): the `wifi` screen shows the live portal URL
+  (`http(s)://<LAN-IP>:8000/upload`, LAN IP resolved via a packet-free stdlib
+  `socket` trick) and a scannable QR of it; the `email` screen shows the
+  configured submission address and required subject keyword plus a `mailto:`
+  QR that pre-fills both, or a "no account configured" notice when
+  `EMAIL_USER` is blank. New `SSP/ui/qr.py` `qr_pixmap()` returns a scaled
+  `QPixmap` for a widget — deliberately not reusing
+  `session_manager._generate_qr_bytes` (different layer, different return
+  type). Both `on_enter` hooks wrap the hint call in a broad `try/except` so a
+  hint failure can never break `show_screen()` navigation.
 
-- thank_you (`screens/thank_you/view.py`, `screens/thank_you/controller.py`,
-  `screens/thank_you/model.py`): rewritten onto `Header` + centred white
-  body + token status colours — `model.get_status_style` now maps
-  printing/waiting/completed/error to the text/warning/success/danger tokens
-  instead of bootstrap hex — with a `DangerButton` "Admin Override".
-  Removed the hidden-but-still-wired "Simulate Print Finished" button
-  entirely (widget, `finish_button_clicked` signal, `get_finish_button_style`,
-  controller `_finish_printing` + its connect); the public
-  `ThankYouController.finish_printing()` is kept — `main_app.py` still calls
-  it.
+- Incidental cleanup (`SSP/screens/homepage/controller.py`): removed the stale
+  `# not implemented yet` prints and `# TODO: Wire up...` comments for the
+  wifi/email branches wired up two sessions ago (scanner keeps a one-line
+  stub note), plus pre-existing flake8 noise (`E303`, `W293`, `E111`, `W292`)
+  in the three controller files touched this session.
 
-- pin_dialog (`screens/dialogs/pin_dialog/view.py`): migrated + enlarged for
-  the 1920x1080 kiosk — fixed 320x450 popup to 460x640, token-built QSS
-  replacing the four `get_*_style` helpers, 76px keypad keys, digits as
-  neutral buttons with a `COLORS['primary']` fill on the checkmark key.
+- Docs: new `CONTEXT.md` (intake glossary), new
+  `docs/adr/0001-wifi-portal-in-process-uvicorn-self-signed-tls.md`, and an
+  "Email + Wi-Fi end-to-end" runbook added to `docs/SETUP.md`;
+  `tests/test_webapp_thread.py` added for the `from_config()` TLS gating and
+  the `wifi_portal_url()` scheme selection.
 
-- Background PNGs removed app-wide (`screens/{idle,homepage,wifi,email,scanner}/view.py`,
-  `screens/idle/model.py`, `screens/idle/controller.py`): these five screens
-  still layered the shared `Header` over a now-blank leftover PNG via
-  `QStackedLayout(StackAll)`. All collapsed to a plain `QVBoxLayout(self)` +
-  `Header` + white body; `background_label` / `_load_background_image` /
-  `paintEvent` / `get_base_dir` and the `QPixmap` / `QPainter` /
-  `QStackedLayout` imports deleted. `idle/model.py` lost
-  `background_image_path` / `_load_background_image` /
-  `get_background_image_path` / the `background_image_loaded` signal;
-  `idle/controller.py` lost the matching connect.
-
-- Asset deletion (`SSP/assets/*background*.png`): all 12 files deleted;
-  `SSP/assets/` now holds only `icons/`. A repo-wide grep confirmed the only
-  references were the screen views edited here — nothing in `tests/`,
-  `webapp/`, or `managers/`.
-
-`make test` -> 75 passed. `make lint` is clean on every authored/rewritten
-file at `--max-line-length=120` (whole-repo lint still reports the
-pre-existing W293/E302/E722/F541 baseline in files only line-edited here).
-The full app was booted with `SIM_MODE=true QT_QPA_PLATFORM=offscreen` and
-every one of the 12 stacked screens plus the PIN dialog was grabbed: all
-render with the dark `Header` on a white body, no black flash, no
-missing-image fallback. Not exercised live (no display in this environment):
-interactive click-through on real hardware — admin +/- and refill
-round-trips against the DB, `data_viewer` tables with real rows, the
-`thank_you` error -> PIN -> admin-override flow, and PIN validation. See
-docs/session-summaries/KIOSK_UI_REDESIGN_FINAL_PHASE_SESSION_SUMMARY.md for
-full details, a testing guide, and follow-up work.
+`make test` -> 82 passed (75 existing + 7 new: 4 TLS-gating + 3 portal-URL
+scheme). `make lint` reports no new violations. Also verified live this
+session under SIM_MODE with offscreen Qt: full `PrintingSystemApp` boot with a
+clean Uvicorn thread start/stop via `cleanup()`, the `wifi`/`email` `on_enter`
+hint code running without error, and `config` reading the Gmail endpoints
+through from `.env`. Not exercised: the phone-to-kiosk and email-to-kiosk
+round trips and the negative paths (need the real thing running — see
+docs/SETUP.md). See
+docs/session-summaries/WIFI_EMAIL_END_TO_END_SESSION_SUMMARY.md for full
+details, a testing guide, and follow-up work.
 
 Co-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>
 Claude-Session: https://claude.ai/code/session_01Gjq8GPUMotHabpUcFDnxKy
