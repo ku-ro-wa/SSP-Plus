@@ -4,6 +4,7 @@ from PyQt5.QtWidgets import QWidget, QGridLayout
 from PyQt5.QtCore import QTimer
 
 from managers.usb_file_manager import USBFileManager
+from managers.webapp_thread import wifi_portal_url
 
 from .model import WifiModel
 from .view import WifiScreenView
@@ -66,7 +67,6 @@ class WifiController(QWidget):
         else:
             self.view.show_status(message, is_error=True)
 
-
     def _go_back(self):
         self.main_app.show_screen('homepage')
 
@@ -76,6 +76,12 @@ class WifiController(QWidget):
         print("WiFi screen entered")
         self.view.clear_otp_input()
         self.view.show_status("")
+        try:
+            webapp_thread = getattr(self.main_app, "webapp_thread", None)
+            tls = getattr(webapp_thread, "tls_enabled", None)
+            self.view.set_portal_hint(wifi_portal_url(tls=tls))
+        except Exception as e:
+            print(f"Could not resolve Wi-Fi portal URL: {e}")
         self.timeout_timer.start(60000)
 
     def on_leave(self):

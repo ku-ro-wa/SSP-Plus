@@ -140,7 +140,7 @@ class PrintingSystemApp(QMainWindow):
         self.ink_analysis_threader = InkAnalysisThreadManager()
         self.db_threader.start()
         self.ink_analysis_threader.start()
-        self.webapp_thread = WebAppThreadManager()
+        self.webapp_thread = WebAppThreadManager.from_config()
         self.webapp_thread.start()
         try:
             self.email_poller_thread = EmailPollerThreadManager.from_config()

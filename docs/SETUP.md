@@ -205,6 +205,94 @@ This is the real startup path: `WebAppThreadManager` boots Uvicorn on a backgrou
 
 ---
 
+## Email + Wi-Fi end-to-end (on a laptop)
+
+Drives both intake workflows all the way through to a simulated print + a logged
+transaction, using `make run-sim` — no kiosk hardware, no RaspAP/Nodogsplash, no
+4G modem. The Wi-Fi portal is served by the same in-process Uvicorn thread the
+kiosk already runs (see `docs/adr/0001-wifi-portal-in-process-uvicorn-self-signed-tls.md`).
+
+### One-time setup
+
+**1. TLS cert for the Wi-Fi portal** (optional — skip for plain HTTP):
+
+```bash
+python scripts/generate_tls_cert.py          # writes certs/cert.pem + certs/key.pem
+```
+
+`.env` already points `WIFI_TLS_CERTFILE` / `WIFI_TLS_KEYFILE` at those paths.
+When both files exist the portal serves HTTPS; otherwise it logs one line and
+serves plain HTTP. The cert is self-signed, so phones show a "not private"
+warning — click through it.
+
+**2. Dedicated Gmail account** (for the email workflow):
+
+- Use a throwaway Google account, not a personal one.
+- Turn on 2-Step Verification (Google Account → Security).
+- Create an **App Password** (Security → 2-Step Verification → App passwords).
+  It's 16 characters; paste it into `.env` with the spaces removed.
+- In `.env`, set:
+
+  ```env
+  EMAIL_USER=your-dedicated-address@gmail.com
+  EMAIL_PASSWORD=your16charapppassword
+  ```
+
+  The host/port/SSL lines in `.env` are already set for Gmail
+  (`imap.gmail.com:993`, `smtp.gmail.com:465`, `EMAIL_USE_SSL=true`). Leaving
+  `EMAIL_USER` / `EMAIL_PASSWORD` blank falls back to the greenmail dev server.
+
+### Run it
+
+```bash
+make run-sim
+```
+
+At boot you'll see one line telling you whether the portal came up on HTTP or
+HTTPS, and (if `EMAIL_USER` is set) the email poller starts on a 20s interval.
+
+**Wi-Fi workflow:**
+
+1. On the kiosk, go to **Wi-Fi** from the homepage — the screen shows the portal
+   URL (`http(s)://<this-machine-LAN-IP>:8000/upload`) and a QR of it.
+2. From a phone on the same network (or from this machine, using
+   `https://127.0.0.1:8000/upload` as a quick check), open that URL, stage one or
+   more PDFs, and press **Confirm Upload**.
+3. The success page shows a 6-digit code. Type it into the kiosk Wi-Fi screen.
+4. You land on `file_browser` with the uploaded file(s) → pick pages →
+   `print_options` → `payment`. With no `pigpio` on the laptop, the payment
+   screen shows **simulation buttons** — click coins until the total is covered.
+5. The job "prints" (logged to the console in sim mode), a `transactions` row is
+   written, and the paper count decrements. `thank_you` screen confirms.
+
+**Email workflow:**
+
+1. From any mail client, send an email **to the dedicated Gmail address** with
+   `DEMO_TRIGGER` somewhere in the subject and a **PDF attached**.
+2. Within ~20s the poller extracts the PDF and emails a reply back to the sender
+   with the 6-digit code and a QR. (The reply can land in spam.)
+3. On the kiosk, go to **Email** — the screen shows the address + keyword. Type
+   the code from the reply.
+4. Same as Wi-Fi from step 4 onward.
+
+### Negative checks
+
+- Wrong code on either screen → "Incorrect or expired code".
+- 5 wrong attempts against a real pending session → session locked.
+- Email with no `DEMO_TRIGGER` in the subject, or no PDF attached → no reply,
+  nothing queued (logged in `email_intake_log` as `rejected_subject` /
+  `rejected_attachment`).
+- Non-PDF upload, or a `.pdf` without a real `%PDF` header → the portal rejects
+  the whole batch with an error banner, nothing written to disk.
+
+### Repeating a run
+
+Each email run needs a **freshly-sent** email: Gmail marks handled messages
+`\Seen` and `email_intake_log` dedupes by IMAP UID, so re-sending the same
+message won't re-trigger. Wi-Fi has no such constraint — just upload again.
+
+---
+
 ## Workflow
 
 ```

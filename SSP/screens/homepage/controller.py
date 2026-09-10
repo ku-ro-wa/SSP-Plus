@@ -43,16 +43,11 @@ class HomepageController(QWidget):
         if method_key == 'usb':
             self.main_app.show_screen('usb')
         elif method_key == 'wifi':
-            # TODO: Wire up Wi-Fi transfer flow (project_objectives.txt module 5)
-           # print("Landing screen: WiFi method selected — not implemented yet")
             self.main_app.show_screen('wifi')
         elif method_key == 'email':
-            # TODO: Wire up email submission flow (project_objectives.txt module 6)
             self.main_app.show_screen('email')
-            print("Landing screen: Email method selected — not implemented yet")
         elif method_key == 'scanner':
-            # TODO: Wire up scanner flow (project_objectives.txt module 8)
-            print("Landing screen: Scanner method selected — not implemented yet")
+            # Scanner backend is still a stub (project_objectives.txt module 8).
             self.main_app.show_screen('scanner')
         else:
             print(f"Landing screen: Unknown method selected: {method_key}")

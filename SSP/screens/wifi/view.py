@@ -7,6 +7,7 @@ from PyQt5.QtCore import Qt, pyqtSignal
 from PyQt5.QtGui import QIntValidator
 
 from ui.theme import COLORS, FONT
+from ui.qr import qr_pixmap
 from ui.widgets import BackButton, Card, Header, PrimaryButton, StatusBanner
 
 
@@ -43,17 +44,32 @@ class WifiScreenView(QWidget):
         guide_title.setAlignment(Qt.AlignCenter)
         guide_title.setStyleSheet(f"color: {COLORS['text']}; font-size: {FONT['size_xl']}px; font-weight: 700;")
 
-        guide_text = QLabel(
-            '1. Connect to the local WiFi network "<b>usc_printer_kiosk</b>".<br><br>'
-            '2. Scan the provided QR code or input the provided OTP to proceed to the printing configuration.'
+        self.guide_text = QLabel(
+            '1. Connect your phone to the same network as this kiosk.<br>'
+            '2. Open the address below in a browser and upload your PDF file(s).<br>'
+            '3. Enter the 6-digit code shown after the upload.'
         )
-        guide_text.setAlignment(Qt.AlignCenter)
-        guide_text.setWordWrap(True)
-        guide_text.setStyleSheet(f"color: {COLORS['text_secondary']}; font-size: {FONT['size_md']}px;")
+        self.guide_text.setAlignment(Qt.AlignCenter)
+        self.guide_text.setWordWrap(True)
+        self.guide_text.setStyleSheet(f"color: {COLORS['text_secondary']}; font-size: {FONT['size_md']}px;")
+
+        self.portal_url_label = QLabel("")
+        self.portal_url_label.setAlignment(Qt.AlignCenter)
+        self.portal_url_label.setTextInteractionFlags(Qt.TextSelectableByMouse)
+        self.portal_url_label.setStyleSheet(
+            f"color: {COLORS['text']}; font-size: {FONT['size_lg']}px; font-weight: 700;"
+        )
+
+        self.portal_qr_label = QLabel("")
+        self.portal_qr_label.setAlignment(Qt.AlignCenter)
 
         body_layout.addWidget(guide_title)
         body_layout.addSpacing(8)
-        body_layout.addWidget(guide_text)
+        body_layout.addWidget(self.guide_text)
+        body_layout.addSpacing(10)
+        body_layout.addWidget(self.portal_url_label)
+        body_layout.addSpacing(8)
+        body_layout.addWidget(self.portal_qr_label)
         body_layout.addSpacing(24)
 
         # QR Code Scan / Enter Code cards
@@ -107,6 +123,11 @@ class WifiScreenView(QWidget):
         nav_row.addWidget(self.back_button, 0, Qt.AlignLeft)
         nav_row.addStretch()
         body_layout.addLayout(nav_row)
+
+    def set_portal_hint(self, url: str):
+        """Show the live upload-portal URL and a scannable QR of it."""
+        self.portal_url_label.setText(url)
+        self.portal_qr_label.setPixmap(qr_pixmap(url))
 
     def show_status(self, message, is_error=True):
         self.status_banner.show_message(message, variant="error" if is_error else "success")
