@@ -1,9 +1,12 @@
 # screens/scan_destination/model.py
 #
 # Holds the composed scan PDF and offers the two ways it can leave the
-# kiosk: printed immediately (photocopy) or sent via a Wi-Fi/OTP session
-# that also covers email delivery (see managers/adapters/scan_adapter.py
+# kiosk: printed immediately (photocopy) and/or sent via a Wi-Fi/OTP
+# session that also covers email delivery (see managers/adapters/scan_adapter.py
 # and webapp/routers/redeem.py for the phone-side email/download choice).
+# Both can be selected together — confirm_selection() creates the Wi-Fi
+# session immediately (it's free and untied to any payment) while leaving
+# the print leg, if selected, for the caller to route into printing_options.
 
 from datetime import datetime
 
@@ -18,6 +21,7 @@ from managers.session_manager import SessionManager
 class ScanDestinationModel(QObject):
     session_created = pyqtSignal(object)  # Session
     session_failed = pyqtSignal(str)
+    ready_to_print = pyqtSignal()  # print-only selection, no session needed
 
     def __init__(self):
         super().__init__()
@@ -28,6 +32,7 @@ class ScanDestinationModel(QObject):
 
         self.pdf_path = None
         self.page_count = 0
+        self.wants_print = False
 
     def set_scan_result(self, pdf_path: str, page_count: int):
         self.pdf_path = pdf_path
@@ -40,9 +45,14 @@ class ScanDestinationModel(QObject):
     def get_selected_pages(self) -> list:
         return list(range(1, self.page_count + 1))
 
-    def send_via_wifi(self):
-        success, message, session = self.scan_adapter.handle_scan(self.pdf_path)
-        if success:
-            self.session_created.emit(session)
+    def confirm_selection(self, selected_keys: set):
+        self.wants_print = 'print' in selected_keys
+
+        if 'send_wifi' in selected_keys:
+            success, message, session = self.scan_adapter.handle_scan(self.pdf_path)
+            if success:
+                self.session_created.emit(session)
+            else:
+                self.session_failed.emit(message)
         else:
-            self.session_failed.emit(message)
+            self.ready_to_print.emit()

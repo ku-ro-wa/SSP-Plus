@@ -7,6 +7,7 @@ from PyQt5.QtWidgets import QWidget, QGridLayout
 from PyQt5.QtCore import QTimer
 
 from .model import ScanDestinationModel
+from .thumbnail_thread import ThumbnailRenderThread
 from .view import ScanDestinationScreenView
 
 
@@ -19,6 +20,7 @@ class ScanDestinationController(QWidget):
 
         self.model = ScanDestinationModel()
         self.view = ScanDestinationScreenView()
+        self.thumbnail_thread = None
 
         self.timeout_timer = QTimer()
         self.timeout_timer.setSingleShot(True)
@@ -34,36 +36,64 @@ class ScanDestinationController(QWidget):
         self.view.cancel_clicked.connect(self._handle_cancel)
         self.view.cancel_clicked.connect(self._reset_timeout)
 
-        self.view.print_now_clicked.connect(self._handle_print_now)
-        self.view.print_now_clicked.connect(self._reset_timeout)
+        self.view.continue_clicked.connect(self._handle_continue)
+        self.view.continue_clicked.connect(self._reset_timeout)
 
-        self.view.send_wifi_clicked.connect(self._handle_send_wifi)
-        self.view.send_wifi_clicked.connect(self._reset_timeout)
+        self.view.destination_toggled.connect(lambda *_: self._reset_timeout())
 
         self.model.session_created.connect(self._handle_session_created)
         self.model.session_failed.connect(self._handle_session_failed)
+        self.model.ready_to_print.connect(self._handle_ready_to_print)
 
     # --- Public API for main_app ---
 
     def set_scan_result(self, pdf_path: str, page_count: int):
         self.model.set_scan_result(pdf_path, page_count)
         self.view.set_summary(page_count)
+        self.view.reset_selection()
+        self._start_thumbnail_render(pdf_path)
 
-    def _handle_print_now(self):
+    def _start_thumbnail_render(self, pdf_path):
+        self._stop_thumbnail_render()
+        self.view.clear_thumbnails()
+        self.thumbnail_thread = ThumbnailRenderThread(pdf_path)
+        self.thumbnail_thread.thumbnail_ready.connect(self.view.add_thumbnail)
+        self.thumbnail_thread.finished.connect(self._on_thumbnail_thread_finished)
+        self.thumbnail_thread.start()
+
+    def _stop_thumbnail_render(self):
+        if self.thumbnail_thread is not None:
+            self.thumbnail_thread.stop()
+            self.thumbnail_thread.wait()
+            self.thumbnail_thread = None
+
+    def _on_thumbnail_thread_finished(self):
+        self.thumbnail_thread = None
+
+    def _handle_continue(self):
+        selected = self.view.get_selected_keys()
+        self.view.set_busy(True)
+        self.view.show_status("")
+        self.model.confirm_selection(selected)
+
+    def _handle_ready_to_print(self):
+        self.view.set_busy(False)
         pdf_data = self.model.get_pdf_data()
         selected_pages = self.model.get_selected_pages()
         self.main_app.printing_options_screen.set_pdf_data(pdf_data, selected_pages, "scanner")
         self.main_app.show_screen('printing_options')
 
-    def _handle_send_wifi(self):
-        self.view.set_busy(True)
-        self.view.show_status("Creating your pickup code...", is_error=False)
-        self.model.send_via_wifi()
-
     def _handle_session_created(self, session):
         self.view.set_busy(False)
-        self._cleanup_pdf()
-        self.main_app.scan_result_screen.set_session(session)
+        if self.model.wants_print:
+            pending_print = {
+                'pdf_data': self.model.get_pdf_data(),
+                'selected_pages': self.model.get_selected_pages(),
+            }
+            self.main_app.scan_result_screen.set_session(session, pending_print=pending_print)
+        else:
+            self._cleanup_pdf()
+            self.main_app.scan_result_screen.set_session(session)
         self.main_app.show_screen('scan_result')
 
     def _handle_session_failed(self, message):
@@ -91,6 +121,7 @@ class ScanDestinationController(QWidget):
     def on_leave(self):
         print("Scan destination screen leaving")
         self.timeout_timer.stop()
+        self._stop_thumbnail_render()
 
     def _on_timeout(self):
         print("⏰ Scan destination screen timeout - returning to homepage")

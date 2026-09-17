@@ -27,17 +27,24 @@ class ScanResultController(QWidget):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.addWidget(self.view, 0, 0)
 
-        self.view.done_clicked.connect(self._go_home)
+        self.view.done_clicked.connect(self._handle_done)
         self.view.done_clicked.connect(self._reset_timeout)
 
     # --- Public API for main_app ---
 
-    def set_session(self, session):
-        self.model.set_session(session)
+    def set_session(self, session, pending_print=None):
+        self.model.set_session(session, pending_print)
         self.view.set_otp(session.otp)
+        self.view.set_continue_mode(self.model.has_pending_print())
 
-    def _go_home(self):
-        self.main_app.show_screen('homepage')
+    def _handle_done(self):
+        if self.model.has_pending_print():
+            pdf_data = self.model.pending_print['pdf_data']
+            selected_pages = self.model.pending_print['selected_pages']
+            self.main_app.printing_options_screen.set_pdf_data(pdf_data, selected_pages, "scanner")
+            self.main_app.show_screen('printing_options')
+        else:
+            self.main_app.show_screen('homepage')
 
     def on_enter(self):
         print("Scan result screen entered")

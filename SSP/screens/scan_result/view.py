@@ -37,13 +37,13 @@ class ScanResultScreenView(QWidget):
 
         body_layout.addStretch(1)
 
-        title = QLabel("Get Your Scan on Your Phone")
+        title = QLabel("Get Your Scan on Your Device")
         title.setAlignment(Qt.AlignCenter)
         title.setStyleSheet(f"color: {COLORS['text']}; font-size: {FONT['size_xl']}px; font-weight: 700;")
 
         guide_text = QLabel(
-            'Open the address below on your OWN phone, then enter the code shown '
-            'below to download this scan or have it emailed to you.'
+            'Open the address below on your own device — phone, tablet, or laptop — '
+            'then enter the code shown to download this scan or have it emailed to you.'
         )
         guide_text.setAlignment(Qt.AlignCenter)
         guide_text.setWordWrap(True)
@@ -94,3 +94,6 @@ class ScanResultScreenView(QWidget):
 
     def set_otp(self, otp: str):
         self.otp_label.setText(otp)
+
+    def set_continue_mode(self, has_pending_print: bool):
+        self.done_button.setText("Continue to Print" if has_pending_print else "Done")
