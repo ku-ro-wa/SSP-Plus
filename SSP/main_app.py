@@ -25,6 +25,8 @@ from screens.wifi import WifiController
 from screens.email import EmailController
 from screens.homepage import HomepageController
 from screens.scanner import ScannerController
+from screens.scan_destination import ScanDestinationController
+from screens.scan_result import ScanResultController
 from screens.file_browser import FileBrowserController
 from screens.payment import PaymentController
 from screens.print_options import PrintOptionsController
@@ -75,8 +77,9 @@ class PrintingSystemApp(QMainWindow):
         'payment': 8,
         'admin': 9,
         'data_viewer': 10,
-        'thank_you': 11
-  
+        'thank_you': 11,
+        'scan_destination': 12,
+        'scan_result': 13,
     }
     
     def __init__(self):
@@ -169,6 +172,8 @@ class PrintingSystemApp(QMainWindow):
             self.data_viewer_screen = None
             
         self.thank_you_screen = ThankYouController(self)
+        self.scan_destination_screen = ScanDestinationController(self)
+        self.scan_result_screen = ScanResultController(self)
 
         # Connect payment completion to the print workflow once screens exist.
         self.payment_screen.payment_completed.connect(self.on_payment_completed)
@@ -192,6 +197,8 @@ class PrintingSystemApp(QMainWindow):
             print("⚠️ Data viewer screen not available - skipping")
             
         self.stacked_widget.addWidget(self.thank_you_screen)
+        self.stacked_widget.addWidget(self.scan_destination_screen)
+        self.stacked_widget.addWidget(self.scan_result_screen)
 
         # Manually disable payment acceptors at startup
         print("🔄 Disabling payment acceptors at startup...")

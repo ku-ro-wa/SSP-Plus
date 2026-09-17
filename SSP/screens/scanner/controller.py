@@ -1,6 +1,5 @@
 # screens/scanner/controller.py
 
-import os
 from PyQt5.QtWidgets import QWidget, QGridLayout
 from PyQt5.QtCore import QTimer
 
@@ -17,6 +16,7 @@ class ScannerController(QWidget):
 
         self.model = ScannerModel()
         self.view = ScannerScreenView()
+        self._scan_completed = False
 
         self.timeout_timer = QTimer()
         self.timeout_timer.setSingleShot(True)
@@ -29,61 +29,74 @@ class ScannerController(QWidget):
         self._connect_signals()
 
     def _connect_signals(self):
-        self.view.back_button_clicked.connect(self._go_back)
-        self.view.back_button_clicked.connect(self._reset_timeout)
+        self.view.cancel_clicked.connect(self._handle_cancel)
+        self.view.cancel_clicked.connect(self._reset_timeout)
 
-        self.view.start_scan_clicked.connect(self._handle_start_scan)
-        self.view.start_scan_clicked.connect(self._reset_timeout)
+        self.view.scan_page_clicked.connect(self._handle_scan_page)
+        self.view.scan_page_clicked.connect(self._reset_timeout)
 
-        self.model.scan_result.connect(self._handle_scan_result)
+        self.view.rescan_clicked.connect(self._handle_rescan)
+        self.view.rescan_clicked.connect(self._reset_timeout)
 
-    def _handle_start_scan(self):
+        self.view.done_clicked.connect(self._handle_done)
+        self.view.done_clicked.connect(self._reset_timeout)
+
+        self.model.busy_changed.connect(self.view.set_busy)
+        self.model.page_scanned.connect(self._handle_page_scanned)
+        self.model.scan_failed.connect(self._handle_scan_failed)
+        self.model.scan_finished.connect(self._handle_scan_finished)
+        self.model.finish_failed.connect(self._handle_finish_failed)
+
+    def _handle_scan_page(self):
         self.view.show_status("Scanning...", is_error=False)
-        self.model.start_scan()
+        self.model.scan_page()
 
-    def _handle_scan_result(self, success, message):
-        if success:
-            self.view.show_status(message, is_error=False)
-            print("Scanner screen: scan accepted")
+    def _handle_rescan(self):
+        self.view.show_status("Rescanning last page...", is_error=False)
+        self.model.rescan_last()
 
-            # --- DEV BYPASS: no real scanner backend yet, reuse test_pdfs ---
-            from managers.usb_file_manager import USBFileManager
+    def _handle_page_scanned(self, page_number, image_path):
+        self.view.update_page_count(page_number)
+        self.view.show_thumbnail(image_path)
+        self.view.show_status(f"Page {page_number} scanned.", is_error=False)
 
-            test_folder = os.path.abspath(
-                os.path.join(os.path.dirname(__file__), '..', '..', '..', 'test_pdfs')
-            )
-            os.makedirs(test_folder, exist_ok=True)
+    def _handle_scan_failed(self, message):
+        self.view.show_status(message, is_error=True)
 
-            temp_manager = USBFileManager()
-            pdf_files = temp_manager.scan_and_copy_pdf_files(test_folder)
+    def _handle_done(self):
+        self.view.show_status("Preparing your document...", is_error=False)
+        self.model.finish()
 
-            if pdf_files:
-                print(f"[SIM] Scanner screen: loaded {len(pdf_files)} test PDF(s) from {test_folder}")
-                self.main_app.file_browser_screen.set_source("scanner")
-                self.main_app.file_browser_screen.load_pdf_files(pdf_files)
-                self.main_app.show_screen('file_browser')
-            else:
-                self.view.show_status("No PDF files found in test folder.", is_error=True)
-            # --- END DEV BYPASS ---
-        else:
-            self.view.show_status(message, is_error=True)
+    def _handle_scan_finished(self, pdf_path, page_count):
+        self._scan_completed = True
+        self.main_app.scan_destination_screen.set_scan_result(pdf_path, page_count)
+        self.main_app.show_screen('scan_destination')
 
-    def _go_back(self):
+    def _handle_finish_failed(self, message):
+        self.view.show_status(message, is_error=True)
+
+    def _handle_cancel(self):
+        self.model.cancel()
         self.main_app.show_screen('homepage')
 
     # --- Public API for main_app ---
 
     def on_enter(self):
         print("Scanner screen entered")
-        self.view.show_status("")
+        self._scan_completed = False
+        self.model.start_session()
+        self.view.reset()
         self.timeout_timer.start(60000)
 
     def on_leave(self):
         print("Scanner screen leaving")
         self.timeout_timer.stop()
+        if not self._scan_completed:
+            self.model.cancel()
 
     def _on_timeout(self):
         print("⏰ Scanner screen timeout - returning to homepage")
+        self.model.cancel()
         self.main_app.show_screen('homepage')
 
     def _reset_timeout(self):

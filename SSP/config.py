@@ -393,6 +393,56 @@ class Config:
         except KeyError:
             return 25
 
+    # Scanner module (managers/scanner.py, managers/scanner_manager.py)
+
+    @property
+    def scanner_device(self) -> str:
+        """sane-airscan device string for the flatbed scanner (run
+        `scanimage -L` on the kiosk to find it). Empty means no real
+        scanner is configured — SaneAirscanScanner will refuse to scan."""
+        try:
+            return self.get('SCANNER_DEVICE', str)
+        except KeyError:
+            return ""
+
+    @property
+    def scanner_dpi(self) -> int:
+        try:
+            return self.get('SCANNER_DPI', int)
+        except KeyError:
+            return 200
+
+    @property
+    def scanner_timeout(self) -> int:
+        try:
+            return self.get('SCANNER_TIMEOUT', int)
+        except KeyError:
+            return 60
+
+    @property
+    def sim_scanner_dir(self) -> str:
+        """Directory holding SimScanner's canned page images when SIM_MODE=true."""
+        try:
+            return self.get('SIM_SCANNER_DIR', str)
+        except KeyError:
+            return "SSP/database/sim_scanner_pages"
+
+    @property
+    def sim_scanner_page_count(self) -> int:
+        try:
+            return self.get('SIM_SCANNER_PAGE_COUNT', int)
+        except KeyError:
+            return 3
+
+    @property
+    def scan_upload_dir(self) -> str:
+        """Directory scanner-composed PDFs are copied to before being handed
+        to SessionManager for the scan-to-Wi-Fi/email redeem flow."""
+        try:
+            return self.get('SCAN_UPLOAD_DIR', str)
+        except KeyError:
+            return "SSP/database/scan_uploads"
+
 
 # Global configuration instance
 config = Config()

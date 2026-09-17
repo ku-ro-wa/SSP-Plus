@@ -7,6 +7,7 @@
 
 from config import get_config
 from database.db_manager import DatabaseManager
+from managers.adapters.email_client import SmtpClient
 from managers.adapters.wifi_adapter import WifiAdapter
 from managers.session_manager import SessionManager
 
@@ -38,3 +39,24 @@ def get_wifi_adapter():
         )
     finally:
         db.close()
+
+
+def get_session_manager():
+    # Used by webapp/routers/redeem.py to verify OTPs for scan-to-Wi-Fi/email
+    # sessions — a fresh DatabaseManager per request, same reasoning as above.
+    db = DatabaseManager()
+    try:
+        yield SessionManager(db)
+    finally:
+        db.close()
+
+
+def get_smtp_client():
+    # Reuses the EMAIL_* config already backing the email-intake feature
+    # (managers/adapters/email_adapter.py) — scan-to-email is just another
+    # caller of the same SMTP account, not a separate config surface.
+    config = get_config()
+    yield SmtpClient(
+        config.email_smtp_host, config.email_smtp_port,
+        config.email_user, config.email_password, config.email_use_ssl,
+    )

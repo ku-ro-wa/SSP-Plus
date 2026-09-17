@@ -5,7 +5,7 @@ from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 
 from config import get_config
-from webapp.routers import health, upload
+from webapp.routers import health, redeem, upload
 
 config = get_config()
 
@@ -24,6 +24,7 @@ app.mount("/static", StaticFiles(directory=BASE_DIR / "static"), name="static")
 
 app.include_router(health.router)
 app.include_router(upload.router)
+app.include_router(redeem.router)
 
 
 # To run both on desktop and mobile: uvicorn webapp.main:app --reload --host 0.0.0.0 --port 8000

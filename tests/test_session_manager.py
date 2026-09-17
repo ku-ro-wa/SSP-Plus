@@ -239,6 +239,30 @@ class TestVerifyOtpForSource:
         assert files is None
 
 
+class TestVerifyOtpForSourceWithId:
+    def test_success_returns_session_id(self):
+        db = FakeDBManager()
+        sm = SessionManager(db)
+        session = sm.create_session('scan', _files())
+
+        ok, msg, files, session_id = sm.verify_otp_for_source_with_id('scan', session.otp)
+
+        assert ok is True
+        assert files == _files()
+        assert session_id == session.session_id
+
+    def test_failure_returns_none_for_files_and_session_id(self):
+        db = FakeDBManager()
+        sm = SessionManager(db)
+        sm.create_session('scan', _files())
+
+        ok, msg, files, session_id = sm.verify_otp_for_source_with_id('scan', '000000')
+
+        assert ok is False
+        assert files is None
+        assert session_id is None
+
+
 class TestCleanupExpiredSessions:
     def test_removes_expired_session_and_file(self, tmp_path):
         db = FakeDBManager()

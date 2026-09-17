@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+    <title>AIO SPARK | Retrieve Scan</title>
+
+    <link rel="stylesheet"
+          href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
+
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        html, body { width: 100%; min-height: 100%; }
+        body { font-family: Arial, Helvetica, sans-serif; background: #ffffff; color: #000; }
+
+        .page-wrapper { min-height: 100vh; }
+        .background-overlay { min-height: 100vh; }
+
+        .card { width: 100%; background: #ffffff; animation: fadeUp .7s ease; }
+        @keyframes fadeUp {
+            from { opacity: 0; transform: translateY(25px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        header {
+            display: flex;
+            justify-content: flex-start;
+            padding: 24px 32px;
+            border-bottom: 1px solid #e0e0e0;
+        }
+        header img { width: 100%; max-width: 520px; height: auto; }
+
+        main {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            padding: 48px 36px;
+            text-align: center;
+        }
+
+        h1 { font-size: 40px; font-weight: 400; margin-bottom: 24px; }
+        p.description { max-width: 480px; margin-bottom: 32px; line-height: 1.6; }
+
+        form { width: 100%; display: flex; flex-direction: column; align-items: center; }
+
+        input[type=text] {
+            width: 280px;
+            text-align: center;
+            font-size: 28px;
+            letter-spacing: 6px;
+            padding: 16px;
+            border: 2px solid #ccc;
+            border-radius: 10px;
+            margin-bottom: 20px;
+        }
+
+        button {
+            background: #000;
+            color: #fff;
+            border: none;
+            border-radius: 14px;
+            width: 280px;
+            padding: 20px;
+            cursor: pointer;
+            font-size: 22px;
+            font-weight: bold;
+        }
+        button:hover { background: #1a1a1a; }
+
+        .error-banner {
+            background: #fff0f0;
+            border: 1px solid #ffcccc;
+            color: #cc0000;
+            padding: 12px 16px;
+            border-radius: 8px;
+            margin-bottom: 16px;
+            text-align: center;
+        }
+
+        @media (min-width: 900px) {
+            body {
+                background:
+                    linear-gradient(rgba(0, 80, 35, .78), rgba(0, 80, 35, .78)),
+                    url("/static/usc_building.jpg");
+                background-size: cover;
+                background-position: center;
+                background-attachment: fixed;
+            }
+            .background-overlay {
+                display: flex;
+                justify-content: center;
+                align-items: center;
+                padding: 50px;
+            }
+            .card {
+                width: 520px;
+                border-radius: 28px;
+                overflow: hidden;
+                box-shadow: 0 25px 80px rgba(0, 0, 0, .35);
+            }
+        }
+    </style>
+</head>
+
+<body>
+
+<div class="page-wrapper">
+    <div class="background-overlay">
+        <div class="card">
+
+            <header>
+                <img src="/static/image.png" alt="USC Logo">
+            </header>
+
+            {% if error %}
+            <div class="error-banner">
+                ⚠️ {{ error }}
+            </div>
+            {% endif %}
+
+            <main>
+                <h1>Retrieve Your Scan</h1>
+
+                <p class="description">
+                    Enter the code shown on the kiosk to download your scanned document,
+                    or have it emailed to you.
+                </p>
+
+                <form method="POST" action="/redeem">
+                    <input
+                        type="text"
+                        name="otp"
+                        maxlength="6"
+                        inputmode="numeric"
+                        placeholder="123456"
+                        required
+                        autofocus>
+
+                    <button type="submit">
+                        Continue <i class="fa-solid fa-arrow-right"></i>
+                    </button>
+                </form>
+            </main>
+
+        </div>
+    </div>
+</div>
+
+</body>
+</html>

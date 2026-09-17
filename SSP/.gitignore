@@ -28,9 +28,11 @@ MANIFEST
 data/
 database/*.db
 
-# Wi-Fi/email intake uploads (runtime artifacts, recreated via os.makedirs)
+# Wi-Fi/email/scan intake uploads (runtime artifacts, recreated via os.makedirs)
 database/wifi_uploads/
 database/email_uploads/
+database/scan_uploads/
+database/sim_scanner_pages/
 
 # Environment variables
 .env

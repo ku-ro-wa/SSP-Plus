@@ -48,9 +48,9 @@ def _lan_ip() -> str:
         s.close()
 
 
-def wifi_portal_url(host: Optional[str] = None, tls: Optional[bool] = None) -> str:
+def _portal_url(path: str, host: Optional[str] = None, tls: Optional[bool] = None) -> str:
     """
-    The URL a phone on the same network types to reach the upload portal.
+    The URL a phone on the same network types to reach a given portal path.
 
     `tls` should be the running server's actual state
     (WebAppThreadManager.tls_enabled) so the kiosk hint can't disagree with
@@ -60,7 +60,18 @@ def wifi_portal_url(host: Optional[str] = None, tls: Optional[bool] = None) -> s
     if tls is None:
         tls = not _missing_tls_files()
     scheme = "https" if tls else "http"
-    return f"{scheme}://{host or _lan_ip()}:{DEFAULT_PORT}/upload"
+    return f"{scheme}://{host or _lan_ip()}:{DEFAULT_PORT}{path}"
+
+
+def wifi_portal_url(host: Optional[str] = None, tls: Optional[bool] = None) -> str:
+    """The URL a phone types to reach the upload portal (Wi-Fi/email intake)."""
+    return _portal_url("/upload", host, tls)
+
+
+def scan_redeem_portal_url(host: Optional[str] = None, tls: Optional[bool] = None) -> str:
+    """The URL a phone types to redeem a scan-to-Wi-Fi/email session (see
+    webapp/routers/redeem.py and screens/scan_result)."""
+    return _portal_url("/redeem", host, tls)
 
 
 class WebAppThreadManager:

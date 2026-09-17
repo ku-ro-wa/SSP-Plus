@@ -124,6 +124,20 @@ class SessionManager:
                 return self.verify_otp(row['session_id'], otp)
         return False, "Incorrect or expired code", None
 
+    def verify_otp_for_source_with_id(self, source: str, otp: str):
+        """
+        Like verify_otp_for_source(), but also returns the resolved
+        session_id — needed by callers (the scan redeem portal) that must
+        remember it to re-verify on follow-up actions (download, email)
+        without asking for the OTP a second time in the same visit. Returns
+        (success, message, files, session_id).
+        """
+        for row in self.db_manager.get_verifiable_sessions(source):
+            if _hash_otp(row['session_id'], otp) == row['otp_hash']:
+                success, message, files = self.verify_otp(row['session_id'], otp)
+                return success, message, files, row['session_id']
+        return False, "Incorrect or expired code", None, None
+
     def verify_otp(self, session_id: str, otp: str):
         """
         Validate an OTP against a session (QR scan or manual entry both land
