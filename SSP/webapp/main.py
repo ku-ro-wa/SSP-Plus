@@ -7,6 +7,8 @@ from fastapi.staticfiles import StaticFiles
 from config import get_config
 from webapp.routers import health, upload
 
+from database.models import init_db
+
 config = get_config()
 
 # /docs (Swagger UI) and /redoc are FastAPI's auto-generated API explorers,
@@ -17,6 +19,10 @@ redoc_url = "/redoc" if config.docs_enabled else None
 
 app = FastAPI(title="AIO SPARK", docs_url=docs_url, redoc_url=redoc_url)
 
+@app.on_event("startup")
+def _init_database():
+    init_db()
+    
 # Serves everything in SSP/webapp/static/ at the URL path /static/...
 # so your HTML's <img src="/static/image.png"> actually resolves.
 BASE_DIR = Path(__file__).resolve().parent
@@ -31,3 +37,4 @@ app.include_router(upload.router)
 # lookback IP: http://<LAN IP>:8000/
 # Example: 
 # lookback IP: http://192.168.8.180:8000/upload
+
