@@ -1,69 +1,65 @@
-Add the Scanner Module: scan-to-print, scan-to-email, scan-to-Wi-Fi-download
+Let scan_destination select Print Now and Send via Wi-Fi together
 
-Implements roadmap-planning.txt Phase 6 and objectives-doc items 6-8 end to
-end. Builds on the intake infrastructure from SESSION_MANAGER_SESSION_SUMMARY.md
-and WIFI_EMAIL_END_TO_END_SESSION_SUMMARY.md, reusing the same SessionManager/
-OTP/QR pattern proven there for Wi-Fi and email intake, run in reverse for scan
-output. Replaces the old screens/scanner/* stub (fake scan, dev-bypass into
-test_pdfs/) with a real flatbed capture pipeline.
+UX refinement of the scan-to-print/Wi-Fi/email pipeline from
+SCANNER_MODULE_SESSION_SUMMARY.md: turns the exclusive "Print Now vs. Send via
+Wi-Fi" choice into a multi-select, adds a scanned-page preview neither
+scan_destination nor scan_result had, and closes a copy gap that undersold the
+Wi-Fi pathway. No changes to SessionManager, ScanAdapter, or the /redeem
+webapp — a fuller split of Wi-Fi-download and email into separate kiosk
+widgets was designed in full and then rejected: it forces that decision at the
+kiosk instead of on the phone, removing the ability to change your mind once
+you're looking at your device, for a mostly cosmetic benefit.
 
-- Hardware abstraction (`SSP/managers/scanner.py`, `scanner_manager.py`,
-  `scanner_thread.py`): `SaneAirscanScanner` shells out to `scanimage -d
-  <device> --format=png --resolution <dpi>` (no python-sane binding, mirroring
-  how `printer_thread.py` shells to `lp`/`lpstat`), mapping
-  `FileNotFoundError`/`TimeoutExpired`/`CalledProcessError`/empty output to one
-  `ScannerError`. Flatbed only, one page per call, no ADF flags. Device string
-  is operator-set via `.env` (from `scanimage -L` on the kiosk), not
-  auto-discovered, since eSCL indices aren't stable across reboots.
-  `SimScanner` seeds canned PNGs via `fitz` and round-robins fresh copies per
-  call. `ScannerManager` (pure Python, no PyQt) owns page accumulation,
-  `rescan_last()`, `cancel()`, and `finish()` (composes pages into one PDF via
-  fitz). `ScannerThread` is a generic `QThread` wrapper for any bound
-  `ScannerManager` method rather than one subclass per operation.
+- Multi-select destinations (`SSP/screens/scan_destination/view.py`,
+  `model.py`, `controller.py`): `ui.widgets.Card` fires its `clicked` signal
+  unconditionally with no persisted state, and every other screen depends on
+  that one-shot behavior, so rather than modify `Card` itself, added a local
+  `DestinationOption(QFrame)` wrapper that owns a `Card` plus a `_selected`
+  bool and emits `toggled(key, is_selected)` instead of acting immediately.
+  Both destinations sit behind a single `Continue` button, disabled until at
+  least one is selected. `ScanDestinationModel.confirm_selection(selected_keys)`
+  replaces the old exclusive `send_via_wifi()`: if `send_wifi` was picked, the
+  Wi-Fi/email session is created immediately as before; the controller then
+  decides whether to also route through printing via a `wants_print` flag and
+  a `pending_print` hand-off carried into scan_result.
 
-- Capture UI and photocopy routing (`SSP/screens/scanner/*` rewrite,
-  `SSP/screens/scan_destination/`): the scanner screen gets a page counter,
-  thumbnail preview, and Scan/Rescan Last Page/Done/Cancel controls; a
-  `_scan_completed` flag stops `on_leave()` from deleting a just-finished
-  scan's files on the way to the next screen. `scan_destination` presents
-  Print Now vs. Send via Wi-Fi: Print Now hands the composed PDF to
-  `printing_options_screen.set_pdf_data(pdf_data, selected_pages, "scanner")`
-  unchanged — confirmed by reading `print_options/controller.py`/`model.py`
-  that the existing pipeline only needs a path/filename and page list and
-  re-derives everything else, so nothing downstream needed to change.
+- Page-thumbnail preview (`SSP/screens/scan_destination/thumbnail_thread.py`,
+  new): neither screen showed the actual scanned pages, only a page-count
+  label. Since `ScannerManager.finish()` deletes the per-page source images
+  once composed into the final PDF, added `ThumbnailRenderThread`, mirroring
+  `screens/file_browser/view.py`'s existing `PDFPreviewThread` pattern
+  (`fitz.Page.get_pixmap()` -> `QImage` -> `QPixmap`) but kept local to this
+  screen rather than imported across screen packages. Renders off the main
+  thread into a horizontally-scrolling strip; reads whatever PDF
+  `ScannerManager.finish()` produced, so SIM_MODE's placeholder pages show up
+  automatically with no separate simulation path.
 
-- Unified scan-to-email/Wi-Fi-download (`SSP/managers/adapters/scan_adapter.py`,
-  `SSP/screens/scan_result/`, `SSP/webapp/routers/redeem.py` +
-  `templates/redeem*.html`): rather than building an on-kiosk virtual keyboard
-  (none exists anywhere in this codebase) to collect an email address, "Send
-  via Wi-Fi" creates a `source="scan"` session (via a new `ScanAdapter`
-  mirroring `wifi_adapter.py`) and shows a QR + OTP for a new phone-side
-  redeem portal. `GET/POST /redeem` verifies via a new, additive
-  `SessionManager.verify_otp_for_source_with_id("scan", otp)` and renders an
-  actions page with hidden `session_id`/`otp` fields; `/redeem/download` and
-  `/redeem/email` both re-verify via the existing `verify_otp()`, reusing its
-  pre-existing "already verified" short-circuit instead of a new token
-  system. `/redeem/email` builds the PDF attachment the same way
-  `email_adapter.py` already does and sends via the existing `SmtpClient`.
-  `webapp_thread.py`'s `wifi_portal_url()` was factored into a shared
-  `_portal_url()` helper for the new `scan_redeem_portal_url()`.
+- Conditional "Continue to Print" (`SSP/screens/scan_result/model.py`,
+  `view.py`, `controller.py`): when both destinations are selected together,
+  the Wi-Fi session is created first, so `scan_result`'s Done button now
+  relabels to "Continue to Print" when a `pending_print` hand-off is present
+  (`has_pending_print()`), handing the stashed `pdf_data`/`selected_pages` to
+  `printing_options_screen.set_pdf_data()` instead of returning to homepage.
+  This also shifted temp-PDF cleanup: `scan_destination` only deletes it
+  immediately when there's no pending print, since `printing_options` still
+  needs the file otherwise.
 
-- Config and wiring (`SSP/config.py`, `.env.example`, `SSP/main_app.py`,
-  `SSP/.gitignore`): new `SCANNER_*`/`SIM_SCANNER_*`/`SCAN_UPLOAD_DIR`
-  properties, all optionally defaulted per the existing pattern;
-  `scan_destination`/`scan_result` added to `SCREEN_MAP` and the stacked
-  widget; runtime upload/sim directories gitignored.
+- Copy: naming both pathways and dropping phone-only language
+  (`scan_destination/view.py`, `scan_result/view.py`): the "Send via Wi-Fi"
+  card's bold title named only one of its two capabilities — retitled to
+  "Download or Email" so both are visible without reading the smaller
+  description. Every mention of "your phone" (card description, scan_result's
+  title and guide text) reworded to "your own device — phone, tablet, or
+  laptop" throughout both screens.
 
-`make test` -> 115 passed (81 existing + 34 new: scanner manager, scan
-adapter, redeem routes, plus 2 additive `verify_otp_for_source_with_id` cases).
-`make lint` reports no new violations. Also verified live under SIM_MODE with
-a scripted navigation smoke test through the real `PrintingSystemApp`: full
-scan -> rescan -> Done -> scan_destination, both the Print Now path (correct
-cost/page analysis in printing_options) and the Send via Wi-Fi path (session
-creation and navigation to scan_result). Not yet exercised: the redeem portal
-from an actual phone/browser, and any run against the real HP Smart Tank 580 —
-both need the physical kiosk (see docs/session-summaries/
-SCANNER_MODULE_SESSION_SUMMARY.md, Future considerations). See that file for
-full details, a testing guide, and follow-up work.
+`make test` -> 115 passed (no new tests — SessionManager/ScanAdapter/redeem
+router are untouched, so there's no new unit-testable surface). `make lint`
+reports no new violations on any touched file. Also verified: every touched
+file compiles cleanly, and a SIM_MODE boot of the full PrintingSystemApp
+constructed all screens without raising. The user manually confirmed via
+`make run-sim` that toggling both destinations together and pressing Continue
+routes correctly end to end. See
+docs/session-summaries/SCAN_DESTINATION_MULTISELECT_AND_PREVIEW_SESSION_SUMMARY.md
+for full details, a testing guide, and follow-up work.
 
 Co-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>
