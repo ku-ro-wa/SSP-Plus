@@ -17,6 +17,8 @@ from PyQt5.QtCore import QObject, pyqtSignal, QTimer
 import threading
 import subprocess
 
+from ui.theme import COLORS, FONT
+
 
 class ThankYouModel(QObject):
     """
@@ -456,10 +458,12 @@ class ThankYouModel(QObject):
         Returns:
             CSS style string for status label
         """
-        styles = {
-            "printing": "color: #36454F; font-size: 42px; font-weight: bold;",
-            "waiting": "color: #ffc107; font-size: 42px; font-weight: bold;",
-            "completed": "color: #28a745; font-size: 42px; font-weight: bold;",
-            "error": "color: #dc3545; font-size: 42px; font-weight: bold;"
+        base = f"font-size: {FONT['size_display']}px; font-weight: 700;"
+        color_by_state = {
+            "printing": COLORS["text"],
+            "waiting": COLORS["warning"],
+            "completed": COLORS["success"],
+            "error": COLORS["danger"],
         }
-        return styles.get(state, styles["printing"])
+        color = color_by_state.get(state, color_by_state["printing"])
+        return f"color: {color}; {base}"

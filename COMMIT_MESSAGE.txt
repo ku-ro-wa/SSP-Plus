@@ -1,63 +1,72 @@
-Wire up zoom controls and fix selection UI in the print/scan file editor
+Run the Wi-Fi upload and email submission workflows end-to-end in sim
 
-Polish pass on file_browser, the page-selection editor shared by both
-the print flow and the scan flow (scanner routes into it via
-set_source("scanner")). Not tied to a roadmap-planning.txt phase —
-this is UI/UX polish, built on top of file_browser's own Phase B
-theming rewrite (Header/BackButton/theme tokens, DragScrollArea wired
-in, the #fffff CSS typo fixed) that arrived in the working tree
-already uncommitted from a separate, not-yet-summarized prior session.
-That rewrite is the exact item KIOSK_UI_REDESIGN_SESSION_SUMMARY.md's
-follow-up list flagged as unstarted; this commit is not it and does
-not re-describe it.
+Closes the config/TLS/UX gaps that kept the two intake workflows from being
+driveable from a laptop via `make run-sim`. The plumbing was built and
+unit-tested across roadmap-planning.txt Phase 4 (Wi-Fi Transfer) and Phase 5
+(Email Submission) in GUI_BACKEND_WIRING_SESSION_SUMMARY.md and
+MULTI_FILE_WIFI_UPLOAD_SESSION_SUMMARY.md; this pass points it at a real Gmail
+account, a real (self-signed) TLS story, and makes the kiosk screens
+self-explanatory. Issue #7. See
+docs/session-summaries/WIFI_EMAIL_END_TO_END_SESSION_SUMMARY.md and
+docs/adr/0001-wifi-portal-in-process-uvicorn-self-signed-tls.md.
 
-- Zoom controls (screens/file_browser/view.py, controller.py,
-  pdf_preview_widget.py): the zoom backend (PDFPreviewWidget.zoomIn/
-  zoomOut/resetZoom, controller._zoom_in/_zoom_out/_zoom_reset) already
-  existed but had no UI — no button, and update_zoom_label() referenced
-  a self.zoom_label that was never created, so it would have raised
-  AttributeError the first time anything called it. Added +/-/Reset
-  buttons and a live percentage label to single-page view, wired
-  through new zoom_in_clicked/zoom_out_clicked/zoom_reset_clicked
-  signals. Also fixed a real bug found while wiring it up:
-  PDFPreviewWidget.paintEvent() computed zoom as a raw multiplier on
-  the PDF's native (very high-DPI) pixel size instead of the
-  fit-to-widget size, so the first zoom-in click would have jumped
-  discontinuously instead of scaling smoothly from 100%.
+- Env-gated TLS for the Wi-Fi portal (`SSP/managers/webapp_thread.py`,
+  `SSP/config.py`, `SSP/main_app.py`): new `WebAppThreadManager.from_config()`
+  (mirrors `EmailPollerThreadManager.from_config()`) serves HTTPS only when
+  `WIFI_TLS_CERTFILE` / `WIFI_TLS_KEYFILE` both resolve to files that exist,
+  otherwise plain HTTP after one warning line — so a developer who never ran
+  the cert script still gets a working `make run-sim`. `main_app` switches
+  from the bare constructor to `.from_config()`. `wifi_portal_url()` now takes
+  the server's real `tls_enabled` state (passed from `main_app.webapp_thread`)
+  so the displayed URL can't disagree with the running server; the file-stat
+  path survives only as a standalone/test fallback. The two new config
+  properties are `KeyError`-guarded with `certs/cert.pem` / `certs/key.pem`
+  defaults, matching every other `email_*` / `wifi_*` property (doc
+  reconciliation flagged as follow-up).
 
-- Selection outline & fill colors (screens/file_browser/view.py): the
-  page-selection UI (grid thumbnail frames, both checkboxes, the
-  preview container border, the selected-count label) all keyed off
-  COLORS['success'], which is the literal same hex as COLORS['primary']
-  — every primary button in the app. Added PAGE_OUTLINE_COLOR (grey)
-  and PAGE_SELECTED_COLOR (near-black), scoped to file_browser only so
-  the shared 'success' token (still used correctly elsewhere, e.g.
-  status banners) wasn't touched. Also fixed a bug where a page's
-  initial-render border ignored the checked constructor argument, and
-  a follow-on bug where the checked-state frame used a 3px border vs.
-  2px unchecked, visibly shrinking the thumbnail's content area on
-  select — both states now share one border width.
+- Real Gmail wiring (`.env`, `.env.example`): the IMAP/SMTP swap is pure
+  config, so `.env` gets the full `EMAIL_*` block with real Gmail endpoints
+  (`imap.gmail.com:993`, `smtp.gmail.com:465`, `EMAIL_USE_SSL=true`) and
+  blank `EMAIL_USER` / `EMAIL_PASSWORD` for the operator to fill by hand — the
+  App Password never passes through a tool. Poll interval relaxed to 20s.
+  `.env.example` now ships the Gmail values as the active keys with greenmail
+  demoted to a labelled commented block for offline dev; `config.py` defaults
+  still point at greenmail so a trimmed `.env` also works offline.
 
-- Checkmark icon (new assets/icons/checkbox-checked.svg,
-  screens/file_browser/view.py): replaced a flat black-fill checked
-  checkbox with a rounded-square + checkmark icon matching a
-  user-supplied reference image, since QSS can't draw a checkmark path
-  directly on QCheckBox::indicator. Wired via QSS image: url(...)
-  through ui/icons.py's existing icon_path() helper. Verified by
-  rasterizing the SVG through the project's own PyQt5 QSvgRenderer at
-  both preview size and the actual 20x20 on-screen indicator size.
+- Self-explanatory kiosk screens (`SSP/screens/wifi/*`, `SSP/screens/email/*`,
+  new `SSP/ui/qr.py`): the `wifi` screen shows the live portal URL
+  (`http(s)://<LAN-IP>:8000/upload`, LAN IP resolved via a packet-free stdlib
+  `socket` trick) and a scannable QR of it; the `email` screen shows the
+  configured submission address and required subject keyword plus a `mailto:`
+  QR that pre-fills both, or a "no account configured" notice when
+  `EMAIL_USER` is blank. New `SSP/ui/qr.py` `qr_pixmap()` returns a scaled
+  `QPixmap` for a widget — deliberately not reusing
+  `session_manager._generate_qr_bytes` (different layer, different return
+  type). Both `on_enter` hooks wrap the hint call in a broad `try/except` so a
+  hint failure can never break `show_screen()` navigation.
 
-75 tests passing, no new failures; lint introduces no new violations.
-Diff scope was verified, not assumed: file_browser/controller.py and
-view.py were already modified before this session started, so the
-lines above were isolated by reverse-applying every edit made in this
-conversation onto a scratch copy and diffing the result against both
-the current file and the last commit — not by trusting `git diff`
-against HEAD, which would have conflated this session's ~6/~73 changed
-lines with the prior session's ~680-line file_browser rewrite plus
-unrelated usb/print_options/payment/ui-theme.py work sitting in the
-same working tree. None of that prior work has a session summary yet.
-See FILE_EDITOR_ZOOM_AND_SELECTION_SESSION_SUMMARY.md for full details,
-a testing guide, and follow-up work.
+- Incidental cleanup (`SSP/screens/homepage/controller.py`): removed the stale
+  `# not implemented yet` prints and `# TODO: Wire up...` comments for the
+  wifi/email branches wired up two sessions ago (scanner keeps a one-line
+  stub note), plus pre-existing flake8 noise (`E303`, `W293`, `E111`, `W292`)
+  in the three controller files touched this session.
+
+- Docs: new `CONTEXT.md` (intake glossary), new
+  `docs/adr/0001-wifi-portal-in-process-uvicorn-self-signed-tls.md`, and an
+  "Email + Wi-Fi end-to-end" runbook added to `docs/SETUP.md`;
+  `tests/test_webapp_thread.py` added for the `from_config()` TLS gating and
+  the `wifi_portal_url()` scheme selection.
+
+`make test` -> 82 passed (75 existing + 7 new: 4 TLS-gating + 3 portal-URL
+scheme). `make lint` reports no new violations. Also verified live this
+session under SIM_MODE with offscreen Qt: full `PrintingSystemApp` boot with a
+clean Uvicorn thread start/stop via `cleanup()`, the `wifi`/`email` `on_enter`
+hint code running without error, and `config` reading the Gmail endpoints
+through from `.env`. Not exercised: the phone-to-kiosk and email-to-kiosk
+round trips and the negative paths (need the real thing running — see
+docs/SETUP.md). See
+docs/session-summaries/WIFI_EMAIL_END_TO_END_SESSION_SUMMARY.md for full
+details, a testing guide, and follow-up work.
 
 Co-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01Gjq8GPUMotHabpUcFDnxKy

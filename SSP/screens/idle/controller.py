@@ -1,7 +1,6 @@
 # screens/idle/controller.py
 
 from PyQt5.QtWidgets import QWidget, QGridLayout, QDialog
-from PyQt5.QtCore import Qt
 
 from .model import IdleModel
 from .view import IdleScreenView
@@ -37,7 +36,6 @@ class IdleController(QWidget):
         self.view.admin_button_clicked.connect(self._go_to_admin)
         
         # --- Model -> View ---
-        self.model.background_image_loaded.connect(self.view.set_background_image)
         self.model.show_message.connect(self._show_message)
     
     def _handle_screen_touch(self, event):
@@ -122,9 +120,7 @@ class IdleController(QWidget):
         # Check paper count before allowing normal operation
         if self.main_app.check_paper_count_and_redirect():
             return  # Redirected to no paper screen, don't proceed with normal idle operations
-        
-        # The model will automatically load the background image
-    
+
     def on_leave(self):
         """Called by main_app when leaving this screen."""
         print("Idle screen left.")

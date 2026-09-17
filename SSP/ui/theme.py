@@ -102,17 +102,148 @@ QPushButton#SecondaryButton:pressed {{
 """
 
 
+DANGER_BUTTON_QSS = f"""
+QPushButton#DangerButton {{
+    background-color: {COLORS["danger"]};
+    color: {COLORS["bg"]};
+    font-size: {FONT["size_md"]}px;
+    font-weight: 600;
+    border: none;
+    border-radius: {RADIUS["md"]}px;
+    padding: {SPACING["sm"]}px {SPACING["lg"]}px;
+}}
+QPushButton#DangerButton:hover {{
+    background-color: #C94141;
+}}
+QPushButton#DangerButton:pressed {{
+    background-color: #B23A3A;
+}}
+QPushButton#DangerButton:disabled {{
+    background-color: {COLORS["border_strong"]};
+    color: {COLORS["text_muted"]};
+}}
+"""
+
 HEADER_QSS = f"""
 QFrame#Header {{
-    background-color: {COLORS["bg"]};
+    background-color: {COLORS["text"]};
     border: none;
-    border-bottom: 1px solid {COLORS["border"]};
+    border-bottom: 1px solid {COLORS["primary"]};
 }}
 QFrame#Header QLabel {{
     background: transparent;
     border: none;
+    color: {COLORS["bg"]};
 }}
 """
+
+
+# Operator-panel building blocks (admin / data_viewer). Scoped by tag/objectName
+# so they only bite where the screen opts in by calling setStyleSheet with them.
+GROUPBOX_QSS = f"""
+QGroupBox {{
+    color: {COLORS["text_secondary"]};
+    font-size: {FONT["size_sm"]}px;
+    font-weight: 600;
+    border: 1px solid {COLORS["border_strong"]};
+    border-radius: {RADIUS["md"]}px;
+    margin-top: 12px;
+    padding-top: 14px;
+    background-color: {COLORS["bg"]};
+}}
+QGroupBox::title {{
+    subcontrol-origin: margin;
+    left: 12px;
+    padding: 0 6px;
+}}
+QGroupBox QLabel {{
+    background: transparent;
+    border: none;
+}}
+"""
+
+INPUT_QSS = f"""
+QLineEdit {{
+    background-color: {COLORS["bg"]};
+    color: {COLORS["text"]};
+    font-size: {FONT["size_md"]}px;
+    border: 1px solid {COLORS["border_strong"]};
+    border-radius: {RADIUS["sm"]}px;
+    padding: {SPACING["xs"]}px {SPACING["md"]}px;
+    min-height: 44px;
+}}
+QLineEdit:focus {{
+    border: 1px solid {COLORS["primary"]};
+}}
+"""
+
+TABLE_QSS = f"""
+QTableWidget {{
+    background-color: {COLORS["bg"]};
+    alternate-background-color: {COLORS["bg_subtle"]};
+    color: {COLORS["text"]};
+    gridline-color: {COLORS["border"]};
+    border: 1px solid {COLORS["border"]};
+    border-radius: {RADIUS["sm"]}px;
+    font-size: {FONT["size_sm"]}px;
+}}
+QHeaderView::section {{
+    background-color: {COLORS["bg_subtle"]};
+    color: {COLORS["text_secondary"]};
+    font-weight: 600;
+    padding: 8px;
+    border: none;
+    border-bottom: 1px solid {COLORS["border_strong"]};
+}}
+QTableWidget::item {{
+    padding: 6px;
+    border-bottom: 1px solid {COLORS["border"]};
+}}
+QTableWidget::item:selected {{
+    background-color: {COLORS["success_bg"]};
+    color: {COLORS["text"]};
+}}
+"""
+
+TAB_QSS = f"""
+QTabWidget::pane {{
+    border: 1px solid {COLORS["border"]};
+    border-radius: {RADIUS["sm"]}px;
+    top: -1px;
+}}
+QTabBar::tab {{
+    background-color: {COLORS["bg_subtle"]};
+    color: {COLORS["text_secondary"]};
+    font-size: {FONT["size_sm"]}px;
+    font-weight: 600;
+    padding: 10px 20px;
+    margin-right: 2px;
+    border: 1px solid {COLORS["border"]};
+    border-bottom: none;
+    border-top-left-radius: {RADIUS["sm"]}px;
+    border-top-right-radius: {RADIUS["sm"]}px;
+    min-height: 40px;
+    min-width: 140px;
+}}
+QTabBar::tab:selected {{
+    background-color: {COLORS["bg"]};
+    color: {COLORS["primary"]};
+    border-bottom: 2px solid {COLORS["primary"]};
+}}
+QTabBar::tab:hover:!selected {{
+    color: {COLORS["text"]};
+}}
+"""
+
+
+def severity_color(value: float, warn_at: float, crit_at: float) -> str:
+    """Theme colour for a supply level: danger at/below crit_at, warning at/below
+    warn_at, success above. Used for admin paper/coin/ink readouts."""
+    if value <= crit_at:
+        return COLORS["danger"]
+    if value <= warn_at:
+        return COLORS["warning"]
+    return COLORS["success"]
 
 
 _STATUS_BANNER_VARIANTS = {

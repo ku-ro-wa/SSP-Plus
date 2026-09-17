@@ -562,9 +562,7 @@ class FileBrowserView(QWidget):
         self.grid_page_label.setStyleSheet(f"color: {COLORS['text']}; font-size: 14px; background-color: transparent;")
 
         # BOTTOM CONTROLS
-        bottom_controls = QHBoxLayout()
-        bottom_controls.setSpacing(15)
-        self.back_to_idle_btn = BackButton("Back to Idle")
+        self.back_to_idle_btn = BackButton("Back to Input Selection")
         self.back_to_idle_btn.setMinimumHeight(BUTTON_HEIGHT)
         self.back_to_idle_btn.clicked.connect(self.back_to_idle_clicked.emit)
 
@@ -665,16 +663,27 @@ class FileBrowserView(QWidget):
         self.zoom_in_btn.hide()
         self.zoom_reset_btn.hide()
 
-        bottom_controls.addWidget(self.back_to_idle_btn, 0, Qt.AlignCenter)
-        bottom_controls.addStretch(1)
-        bottom_controls.addLayout(pagination_controls)
-        bottom_controls.addStretch(1)
-        bottom_controls.addWidget(self.page_info, 0, Qt.AlignCenter)
-        bottom_controls.addWidget(self.selected_count_label, 0, Qt.AlignCenter)
-        bottom_controls.addStretch(2)
-        bottom_controls.addWidget(self.rescan_button, 0, Qt.AlignCenter)
-        bottom_controls.addWidget(self.add_document_button, 0, Qt.AlignCenter)
-        bottom_controls.addWidget(self.continue_btn, 0, Qt.AlignCenter)
+        # Row 1: preview navigation / page-selection controls, centered, with page
+        # info on the right. Kept on its own row so the single-page-view controls
+        # (arrows, zoom, "Select this page") don't get crushed by the nav buttons.
+        preview_controls_row = QHBoxLayout()
+        preview_controls_row.setSpacing(15)
+        preview_controls_row.addStretch(1)
+        preview_controls_row.addLayout(pagination_controls)
+        preview_controls_row.addStretch(1)
+        preview_controls_row.addWidget(self.page_info, 0, Qt.AlignVCenter)
+        preview_controls_row.addSpacing(12)
+        preview_controls_row.addWidget(self.selected_count_label, 0, Qt.AlignVCenter)
+
+        # Row 2: screen navigation — "Back to Input Selection" bottom-left,
+        # forward actions bottom-right.
+        nav_actions_row = QHBoxLayout()
+        nav_actions_row.setSpacing(12)
+        nav_actions_row.addWidget(self.back_to_idle_btn, 0, Qt.AlignLeft)
+        nav_actions_row.addStretch(1)
+        nav_actions_row.addWidget(self.rescan_button, 0, Qt.AlignVCenter)
+        nav_actions_row.addWidget(self.add_document_button, 0, Qt.AlignVCenter)
+        nav_actions_row.addWidget(self.continue_btn, 0, Qt.AlignVCenter)
 
         preview_area_layout = QStackedLayout()
         preview_area_layout.setStackingMode(QStackedLayout.StackAll)
@@ -685,7 +694,8 @@ class FileBrowserView(QWidget):
 
         right_panel_layout.addLayout(header_row)
         right_panel_layout.addLayout(preview_area_layout, 1)
-        right_panel_layout.addLayout(bottom_controls)
+        right_panel_layout.addLayout(preview_controls_row)
+        right_panel_layout.addLayout(nav_actions_row)
 
         split_row.addWidget(right_panel, 1)
         main_layout.addWidget(body, 1)

@@ -121,10 +121,10 @@ class PrintOptionsController(QWidget):
         self.main_app.show_screen('payment')
 
     def _go_back(self):
-        """Goes back to the file browser screen."""
-        print("Print options screen: going back to file browser")
+        """Goes back to the input selection (homepage) screen."""
+        print("Print options screen: going back to input selection")
         self.on_leave()
-        self.main_app.show_screen('file_browser')
+        self.main_app.show_screen('homepage')
     
     def _show_message(self, title, text):
         """Shows a message to the user."""

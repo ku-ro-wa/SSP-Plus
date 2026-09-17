@@ -3,6 +3,7 @@
 from PyQt5.QtWidgets import QWidget, QGridLayout
 from PyQt5.QtCore import QTimer
 
+from config import get_config
 from managers.usb_file_manager import USBFileManager
 
 from .model import EmailModel
@@ -71,6 +72,11 @@ class EmailController(QWidget):
         print("Email screen entered")
         self.view.clear_otp_input()
         self.view.show_status("")
+        try:
+            config = get_config()
+            self.view.set_email_hint(config.email_user, config.email_subject_keyword)
+        except Exception as e:
+            print(f"Could not resolve email intake hint: {e}")
         self.timeout_timer.start(60000)
 
     def on_leave(self):
@@ -94,6 +100,5 @@ class EmailController(QWidget):
         if hasattr(self.main_app, "start_global_countdown"):
             self.main_app.start_global_countdown(60)
 
-        
     def _cancel_upload(self):
-      print("QR card clicked")
+        print("QR card clicked")

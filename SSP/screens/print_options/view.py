@@ -62,12 +62,8 @@ class PrintOptionsScreenView(QWidget):
         layout.setSpacing(16)
         main_layout.addWidget(body, 1)
 
-        top_row = QHBoxLayout()
-        self.back_btn = BackButton("Back to File Browser")
+        self.back_btn = BackButton("Back to Input Selection")
         self.back_btn.clicked.connect(self.back_button_clicked.emit)
-        top_row.addWidget(self.back_btn)
-        top_row.addStretch()
-        layout.addLayout(top_row)
 
         layout.addStretch(1)
 
@@ -156,6 +152,7 @@ class PrintOptionsScreenView(QWidget):
         self.continue_btn.setMinimumHeight(44)
         self.continue_btn.clicked.connect(self.continue_button_clicked.emit)
 
+        buttons_layout.addWidget(self.back_btn, 0, Qt.AlignLeft)
         buttons_layout.addStretch()
         buttons_layout.addWidget(self.continue_btn)
         layout.addLayout(buttons_layout)

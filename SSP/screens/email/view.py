@@ -1,18 +1,14 @@
 # screens/email/view.py
 
-import os
 from PyQt5.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QStackedLayout
+    QWidget, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit
 )
 from PyQt5.QtCore import Qt, pyqtSignal
-from PyQt5.QtGui import QPixmap, QIntValidator
+from PyQt5.QtGui import QIntValidator
 
 from ui.theme import COLORS, FONT
+from ui.qr import qr_pixmap
 from ui.widgets import BackButton, Card, Header, PrimaryButton, StatusBanner
-
-
-def get_base_dir():
-    return os.path.abspath(os.path.join(os.path.dirname(__file__), '../..'))
 
 
 class EmailScreenView(QWidget):
@@ -26,36 +22,21 @@ class EmailScreenView(QWidget):
         self.setup_ui()
 
     def setup_ui(self):
-        main_layout = QStackedLayout(self)
-        main_layout.setContentsMargins(0, 0, 0, 0)
-        main_layout.setStackingMode(QStackedLayout.StackAll)
-        self.setLayout(main_layout)
-
-        self.background_label = QLabel()
-        self._load_background_image()
-
-        foreground_widget = QWidget()
-        foreground_widget.setStyleSheet("background-color: transparent;")
-
-        outer_layout = QVBoxLayout(foreground_widget)
+        outer_layout = QVBoxLayout(self)
         outer_layout.setContentsMargins(0, 0, 0, 0)
         outer_layout.setSpacing(0)
 
         outer_layout.addWidget(Header())
 
         content = QWidget()
-        content.setStyleSheet("background-color: transparent;")
+        content.setStyleSheet(f"background-color: {COLORS['bg']};")
         body_layout = QVBoxLayout(content)
         body_layout.setContentsMargins(60, 20, 60, 24)
         body_layout.setSpacing(10)
         outer_layout.addWidget(content, 1)
 
-        top_row = QHBoxLayout()
-        self.back_button = BackButton()
+        self.back_button = BackButton("Back to Input Selection")
         self.back_button.clicked.connect(self.back_button_clicked.emit)
-        top_row.addWidget(self.back_button)
-        top_row.addStretch()
-        body_layout.addLayout(top_row)
 
         body_layout.addStretch(1)
 
@@ -63,17 +44,33 @@ class EmailScreenView(QWidget):
         guide_title.setAlignment(Qt.AlignCenter)
         guide_title.setStyleSheet(f"color: {COLORS['text']}; font-size: {FONT['size_xl']}px; font-weight: 700;")
 
-        guide_text = QLabel(
-            '1. Send your PDF file/s to <b>printer_kiosk@usc.edu.ph</b>.<br><br>'
-            '2. Scan the provided QR code or input the provided OTP to proceed to the printing configuration.'
+        self.guide_text = QLabel(
+            '1. Email your PDF file(s) to the address below, with the keyword in the subject line.<br>'
+            '2. You will get a reply with a 6-digit code and a QR code.<br>'
+            '3. Enter that code below.'
         )
-        guide_text.setAlignment(Qt.AlignCenter)
-        guide_text.setWordWrap(True)
-        guide_text.setStyleSheet(f"color: {COLORS['text_secondary']}; font-size: {FONT['size_md']}px;")
+        self.guide_text.setAlignment(Qt.AlignCenter)
+        self.guide_text.setWordWrap(True)
+        self.guide_text.setStyleSheet(f"color: {COLORS['text_secondary']}; font-size: {FONT['size_md']}px;")
+
+        self.address_label = QLabel("")
+        self.address_label.setAlignment(Qt.AlignCenter)
+        self.address_label.setTextInteractionFlags(Qt.TextSelectableByMouse)
+        self.address_label.setWordWrap(True)
+        self.address_label.setStyleSheet(
+            f"color: {COLORS['text']}; font-size: {FONT['size_lg']}px; font-weight: 700;"
+        )
+
+        self.address_qr_label = QLabel("")
+        self.address_qr_label.setAlignment(Qt.AlignCenter)
 
         body_layout.addWidget(guide_title)
         body_layout.addSpacing(8)
-        body_layout.addWidget(guide_text)
+        body_layout.addWidget(self.guide_text)
+        body_layout.addSpacing(10)
+        body_layout.addWidget(self.address_label)
+        body_layout.addSpacing(8)
+        body_layout.addWidget(self.address_qr_label)
         body_layout.addSpacing(24)
 
         # QR Code Scan / Enter Code cards
@@ -123,20 +120,22 @@ class EmailScreenView(QWidget):
 
         body_layout.addStretch(2)
 
-        main_layout.addWidget(self.background_label)
-        main_layout.addWidget(foreground_widget)
-        main_layout.setCurrentWidget(foreground_widget)
+        nav_row = QHBoxLayout()
+        nav_row.addWidget(self.back_button, 0, Qt.AlignLeft)
+        nav_row.addStretch()
+        body_layout.addLayout(nav_row)
 
-    def _load_background_image(self):
-        base_dir = get_base_dir()
-        image_path = os.path.join(base_dir, 'assets', 'email_screen background.png')
-        if os.path.exists(image_path):
-            pixmap = QPixmap(image_path)
-            self.background_label.setPixmap(pixmap)
-            self.background_label.setScaledContents(True)
+    def set_email_hint(self, address: str, keyword: str):
+        """Show the submission address + required subject keyword, and a
+        mailto: QR that pre-fills both."""
+        if address:
+            self.address_label.setText(f'{address}<br>subject must contain: <b>{keyword}</b>')
+            self.address_qr_label.setPixmap(qr_pixmap(f"mailto:{address}?subject={keyword}"))
         else:
-            print(f"WARNING: Background image not found at '{image_path}'")
-            self.background_label.setStyleSheet("background-color: #ffffff;")
+            self.address_label.setText(
+                "No email account configured — set EMAIL_USER in .env"
+            )
+            self.address_qr_label.clear()
 
     def show_status(self, message, is_error=True):
         self.status_banner.show_message(message, variant="error" if is_error else "success")

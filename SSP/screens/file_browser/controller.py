@@ -92,8 +92,8 @@ class FileBrowserController(QWidget):
         self.model.load_pdf_files()
     
     def _go_back_to_idle(self):
-        """Handle back to idle button click - navigate to idle screen."""
-        self.main_app.show_screen('idle')
+        """Handle back button click - navigate to the input selection (homepage) screen."""
+        self.main_app.show_screen('homepage')
     
     def _continue_to_payment(self):
         """Handles continue to print options button click."""
