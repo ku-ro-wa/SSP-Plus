@@ -207,6 +207,16 @@ class Config:
         """Get GPIO pin number for bill acceptor inhibit/enable (active low)."""
         return self.get('BILL_INHIBIT_PIN', int)
 
+    # Admin access
+
+    @property
+    def admin_pin(self) -> str:
+        """PIN required to open the admin dialog (screens/dialogs/pin_dialog/)."""
+        try:
+            return self.get('ADMIN_PIN', str)
+        except KeyError:
+            return "1234"
+
     # Display settings
     
     @property

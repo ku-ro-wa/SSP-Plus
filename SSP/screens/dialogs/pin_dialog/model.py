@@ -1,17 +1,18 @@
 from PyQt5.QtCore import QObject, pyqtSignal, QTimer
+from config import get_config
 
 class PinDialogModel(QObject):
     """Model for the PIN Dialog - handles PIN validation logic and state management."""
-    
+
     # Signals for UI updates
     pin_updated = pyqtSignal(str)  # pin_display_text (asterisks)
     status_updated = pyqtSignal(str)  # status_message
     pin_validated = pyqtSignal(bool)  # is_valid
     clear_requested = pyqtSignal()  # request to clear input
-    
+
     def __init__(self):
         super().__init__()
-        self.CORRECT_PIN = "1234"
+        self.CORRECT_PIN = get_config().admin_pin
         self.current_pin = ""
         self.max_pin_length = 8
         
