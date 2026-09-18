@@ -17,6 +17,9 @@
 #   Phase 5 — FastAPI portal launch
 # =============================================================
 
+# Stop the script immediately if any command fails
+set -euo pipefail
+
 # =============================================================
 # PHASE 1 — SYSTEM PREPARATION
 # =============================================================
@@ -25,6 +28,14 @@ echo ">>> Phase 1: Updating system and installing dependencies..."
 
 # Refresh the package list so apt knows about the latest versions
 sudo apt update
+
+# Create .env from example if it doesn't exist
+# The app calls sys.exit(1) on startup if .env is missing
+if [ ! -f .env ]; then
+    cp .env.example .env
+    echo ">>> Created .env from .env.example"
+    echo ">>> ACTION REQUIRED: Edit .env and fill in email credentials, admin PIN, etc."
+fi
 
 # Install Python pip and venv if not already present
 sudo apt install -y python3-pip python3-venv
@@ -61,62 +72,12 @@ echo ">>> Phase 2 complete."
 echo ">>> ACTION REQUIRED: Open http://10.3.141.1 in a browser"
 echo ">>> and change the SSID to AIO-SPARK and set a password."
 
-# =============================================================
-# PHASE 3 — NODOGSPLASH (CAPTIVE PORTAL REDIRECT)
-# =============================================================
-
-echo ">>> Phase 3: Installing and configuring Nodogsplash..."
-
-# Nodogsplash intercepts the first HTTP request from any device
-# that connects to the AIO-SPARK AP and redirects their browser
-# to the FastAPI upload portal at https://10.3.141.1:8000/upload
-#
-# How it works:
-#   1. Phone connects to AIO-SPARK Wi-Fi
-#   2. Phone tries to open any website
-#   3. Nodogsplash intercepts the HTTP request
-#   4. Phone browser is redirected to the upload portal
-#   5. User uploads PDF normally from there
-
-# Install Nodogsplash from apt
-sudo apt install -y nodogsplash
-
-# Write the Nodogsplash configuration file
-# tee writes to the file and also prints to terminal
-sudo tee /etc/nodogsplash/nodogsplash.conf > /dev/null << 'EOF'
-# AIO SPARK — Nodogsplash Configuration
-
-# The Wi-Fi interface RaspAP manages
-GatewayInterface wlan0
-
-# The Pi's IP address on the AP network (RaspAP default)
-GatewayAddress 10.3.141.1
-
-# Redirect all connecting devices to the FastAPI upload portal
-RedirectURL https://10.3.141.1:8000/upload
-
-# Allow the portal itself through without authentication
-FirewallRule allow tcp port 8000
-
-# Log connections for debugging
-Syslog 1
-EOF
-
-# Enable Nodogsplash to start automatically on boot
-sudo systemctl enable nodogsplash
-
-# Start Nodogsplash now
-sudo systemctl start nodogsplash
-
-echo ">>> Phase 3 complete."
-echo ">>> Nodogsplash is running and will redirect connecting"
-echo ">>> devices to https://10.3.141.1:8000/upload"
 
 # =============================================================
-# PHASE 4 — TLS CERTIFICATE
+# PHASE 3 — TLS CERTIFICATE
 # =============================================================
 
-echo ">>> Phase 4: Generating self-signed TLS certificate..."
+echo ">>> Phase 3: Generating self-signed TLS certificate..."
 
 # Riley's generate_tls_cert.py creates two files:
 #   certs/cert.pem  — the certificate
@@ -142,9 +103,56 @@ python3 scripts/generate_tls_cert.py
 export WIFI_TLS_CERTFILE=certs/cert.pem
 export WIFI_TLS_KEYFILE=certs/key.pem
 
-echo ">>> Phase 4 complete."
+echo ">>> Phase 3 complete."
 echo ">>> Certificate saved to certs/cert.pem"
 echo ">>> Key saved to certs/key.pem"
+
+# =============================================================
+# PHASE 4 — NODOGSPLASH (CAPTIVE PORTAL REDIRECT)
+# =============================================================
+
+echo ">>> Phase 4: Installing and configuring Nodogsplash..."
+
+# Nodogsplash intercepts the first HTTP request from any device
+# that connects to the AIO-SPARK AP and redirects their browser
+# to the FastAPI upload portal at https://10.3.141.1:8000/upload
+#
+# How it works:
+#   1. Phone connects to AIO-SPARK Wi-Fi
+#   2. Phone tries to open any website
+#   3. Nodogsplash intercepts the HTTP request
+#   4. Phone browser is redirected to the upload portal
+#   5. User uploads PDF normally from there
+
+# Install Nodogsplash from apt
+sudo apt install -y nodogsplash
+
+# Check if cert was generated successfully
+# If cert exists use https, otherwise fall back to http
+
+if [ -f "certs/cert.pem" ] && [ -f "certs/key.pem" ]; then
+    PORTAL_SCHEME="https"
+else
+    PORTAL_SCHEME="http"
+    echo ">>> WARNING: TLS cert not found, falling back to http"
+fi
+
+# Write Nodogsplash config using detected scheme
+sudo tee /etc/nodogsplash/nodogsplash.conf > /dev/null << EOF
+GatewayInterface wlan0
+GatewayAddress 10.3.141.1
+RedirectURL ${PORTAL_SCHEME}://10.3.141.1:8000/upload
+FirewallRule allow tcp port 8000
+Syslog 1
+EOF
+
+# Enable and start Nodogsplash
+sudo systemctl enable nodogsplash
+sudo systemctl start nodogsplash
+
+echo ">>> Phase 4 complete."
+echo ">>> Nodogsplash will redirect connecting devices to"
+echo ">>> ${PORTAL_SCHEME}://10.3.141.1:8000/upload"
 
 # =============================================================
 # PHASE 5 — LAUNCH FASTAPI PORTAL

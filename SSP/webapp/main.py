@@ -1,4 +1,5 @@
 # webapp/main.py
+from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI
@@ -9,6 +10,8 @@ from webapp.routers import health, upload
 
 from database.models import init_db
 
+
+
 config = get_config()
 
 # /docs (Swagger UI) and /redoc are FastAPI's auto-generated API explorers,
@@ -17,11 +20,13 @@ config = get_config()
 docs_url = "/docs" if config.docs_enabled else None
 redoc_url = "/redoc" if config.docs_enabled else None
 
-app = FastAPI(title="AIO SPARK", docs_url=docs_url, redoc_url=redoc_url)
 
-@app.on_event("startup")
-def _init_database():
+@asynccontextmanager
+async def lifespan(app: FastAPI):
     init_db()
+    yield
+
+app = FastAPI(title="AIO SPARK", docs_url=docs_url, redoc_url=redoc_url, lifespan=lifespan)
     
 # Serves everything in SSP/webapp/static/ at the URL path /static/...
 # so your HTML's <img src="/static/image.png"> actually resolves.
