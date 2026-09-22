@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AIO SPARK Admin Dashboard | Accounting</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: Arial, Helvetica, sans-serif; background: #f4f4f4; color: #1a1a1a; }
+
+        header {
+            background: #000;
+            color: #fff;
+            padding: 20px 32px;
+        }
+        header h1 { font-size: 22px; font-weight: 400; }
+
+        main { max-width: 720px; margin: 32px auto; padding: 0 24px; }
+
+        .filters { display: flex; gap: 10px; margin-bottom: 20px; }
+        .filter-btn {
+            background: #fff;
+            border: 2px solid #ccc;
+            border-radius: 10px;
+            padding: 10px 18px;
+            font-size: 15px;
+            cursor: pointer;
+        }
+        .filter-btn.active { background: #000; color: #fff; border-color: #000; }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            background: #fff;
+            border-radius: 10px;
+            overflow: hidden;
+            box-shadow: 0 1px 4px rgba(0, 0, 0, .1);
+        }
+        th, td { text-align: left; padding: 14px 18px; }
+        th { background: #eee; font-weight: 600; font-size: 14px; }
+        tbody tr:not(:last-child) td { border-bottom: 1px solid #eee; }
+        td.source { text-transform: capitalize; }
+        td.numeric, th.numeric { text-align: right; }
+    </style>
+</head>
+
+<body>
+<header><h1>Accounting</h1></header>
+
+<main>
+    <div class="filters">
+        <button class="filter-btn active" data-range="today">Today</button>
+        <button class="filter-btn" data-range="week">Week</button>
+        <button class="filter-btn" data-range="month">Month</button>
+        <button class="filter-btn" data-range="all">All Time</button>
+    </div>
+
+    <table>
+        <thead>
+            <tr>
+                <th>Source</th>
+                <th class="numeric">Revenue</th>
+                <th class="numeric">Transactions</th>
+            </tr>
+        </thead>
+        <tbody id="summary-body">
+            {% for row in sources %}
+            <tr>
+                <td class="source">{{ row.source }}</td>
+                <td class="numeric">₱{{ "%.2f"|format(row.revenue) }}</td>
+                <td class="numeric">{{ row.transaction_count }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</main>
+
+<script>
+    function renderRows(sources) {
+        const tbody = document.getElementById("summary-body");
+        tbody.innerHTML = "";
+        sources.forEach((row) => {
+            const tr = document.createElement("tr");
+
+            const sourceCell = document.createElement("td");
+            sourceCell.className = "source";
+            sourceCell.textContent = row.source;
+
+            const revenueCell = document.createElement("td");
+            revenueCell.className = "numeric";
+            revenueCell.textContent = "₱" + row.revenue.toFixed(2);
+
+            const countCell = document.createElement("td");
+            countCell.className = "numeric";
+            countCell.textContent = row.transaction_count;
+
+            tr.append(sourceCell, revenueCell, countCell);
+            tbody.appendChild(tr);
+        });
+    }
+
+    async function loadRange(range) {
+        const response = await fetch(`/accounting/data?range=${range}`);
+        if (!response.ok) return;
+        const data = await response.json();
+        renderRows(data.sources);
+
+        document.querySelectorAll(".filter-btn").forEach((btn) => {
+            btn.classList.toggle("active", btn.dataset.range === range);
+        });
+    }
+
+    document.querySelectorAll(".filter-btn").forEach((btn) => {
+        btn.addEventListener("click", () => loadRange(btn.dataset.range));
+    });
+</script>
+</body>
+</html>

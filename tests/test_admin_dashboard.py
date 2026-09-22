@@ -56,6 +56,21 @@ def client(temp_db):
         app.dependency_overrides.pop(get_db, None)
 
 
+def _insert_transaction(db, source, total_cost, status="completed", timestamp=None):
+    """Seed a transactions row directly against the real schema (per issue
+    #11's testing decision for aggregate queries), bypassing
+    DatabaseManager.log_transaction since it doesn't populate `source` —
+    that write path is unrelated to issue #15's read-side aggregate
+    endpoint."""
+    db.conn.execute(
+        "INSERT INTO transactions "
+        "(timestamp, file_name, pages, copies, color_mode, total_cost, amount_paid, change_given, status, source) "
+        "VALUES (?, 'test.pdf', 1, 1, 'Color', ?, ?, 0, ?, ?)",
+        (timestamp or datetime.now(), total_cost, total_cost, status, source),
+    )
+    db.conn.commit()
+
+
 class TestPasswordHashing:
     def test_hash_is_not_the_plaintext_password(self):
         hashed = hash_password("correct horse battery staple")
@@ -300,3 +315,132 @@ class TestSessionTimeout:
         assert response.status_code == 200
         refreshed_payload = read_session_token(response.cookies[SESSION_COOKIE_NAME])
         assert refreshed_payload["last_activity"] > stale_activity
+
+
+class TestAccountingSummary:
+    """DatabaseManager.get_accounting_summary (issue #15) — the query
+    backing the /accounting/data endpoint."""
+
+    def test_groups_revenue_and_transaction_count_by_source(self, temp_db):
+        _insert_transaction(temp_db, "usb", 10.0)
+        _insert_transaction(temp_db, "usb", 5.0)
+        _insert_transaction(temp_db, "wifi", 20.0)
+        _insert_transaction(temp_db, "email", 7.5)
+
+        summary = {row["source"]: row for row in temp_db.get_accounting_summary()}
+
+        assert summary["usb"]["revenue"] == 15.0
+        assert summary["usb"]["transaction_count"] == 2
+        assert summary["wifi"]["revenue"] == 20.0
+        assert summary["wifi"]["transaction_count"] == 1
+        assert summary["email"]["revenue"] == 7.5
+        assert summary["email"]["transaction_count"] == 1
+
+    def test_zero_fills_sources_with_no_transactions(self, temp_db):
+        _insert_transaction(temp_db, "usb", 10.0)
+
+        summary = {row["source"]: row for row in temp_db.get_accounting_summary()}
+
+        assert set(summary.keys()) == {"usb", "wifi", "email", "scanner"}
+        assert summary["email"]["revenue"] == 0
+        assert summary["email"]["transaction_count"] == 0
+        assert summary["scanner"]["revenue"] == 0
+        assert summary["scanner"]["transaction_count"] == 0
+
+    def test_excludes_non_completed_transactions(self, temp_db):
+        _insert_transaction(temp_db, "usb", 10.0, status="cancelled_partial_payment")
+
+        summary = {row["source"]: row for row in temp_db.get_accounting_summary()}
+
+        assert summary["usb"]["revenue"] == 0
+        assert summary["usb"]["transaction_count"] == 0
+
+    def test_scopes_results_to_a_since_timestamp(self, temp_db):
+        old = datetime.now() - timedelta(days=10)
+        _insert_transaction(temp_db, "usb", 10.0, timestamp=old)
+        _insert_transaction(temp_db, "usb", 5.0)
+
+        summary = {
+            row["source"]: row
+            for row in temp_db.get_accounting_summary(since=datetime.now() - timedelta(days=1))
+        }
+
+        assert summary["usb"]["revenue"] == 5.0
+        assert summary["usb"]["transaction_count"] == 1
+
+    def test_a_photocopy_scanner_transaction_is_counted(self, temp_db):
+        # Per CONTEXT.md's Photocopy term, a `scanner`-sourced row only
+        # exists in `transactions` at all when the scan's destination was
+        # print — scan-to-email/download never reach this table. So any
+        # seeded `scanner` row here is, by construction, a Photocopy.
+        _insert_transaction(temp_db, "scanner", 8.0)
+
+        summary = {row["source"]: row for row in temp_db.get_accounting_summary()}
+
+        assert summary["scanner"]["revenue"] == 8.0
+        assert summary["scanner"]["transaction_count"] == 1
+
+
+class TestAccountingEndpoints:
+    """/accounting and /accounting/data (issue #15)."""
+
+    def test_data_endpoint_requires_login(self, client):
+        response = client.get("/accounting/data")
+
+        assert response.status_code == 401
+
+    def test_page_requires_login(self, client):
+        response = client.get("/accounting")
+
+        assert response.status_code == 401
+
+    def test_dev_role_can_view_the_data_endpoint_and_page(self, client, temp_db):
+        create_account(temp_db, "dev1", "s3cret!", "dev")
+        _insert_transaction(temp_db, "usb", 10.0)
+        client.post("/login", json={"username": "dev1", "password": "s3cret!"})
+
+        data_response = client.get("/accounting/data?range=all")
+        page_response = client.get("/accounting")
+
+        assert data_response.status_code == 200
+        sources = {row["source"]: row for row in data_response.json()["sources"]}
+        assert sources["usb"]["revenue"] == 10.0
+        assert page_response.status_code == 200
+        assert "usb" in page_response.text
+
+    def test_admin_role_can_view_the_data_endpoint_and_page(self, client, temp_db):
+        create_account(temp_db, "admin1", "s3cret!", "admin")
+        _insert_transaction(temp_db, "usb", 10.0)
+        client.post("/login", json={"username": "admin1", "password": "s3cret!"})
+
+        data_response = client.get("/accounting/data?range=all")
+        page_response = client.get("/accounting")
+
+        assert data_response.status_code == 200
+        assert page_response.status_code == 200
+
+    def test_time_filter_scopes_the_data_endpoint(self, client, temp_db):
+        create_account(temp_db, "dev1", "s3cret!", "dev")
+        old = datetime.now() - timedelta(days=40)
+        _insert_transaction(temp_db, "usb", 10.0, timestamp=old)
+        _insert_transaction(temp_db, "usb", 5.0)
+        client.post("/login", json={"username": "dev1", "password": "s3cret!"})
+
+        month_response = client.get("/accounting/data?range=month")
+        all_response = client.get("/accounting/data?range=all")
+
+        month_sources = {row["source"]: row for row in month_response.json()["sources"]}
+        all_sources = {row["source"]: row for row in all_response.json()["sources"]}
+        assert month_sources["usb"]["revenue"] == 5.0
+        assert all_sources["usb"]["revenue"] == 15.0
+
+    def test_today_filter_excludes_transactions_from_a_prior_day(self, client, temp_db):
+        create_account(temp_db, "dev1", "s3cret!", "dev")
+        yesterday = datetime.now() - timedelta(days=1)
+        _insert_transaction(temp_db, "usb", 10.0, timestamp=yesterday)
+        client.post("/login", json={"username": "dev1", "password": "s3cret!"})
+
+        response = client.get("/accounting/data?range=today")
+
+        sources = {row["source"]: row for row in response.json()["sources"]}
+        assert sources["usb"]["revenue"] == 0

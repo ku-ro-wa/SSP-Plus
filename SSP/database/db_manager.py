@@ -5,6 +5,11 @@ import sqlite3
 import os
 from datetime import datetime
 
+# Canonical Source vocabulary (CONTEXT.md's Source term) — the fixed
+# grouping key for the Admin Dashboard's accounting summary.
+ACCOUNTING_SOURCES = ("usb", "wifi", "email", "scanner")
+
+
 class DatabaseManager:
     def __init__(self, db_name="ssp_database.db", db_path=None):
         # db_path lets callers (tests, the demo/fixture DB) point at an
@@ -612,6 +617,43 @@ class DatabaseManager:
         else:
             cursor.execute("SELECT * FROM dashboard_login_log ORDER BY id")
         return cursor.fetchall()
+
+    # --- NEW: Admin Dashboard accounting aggregates (issue #15) ---
+    def get_accounting_summary(self, since=None):
+        """Per-Source revenue (sum of total_cost) and transaction count for
+        completed transactions, optionally scoped to timestamp >= `since`.
+        Always returns one row per canonical Source (see CONTEXT.md's
+        Source term), zero-filled for a source with no matching rows in
+        the window, in a fixed order — so the accounting page's table
+        shape never depends on which sources happen to have data.
+
+        A `scanner`-sourced row is counted the same as any other: per
+        CONTEXT.md's Photocopy term, scan-to-email/download never produce
+        a transactions row at all, so any `scanner` row here already
+        represents a printed Photocopy."""
+        if not self.conn:
+            return []
+        try:
+            cursor = self.conn.cursor()
+            query = (
+                "SELECT source, COALESCE(SUM(total_cost), 0) AS revenue, COUNT(*) AS transaction_count "
+                "FROM transactions WHERE status = 'completed' AND source IS NOT NULL"
+            )
+            params = []
+            if since is not None:
+                query += " AND timestamp >= ?"
+                params.append(since)
+            query += " GROUP BY source"
+            cursor.execute(query, params)
+            by_source = {row["source"]: row for row in cursor.fetchall()}
+            empty = {"revenue": 0, "transaction_count": 0}
+            return [
+                {"source": source, **by_source.get(source, empty)}
+                for source in ACCOUNTING_SOURCES
+            ]
+        except sqlite3.Error as e:
+            print(f"Error getting accounting summary: {e}")
+            return []
 
     def get_supplies_status_with_cmyk(self):
         """Get current supplies status including CMYK ink levels."""

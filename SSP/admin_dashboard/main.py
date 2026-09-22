@@ -11,7 +11,7 @@
 from fastapi import FastAPI
 
 from config import get_config
-from admin_dashboard.routers import auth
+from admin_dashboard.routers import accounting, auth
 
 config = get_config()
 
@@ -23,6 +23,7 @@ redoc_url = "/redoc" if config.docs_enabled else None
 app = FastAPI(title="AIO SPARK Admin Dashboard", docs_url=docs_url, redoc_url=redoc_url)
 
 app.include_router(auth.router)
+app.include_router(accounting.router)
 
 
 if __name__ == "__main__":
