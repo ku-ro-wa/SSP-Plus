@@ -103,6 +103,7 @@ class PrintOptionsController(QWidget):
         if not payment_data:
             QMessageBox.warning(self, "Please Wait", "Cost calculation is still in progress.")
             return
+        payment_data['source'] = self.source
         
         # Check paper availability before proceeding to payment
         total_pages = len(payment_data['selected_pages']) * payment_data['copies']
@@ -132,7 +133,7 @@ class PrintOptionsController(QWidget):
     
     # --- Public API for main_app ---
     
-    def set_pdf_data(self, pdf_data, selected_pages, source="None"):
+    def set_pdf_data(self, pdf_data, selected_pages, source=None):
         """Sets the PDF data and selected pages for printing."""
         self.source = source
         self.model.set_pdf_data(pdf_data, selected_pages)

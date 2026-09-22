@@ -59,8 +59,10 @@ FIXTURES = [
 
 def seed_transaction(conn, source, total_cost, status="completed", timestamp=None):
     """Raw insert against the real `transactions` schema, bypassing
-    DatabaseManager.log_transaction (it doesn't populate `source` — that
-    write path is unrelated to issue #15's read-side aggregate endpoint).
+    DatabaseManager.log_transaction — this script targets the separate
+    SIM_MODE-gated demo DB (`SIM_DB_PATH`), never the real `ssp_database.db`
+    that log_transaction writes to, so going through the real kiosk print
+    flow isn't an option here regardless of what log_transaction does.
     Shared by this script's fixture data and
     tests/test_admin_dashboard.py's transaction-seeding tests, so the one
     raw-SQL shape only needs to be kept in sync with the schema in one
