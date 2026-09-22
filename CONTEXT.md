@@ -1,8 +1,9 @@
 # SSP-Plus / AIO SPARK
 
-The self-service printing kiosk and the backend services that feed documents into it.
-This glossary covers the vocabulary of the **intake** side — how a document gets from a
-user's phone or inbox onto the kiosk and into the print path.
+The self-service printing kiosk and the backend services around it. The glossary is
+grouped by area: **intake** (how a document gets from a user's phone or inbox onto the
+kiosk and into the print path) and the **Admin Dashboard** (the separate web-based
+reporting/back-office surface, see `docs/adr/0002-admin-dashboard-auth-and-remote-access-architecture.md`).
 
 ## Language
 
@@ -23,7 +24,8 @@ _Avoid_: flow (reserve "flow" for informal use), user story.
 **Source**:
 Which intake path a document arrived through: `usb`, `wifi`, `email`, or `scanner`. Stored
 on the session and carried through the kiosk screens for reporting; it does not change how
-the document prints.
+the document prints. This is also the grouping key behind the Admin Dashboard's per-service
+revenue view (see **Photocopy** for the `scanner` case).
 _Avoid_: channel, method, origin, modality.
 
 **Session**:
@@ -64,3 +66,32 @@ One pass of the email poller: fetch unseen inbox messages, process each (subject
 extract, session create, reply), and record the outcome so the same message is never
 processed twice.
 _Avoid_: sweep, tick, scan.
+
+### Admin Dashboard
+
+**Kiosk Admin**:
+The PIN-gated `screens/admin` surface reached at the touchscreen, with full read/write
+control over paper, coin, and CMYK state. A physical-possession threat model — unrelated to
+the Admin Dashboard's login. Always say "Kiosk Admin" rather than bare "admin" when the web
+dashboard is anywhere nearby in the conversation, since the dashboard also has a role called
+`admin` (see **Dashboard admin role**) that is *less* privileged than Kiosk Admin, not more.
+_Avoid_: admin (unqualified).
+
+**Login session**:
+The signed, cookie-based session created when a Dashboard user authenticates, with a sliding
+inactivity timeout. Unrelated to **Session** above — the two are different concepts that
+happen to share the English word "session"; only Login session belongs to the Admin
+Dashboard.
+_Avoid_: session (unqualified), auth session.
+
+**Dashboard admin role**:
+One of the Admin Dashboard's two account roles (`dev`: full read/write; `admin`: read-only).
+A network-login threat model, distinct from and less privileged than Kiosk Admin despite the
+shared name. See `docs/adr/0002-admin-dashboard-auth-and-remote-access-architecture.md`.
+_Avoid_: admin (unqualified).
+
+**Photocopy**:
+An on-kiosk transaction whose Source is `scanner` and whose destination is the print path,
+as opposed to scan-to-email or scan-to-session-download. Not a separate intake path of its
+own — it's the one `scanner`-sourced case the Admin Dashboard's revenue view counts.
+_Avoid_: copy job, scan job (ambiguous with the non-print scan destinations).
