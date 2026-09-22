@@ -2,19 +2,34 @@ import os
 import sqlite3
 from datetime import datetime
 
-def init_db():
+
+def _column_exists(cursor, table, column):
+    """Whether `column` is present on `table`, via PRAGMA table_info (SQLite
+    has no ADD COLUMN IF NOT EXISTS, so callers use this to stay idempotent)."""
+    cursor.execute(f"PRAGMA table_info({table})")
+    return any(row[1] == column for row in cursor.fetchall())
+
+
+def _add_column_if_missing(cursor, table, column, column_def):
+    """Idempotently add `column` to an already-existing `table`. Safe to call
+    against a table created fresh this run (no-op, since CREATE TABLE never
+    defines this column itself) or one that predates the column (adds it
+    without touching existing rows)."""
+    if not _column_exists(cursor, table, column):
+        cursor.execute(f"ALTER TABLE {table} ADD COLUMN {column} {column_def}")
+
+
+def init_db(db_path=None):
     """Initialize the database and create tables if they don't exist"""
-    # Get absolute path to database directory
-    base_dir = os.path.dirname(os.path.dirname(__file__))
-    db_dir = os.path.join(base_dir, 'database')
-    db_path = os.path.join(db_dir, 'ssp_database.db')
-    
-    # Create database directory if it doesn't exist
-    os.makedirs(db_dir, exist_ok=True)
-    
-    print(f"Database directory: {db_dir}")
+    if db_path is None:
+        # Get absolute path to database directory
+        base_dir = os.path.dirname(os.path.dirname(__file__))
+        db_dir = os.path.join(base_dir, 'database')
+        db_path = os.path.join(db_dir, 'ssp_database.db')
+        os.makedirs(db_dir, exist_ok=True)
+
     print(f"Database path: {db_path}")
-    
+
     # Connect to database (creates it if it doesn't exist)
     conn = sqlite3.connect(db_path)
     cursor = conn.cursor()
@@ -38,6 +53,13 @@ def init_db():
     )
     ''')
     print("OK - Created transactions table")
+
+    # Source column (which intake path a transaction came through — see
+    # CONTEXT.md's Source term: usb/wifi/email/scanner). Added via migration
+    # rather than the CREATE TABLE above so the same idempotent path handles
+    # both a brand-new table and a pre-existing one that predates this column.
+    _add_column_if_missing(cursor, 'transactions', 'source', 'TEXT')
+    print("OK - Ensured transactions.source column")
 
     # Create CashInventory table
     cursor.execute('''
@@ -133,6 +155,27 @@ def init_db():
     )
     ''')
     print("OK - Created email_intake_log table")
+
+    # Create Users table (Admin Dashboard accounts — see CONTEXT.md's
+    # "Dashboard admin role" term and docs/adr/0002-admin-dashboard-auth-and-
+    # remote-access-architecture.md. Unrelated to the touchscreen ADMIN_PIN.
+    # `role` is free-form text rather than a CHECK/enum constraint so more
+    # roles can be added later without a migration that touches existing
+    # rows. `failed_attempts`/`locked_until` are provisioned now (unused
+    # until lockout logic lands) for the same reason — no later migration
+    # needed to add them.
+    cursor.execute('''
+    CREATE TABLE IF NOT EXISTS users (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        username TEXT UNIQUE NOT NULL,
+        password_hash TEXT NOT NULL,
+        role TEXT NOT NULL,
+        created_at DATETIME NOT NULL,
+        failed_attempts INTEGER NOT NULL DEFAULT 0,
+        locked_until DATETIME
+    )
+    ''')
+    print("OK - Created users table")
 
     # Initialize default settings if they don't exist
     cursor.execute("INSERT OR IGNORE INTO settings (key, value) VALUES ('paper_count', '100')")

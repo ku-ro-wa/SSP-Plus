@@ -85,3 +85,17 @@ All runtime config comes from `.env` via `config.py`'s `get_config()` (global `C
 ## Workflow
 
 `main` is protected — PRs require one review before merge. Branch as `feature/<module>`. Hardware-dependent PRs (GPIO, printer, SMS) need a confirmed run on actual kiosk hardware before merge, since `make run-sim`/CI only exercise the simulated paths.
+
+## Agent skills
+
+### Issue tracker
+
+Issues live as GitHub issues in ku-ro-wa/SSP-Plus, via the gh CLI. See `docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+Default vocabulary (needs-triage, needs-info, ready-for-agent, ready-for-human, wontfix). See `docs/agents/triage-labels.md`.
+
+### Domain docs
+
+Single-context: root CONTEXT.md + docs/adr/. See `docs/agents/domain.md`.
