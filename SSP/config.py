@@ -434,6 +434,28 @@ class Config:
         except KeyError:
             return 3
 
+    # Admin Dashboard (SSP/admin_dashboard) — separate FastAPI/Uvicorn
+    # process from the Wi-Fi portal, see
+    # docs/adr/0002-admin-dashboard-auth-and-remote-access-architecture.md.
+
+    @property
+    def admin_dashboard_port(self) -> int:
+        """Port the dashboard's own Uvicorn instance listens on — distinct
+        from the Wi-Fi portal's port so the two processes never collide."""
+        try:
+            return self.get('ADMIN_DASHBOARD_PORT', int)
+        except KeyError:
+            return 8100
+
+    @property
+    def admin_dashboard_secret_key(self) -> str:
+        """Secret used to sign the dashboard's login session cookie. Override
+        before deploying to a real kiosk — this default is dev-only."""
+        try:
+            return self.get('ADMIN_DASHBOARD_SECRET_KEY', str)
+        except KeyError:
+            return "dev-insecure-secret-change-me"
+
     @property
     def scan_upload_dir(self) -> str:
         """Directory scanner-composed PDFs are copied to before being handed

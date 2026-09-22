@@ -6,12 +6,19 @@ import os
 from datetime import datetime
 
 class DatabaseManager:
-    def __init__(self, db_name="ssp_database.db"):
-        # Use the same database file as models.py
-        base_dir = os.path.dirname(os.path.dirname(__file__))
-        db_dir = os.path.join(base_dir, 'database')
-        os.makedirs(db_dir, exist_ok=True)
-        self.db_path = os.path.join(db_dir, db_name)
+    def __init__(self, db_name="ssp_database.db", db_path=None):
+        # db_path lets callers (tests, the demo/fixture DB) point at an
+        # arbitrary SQLite file instead of the fixed database/ directory
+        # below — used e.g. by the admin dashboard's test suite to run
+        # against a temp file seeded via models.init_db().
+        if db_path is not None:
+            self.db_path = db_path
+        else:
+            # Use the same database file as models.py
+            base_dir = os.path.dirname(os.path.dirname(__file__))
+            db_dir = os.path.join(base_dir, 'database')
+            os.makedirs(db_dir, exist_ok=True)
+            self.db_path = os.path.join(db_dir, db_name)
         self.conn = None
         self.connect()
         # Remove create_tables() call since models.py handles initialization
@@ -471,6 +478,56 @@ class DatabaseManager:
             return cursor.rowcount == 1
         except sqlite3.Error as e:
             print(f"Error logging email intake for uid {uid}: {e}")
+            return False
+
+    # --- NEW: Admin Dashboard user account methods (see admin_dashboard/) ---
+    def get_user_by_username(self, username):
+        """Fetch a dashboard account row by username, or None."""
+        if not self.conn:
+            return None
+        try:
+            cursor = self.conn.cursor()
+            cursor.execute("SELECT * FROM users WHERE username = ?", (username,))
+            return cursor.fetchone()
+        except sqlite3.Error as e:
+            print(f"Error getting user '{username}': {e}")
+            return None
+
+    def create_user(self, username, password_hash, role):
+        """Insert a new dashboard account. `password_hash` must already be
+        hashed (Argon2id) by the caller — never store a plaintext password.
+        Returns True on success, False if the username is already taken."""
+        if not self.conn:
+            return False
+        try:
+            cursor = self.conn.cursor()
+            cursor.execute(
+                "INSERT INTO users (username, password_hash, role, created_at) VALUES (?, ?, ?, ?)",
+                (username, password_hash, role, datetime.now())
+            )
+            self.conn.commit()
+            return True
+        except sqlite3.IntegrityError:
+            return False
+        except sqlite3.Error as e:
+            print(f"Error creating user '{username}': {e}")
+            return False
+
+    def update_user_password(self, username, password_hash):
+        """Reset an existing account's password hash. Returns True if a
+        matching account was found and updated, False otherwise."""
+        if not self.conn:
+            return False
+        try:
+            cursor = self.conn.cursor()
+            cursor.execute(
+                "UPDATE users SET password_hash = ? WHERE username = ?",
+                (password_hash, username)
+            )
+            self.conn.commit()
+            return cursor.rowcount == 1
+        except sqlite3.Error as e:
+            print(f"Error updating password for '{username}': {e}")
             return False
 
     def get_supplies_status_with_cmyk(self):
