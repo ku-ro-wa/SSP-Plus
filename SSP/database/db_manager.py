@@ -530,6 +530,89 @@ class DatabaseManager:
             print(f"Error updating password for '{username}': {e}")
             return False
 
+    # --- NEW: Admin Dashboard lockout + login audit log (issue #14) ---
+    def increment_failed_login_attempts(self, username):
+        """Increment a user's consecutive-failed-attempt counter. Returns the
+        new count, or None if the user doesn't exist / on error."""
+        if not self.conn:
+            return None
+        try:
+            cursor = self.conn.cursor()
+            cursor.execute(
+                "UPDATE users SET failed_attempts = failed_attempts + 1 WHERE username = ?",
+                (username,)
+            )
+            self.conn.commit()
+            cursor.execute("SELECT failed_attempts FROM users WHERE username = ?", (username,))
+            row = cursor.fetchone()
+            return row["failed_attempts"] if row else None
+        except sqlite3.Error as e:
+            print(f"Error incrementing failed attempts for '{username}': {e}")
+            return None
+
+    def set_account_lock(self, username, locked_until):
+        """Lock `username` out of login until `locked_until`."""
+        if not self.conn:
+            return False
+        try:
+            cursor = self.conn.cursor()
+            cursor.execute(
+                "UPDATE users SET locked_until = ? WHERE username = ?",
+                (locked_until, username)
+            )
+            self.conn.commit()
+            return cursor.rowcount == 1
+        except sqlite3.Error as e:
+            print(f"Error locking account '{username}': {e}")
+            return False
+
+    def reset_failed_login_attempts(self, username):
+        """Clear a user's failed-attempt counter and any active lock —
+        called after a successful login."""
+        if not self.conn:
+            return False
+        try:
+            cursor = self.conn.cursor()
+            cursor.execute(
+                "UPDATE users SET failed_attempts = 0, locked_until = NULL WHERE username = ?",
+                (username,)
+            )
+            self.conn.commit()
+            return cursor.rowcount == 1
+        except sqlite3.Error as e:
+            print(f"Error resetting failed attempts for '{username}': {e}")
+            return False
+
+    def record_login_attempt(self, username, success, source_ip):
+        """Append a row to the dashboard login audit log. Called for every
+        login attempt, successful or not, including unknown usernames."""
+        if not self.conn:
+            return False
+        try:
+            cursor = self.conn.cursor()
+            cursor.execute(
+                "INSERT INTO dashboard_login_log (timestamp, username, success, source_ip) "
+                "VALUES (?, ?, ?, ?)",
+                (datetime.now(), username, success, source_ip)
+            )
+            self.conn.commit()
+            return True
+        except sqlite3.Error as e:
+            print(f"Error recording login attempt for '{username}': {e}")
+            return False
+
+    def get_login_log(self, username=None):
+        """Return dashboard login audit log rows in insertion order,
+        optionally filtered by username."""
+        if not self.conn:
+            return []
+        cursor = self.conn.cursor()
+        if username is not None:
+            cursor.execute("SELECT * FROM dashboard_login_log WHERE username = ? ORDER BY id", (username,))
+        else:
+            cursor.execute("SELECT * FROM dashboard_login_log ORDER BY id")
+        return cursor.fetchall()
+
     def get_supplies_status_with_cmyk(self):
         """Get current supplies status including CMYK ink levels."""
         if not self.conn:
