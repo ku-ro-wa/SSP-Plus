@@ -9,6 +9,13 @@ from datetime import datetime
 # grouping key for the Admin Dashboard's accounting summary.
 ACCOUNTING_SOURCES = ("usb", "wifi", "email", "scanner")
 
+# The demo/fixture SQLite file admin_dashboard/seed_demo_data.py populates
+# (issue #18) — a completely separate file from the real ssp_database.db,
+# read instead of it only when SIM_MODE=true (see
+# admin_dashboard/dependencies.py). Already covered by .gitignore's
+# `SSP/database/*.db` pattern.
+SIM_DB_NAME = "ssp_database.sim.db"
+
 
 class DatabaseManager:
     def __init__(self, db_name="ssp_database.db", db_path=None):

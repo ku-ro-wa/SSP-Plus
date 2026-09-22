@@ -16,7 +16,7 @@ from typing import Optional
 
 from argon2 import PasswordHasher
 from argon2.exceptions import VerifyMismatchError, InvalidHash
-from fastapi import Cookie, HTTPException, Response, status
+from fastapi import Cookie, Depends, HTTPException, Response, status
 from itsdangerous import BadSignature, URLSafeSerializer
 
 from config import get_config
@@ -91,6 +91,17 @@ def get_current_user(
         samesite="lax",
     )
     return {"username": payload["username"], "role": payload["role"]}
+
+
+def require_dev(current_user: dict = Depends(get_current_user)) -> dict:
+    """Role-gating dependency for write actions the read-only `admin` role
+    must not reach (issue #17's paper-count reset). Layers on top of
+    get_current_user, so an unauthenticated request still gets 401 before
+    the role check ever runs — only an authenticated non-`dev` user gets
+    403."""
+    if current_user["role"] != "dev":
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Requires the dev role")
+    return current_user
 
 
 def is_locked_out(user: dict) -> bool:

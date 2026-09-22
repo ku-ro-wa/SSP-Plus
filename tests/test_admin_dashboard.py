@@ -1,8 +1,11 @@
 """
 Integration tests for the Admin Dashboard process: the users table via
 DatabaseManager, the CLI's account-creation/reset functions, /login + the
-protected /me endpoint on admin_dashboard.main:app (issue #13), and session
-sliding-timeout, lockout, and the login audit log (issue #14).
+protected /me endpoint on admin_dashboard.main:app (issue #13), session
+sliding-timeout, lockout, and the login audit log (issue #14), the
+accounting aggregate endpoint + summary table (issue #15), the vendored
+Chart.js asset (issue #16), the dev-only paper-count reset endpoint (issue
+#17), and the SIM_MODE-gated demo/fixture seed script (issue #18).
 
 Follows the same TestClient + dependency-override pattern as
 tests/test_webapp.py, but per issue #11's testing decisions, points get_db
@@ -28,7 +31,9 @@ from admin_dashboard.auth import (
 )
 from admin_dashboard.cli import create_account, reset_password
 from admin_dashboard.dependencies import get_db
-from database.db_manager import DatabaseManager
+from admin_dashboard.routers.accounting import PAPER_FULL_COUNT
+from admin_dashboard.seed_demo_data import FIXTURES, SIM_DB_PATH, seed, seed_transaction
+from database.db_manager import SIM_DB_NAME, DatabaseManager
 from database.models import init_db
 
 
@@ -58,16 +63,11 @@ def client(temp_db):
 
 def _insert_transaction(db, source, total_cost, status="completed", timestamp=None):
     """Seed a transactions row directly against the real schema (per issue
-    #11's testing decision for aggregate queries), bypassing
-    DatabaseManager.log_transaction since it doesn't populate `source` —
-    that write path is unrelated to issue #15's read-side aggregate
-    endpoint."""
-    db.conn.execute(
-        "INSERT INTO transactions "
-        "(timestamp, file_name, pages, copies, color_mode, total_cost, amount_paid, change_given, status, source) "
-        "VALUES (?, 'test.pdf', 1, 1, 'Color', ?, ?, 0, ?, ?)",
-        (timestamp or datetime.now(), total_cost, total_cost, status, source),
-    )
+    #11's testing decision for aggregate queries) via seed_demo_data's
+    shared seed_transaction helper, since DatabaseManager.log_transaction
+    doesn't populate `source` — that write path is unrelated to issue #15's
+    read-side aggregate endpoint."""
+    seed_transaction(db.conn, source, total_cost, status=status, timestamp=timestamp)
     db.conn.commit()
 
 
@@ -444,3 +444,184 @@ class TestAccountingEndpoints:
 
         sources = {row["source"]: row for row in response.json()["sources"]}
         assert sources["usb"]["revenue"] == 0
+
+
+class TestChartAsset:
+    """The vendored Chart.js bar chart on /accounting (issue #16)."""
+
+    def test_chartjs_is_served_from_the_dashboards_own_static_files(self, client):
+        response = client.get("/static/js/chart.umd.min.js")
+
+        assert response.status_code == 200
+        assert "Chart" in response.text
+
+    def test_accounting_page_references_only_the_local_chart_asset(self, client, temp_db):
+        create_account(temp_db, "dev1", "s3cret!", "dev")
+        client.post("/login", json={"username": "dev1", "password": "s3cret!"})
+
+        response = client.get("/accounting")
+
+        assert 'src="/static/js/chart.umd.min.js"' in response.text
+        # No CDN dependency (issue #16's AC) — nothing fetched from an
+        # external host anywhere in the page.
+        assert "cdn." not in response.text
+        assert "http://" not in response.text
+        assert "https://" not in response.text
+
+    def test_accounting_page_embeds_the_initial_chart_data(self, client, temp_db):
+        create_account(temp_db, "dev1", "s3cret!", "dev")
+        _insert_transaction(temp_db, "usb", 10.0)
+        client.post("/login", json={"username": "dev1", "password": "s3cret!"})
+
+        response = client.get("/accounting")
+
+        assert '"source": "usb"' in response.text or '"source":"usb"' in response.text
+
+
+class TestPaperReset:
+    """The dev-only paper-count reset endpoint (issue #17)."""
+
+    def test_dev_role_can_reset_the_paper_count(self, client, temp_db):
+        create_account(temp_db, "dev1", "s3cret!", "dev")
+        temp_db.update_paper_count(3)
+        client.post("/login", json={"username": "dev1", "password": "s3cret!"})
+
+        response = client.post("/paper-reset")
+
+        assert response.status_code == 200
+        assert response.json() == {"paper_count": PAPER_FULL_COUNT}
+        assert temp_db.get_setting("paper_count", default=None) == PAPER_FULL_COUNT
+
+    def test_admin_role_is_forbidden_and_paper_count_is_unchanged(self, client, temp_db):
+        create_account(temp_db, "admin1", "s3cret!", "admin")
+        temp_db.update_paper_count(3)
+        client.post("/login", json={"username": "admin1", "password": "s3cret!"})
+
+        response = client.post("/paper-reset")
+
+        assert response.status_code == 403
+        assert temp_db.get_setting("paper_count", default=None) == 3
+
+    def test_unauthenticated_request_is_rejected_and_paper_count_is_unchanged(self, client, temp_db):
+        temp_db.update_paper_count(3)
+
+        response = client.post("/paper-reset")
+
+        assert response.status_code == 401
+        assert temp_db.get_setting("paper_count", default=None) == 3
+
+
+class TestDemoSeedScript:
+    """The SIM_MODE-gated demo/fixture seed script (issue #18)."""
+
+    def test_seeds_a_file_distinct_from_the_real_database(self):
+        assert SIM_DB_PATH.name != "ssp_database.db"
+        assert SIM_DB_NAME != "ssp_database.db"
+
+    def test_populates_all_four_sources(self, tmp_path):
+        db_path = tmp_path / "demo.sim.db"
+
+        seed(db_path)
+
+        db = DatabaseManager(db_path=str(db_path))
+        try:
+            summary = {row["source"]: row for row in db.get_accounting_summary()}
+        finally:
+            db.close()
+        assert set(summary.keys()) == {"usb", "wifi", "email", "scanner"}
+        for source in ("usb", "wifi", "email", "scanner"):
+            assert summary[source]["transaction_count"] > 0
+
+    def test_fixtures_span_every_time_filter_distinctly(self, tmp_path):
+        db_path = tmp_path / "demo.sim.db"
+
+        seed(db_path)
+
+        db = DatabaseManager(db_path=str(db_path))
+        try:
+            today = sum(row["revenue"] for row in db.get_accounting_summary(
+                since=datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)))
+            week = sum(row["revenue"] for row in db.get_accounting_summary(
+                since=datetime.now() - timedelta(days=7)))
+            month = sum(row["revenue"] for row in db.get_accounting_summary(
+                since=datetime.now() - timedelta(days=30)))
+            all_time = sum(row["revenue"] for row in db.get_accounting_summary())
+        finally:
+            db.close()
+        # Strictly increasing as the window widens — each filter shows a
+        # different, non-empty total (issue #18's AC).
+        assert 0 < today < week < month < all_time
+
+    def test_never_writes_to_the_real_database_path(self, tmp_path):
+        real_db_path = tmp_path / "ssp_database.db"
+        demo_db_path = tmp_path / "demo.sim.db"
+
+        seed(demo_db_path)
+
+        assert not real_db_path.exists()
+
+    def test_running_it_twice_appends_a_second_set_of_fixtures(self, tmp_path):
+        # #18 doesn't ask for idempotency (unlike #12's schema migration) —
+        # this just documents the actual behavior: init_db() is idempotent,
+        # but seed()'s inserts are not, so a second run doubles the rows.
+        db_path = tmp_path / "demo.sim.db"
+
+        seed(db_path)
+        seed(db_path)
+
+        db = DatabaseManager(db_path=str(db_path))
+        try:
+            total_count = sum(row["transaction_count"] for row in db.get_accounting_summary())
+        finally:
+            db.close()
+        assert total_count == 2 * len(FIXTURES)
+
+    def test_main_refuses_to_run_when_sim_mode_is_not_enabled(self, monkeypatch):
+        from admin_dashboard import seed_demo_data
+
+        monkeypatch.setenv("SIM_MODE", "false")
+        with pytest.raises(SystemExit):
+            seed_demo_data.main()
+
+    def test_get_db_reads_the_demo_file_when_sim_mode_is_enabled(self, monkeypatch):
+        monkeypatch.setenv("SIM_MODE", "true")
+        pre_existing = SIM_DB_PATH.exists()
+
+        gen = get_db()
+        db = next(gen)
+        try:
+            assert db.db_path.endswith(SIM_DB_NAME)
+        finally:
+            gen.close()
+            if not pre_existing and SIM_DB_PATH.exists():
+                SIM_DB_PATH.unlink()
+
+    def test_accounting_page_visibly_shows_seeded_demo_data_in_sim_mode(self, monkeypatch):
+        """AC4: 'With SIM_MODE=true, the dashboard reads from the seeded
+        demo file and visibly displays the fixture data in the summary
+        table/chart.' Driven through real HTTP with get_db left un-overridden
+        (per issue #11's 'one seam, in-process HTTP' testing decision), the
+        one test in this file that doesn't use the client/temp_db fixtures —
+        it needs the app's real SIM_MODE-aware get_db, not the fixture
+        override every other test relies on."""
+        monkeypatch.setenv("SIM_MODE", "true")
+        pre_existing = SIM_DB_PATH.exists()
+
+        seed()
+        seeded_db = DatabaseManager(db_path=str(SIM_DB_PATH))
+        try:
+            create_account(seeded_db, "simdemo", "s3cret!", "dev")
+        finally:
+            seeded_db.close()
+
+        try:
+            sim_client = TestClient(app)
+            sim_client.post("/login", json={"username": "simdemo", "password": "s3cret!"})
+
+            response = sim_client.get("/accounting")
+
+            assert response.status_code == 200
+            assert "usb" in response.text
+        finally:
+            if not pre_existing and SIM_DB_PATH.exists():
+                SIM_DB_PATH.unlink()

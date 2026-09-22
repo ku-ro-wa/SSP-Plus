@@ -41,6 +41,14 @@
         tbody tr:not(:last-child) td { border-bottom: 1px solid #eee; }
         td.source { text-transform: capitalize; }
         td.numeric, th.numeric { text-align: right; }
+
+        .chart-card {
+            background: #fff;
+            border-radius: 10px;
+            box-shadow: 0 1px 4px rgba(0, 0, 0, .1);
+            padding: 20px;
+            margin-bottom: 20px;
+        }
     </style>
 </head>
 
@@ -53,6 +61,10 @@
         <button class="filter-btn" data-range="week">Week</button>
         <button class="filter-btn" data-range="month">Month</button>
         <button class="filter-btn" data-range="all">All Time</button>
+    </div>
+
+    <div class="chart-card">
+        <canvas id="source-chart" height="220"></canvas>
     </div>
 
     <table>
@@ -75,7 +87,14 @@
     </table>
 </main>
 
+<!-- Vendored locally (issue #16) — no CDN fetch, since this is a
+     local-first, possibly-offline surface. Served from the dashboard's own
+     static files (admin_dashboard/main.py's /static mount). -->
+<script src="/static/js/chart.umd.min.js"></script>
 <script>
+    const initialSources = {{ sources_json | safe }};
+    let sourceChart;
+
     function renderRows(sources) {
         const tbody = document.getElementById("summary-body");
         tbody.innerHTML = "";
@@ -99,11 +118,44 @@
         });
     }
 
+    function renderChart(sources) {
+        const labels = sources.map((row) => row.source);
+        const revenue = sources.map((row) => row.revenue);
+        const counts = sources.map((row) => row.transaction_count);
+
+        if (sourceChart) {
+            sourceChart.data.labels = labels;
+            sourceChart.data.datasets[0].data = revenue;
+            sourceChart.data.datasets[1].data = counts;
+            sourceChart.update();
+            return;
+        }
+
+        sourceChart = new Chart(document.getElementById("source-chart"), {
+            type: "bar",
+            data: {
+                labels,
+                datasets: [
+                    { label: "Revenue (₱)", data: revenue, backgroundColor: "#000", yAxisID: "y" },
+                    { label: "Transactions", data: counts, backgroundColor: "#999", yAxisID: "y1" },
+                ],
+            },
+            options: {
+                responsive: true,
+                scales: {
+                    y: { beginAtZero: true, position: "left" },
+                    y1: { beginAtZero: true, position: "right", grid: { drawOnChartArea: false } },
+                },
+            },
+        });
+    }
+
     async function loadRange(range) {
         const response = await fetch(`/accounting/data?range=${range}`);
         if (!response.ok) return;
         const data = await response.json();
         renderRows(data.sources);
+        renderChart(data.sources);
 
         document.querySelectorAll(".filter-btn").forEach((btn) => {
             btn.classList.toggle("active", btn.dataset.range === range);
@@ -113,6 +165,8 @@
     document.querySelectorAll(".filter-btn").forEach((btn) => {
         btn.addEventListener("click", () => loadRange(btn.dataset.range));
     });
+
+    renderChart(initialSources);
 </script>
 </body>
 </html>
