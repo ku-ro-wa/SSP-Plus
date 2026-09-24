@@ -7,12 +7,15 @@
 # Run by hand on the kiosk:
 #   python -m admin_dashboard.cli create-account --username alice --password ... --role dev
 #   python -m admin_dashboard.cli reset-password --username alice --password ...
+#
+# Uses the same DB file as the running dashboard (dependencies.open_db), so
+# with SIM_MODE=true accounts go into the demo file, not the real DB.
 
 import argparse
 import sys
 
 from admin_dashboard.auth import hash_password
-from database.db_manager import DatabaseManager
+from admin_dashboard.dependencies import open_db
 
 VALID_ROLES = ("dev", "admin")
 
@@ -44,7 +47,8 @@ def main(argv=None):
 
     args = parser.parse_args(argv)
 
-    db = DatabaseManager()
+    db = open_db()
+    print(f"Using database: {db.db_path}")
     try:
         if args.command == "create-account":
             if create_account(db, args.username, args.password, args.role):

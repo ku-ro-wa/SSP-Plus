@@ -4,9 +4,14 @@
 # Login session cookie; /me is the minimal protected endpoint issue #13
 # asks for — just enough to prove the cookie actually gates access and
 # reflects who's logged in. Issue #14 adds lockout after 5 consecutive
-# failed attempts and a login audit log row for every attempt.
+# failed attempts and a login audit log row for every attempt. GET /login
+# serves the browser sign-in form, which posts JSON to POST /login.
+
+from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
+from fastapi.responses import HTMLResponse
+from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
 
 from admin_dashboard.auth import (
@@ -22,10 +27,17 @@ from admin_dashboard.dependencies import get_db
 
 router = APIRouter()
 
+templates = Jinja2Templates(directory=Path(__file__).resolve().parent.parent / "templates")
+
 
 class LoginRequest(BaseModel):
     username: str
     password: str
+
+
+@router.get("/login", response_class=HTMLResponse)
+def login_page(request: Request):
+    return templates.TemplateResponse(request, "login.html", {"request": request})
 
 
 @router.post("/login")

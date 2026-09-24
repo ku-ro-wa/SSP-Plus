@@ -93,6 +93,25 @@ def get_current_user(
     return {"username": payload["username"], "role": payload["role"]}
 
 
+class LoginRequired(Exception):
+    """Raised by get_current_user_page instead of a 401, so main.py's
+    exception handler can redirect a browser to the /login form rather than
+    showing it a bare JSON error."""
+
+
+def get_current_user_page(
+    response: Response,
+    session: Optional[str] = Cookie(default=None, alias=SESSION_COOKIE_NAME),
+) -> dict:
+    """get_current_user for HTML page routes — same checks and sliding
+    refresh, but an unauthenticated request raises LoginRequired (a redirect
+    to /login) instead of 401. JSON endpoints keep using get_current_user."""
+    try:
+        return get_current_user(response, session)
+    except HTTPException:
+        raise LoginRequired()
+
+
 def require_dev(current_user: dict = Depends(get_current_user)) -> dict:
     """Role-gating dependency for write actions the read-only `admin` role
     must not reach (issue #17's paper-count reset). Layers on top of

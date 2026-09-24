@@ -16,9 +16,15 @@ from config import get_config
 from database.db_manager import DatabaseManager, SIM_DB_NAME
 
 
+def open_db() -> DatabaseManager:
+    """The DatabaseManager for whichever file this process should use — the
+    SIM_MODE demo file or the real DB. Shared with admin_dashboard/cli.py so
+    accounts it creates land in the same file the dashboard logs in against."""
+    return DatabaseManager(db_name=SIM_DB_NAME) if get_config().sim_mode else DatabaseManager()
+
+
 def get_db():
-    config = get_config()
-    db = DatabaseManager(db_name=SIM_DB_NAME) if config.sim_mode else DatabaseManager()
+    db = open_db()
     try:
         yield db
     finally:

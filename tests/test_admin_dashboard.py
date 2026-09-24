@@ -17,6 +17,7 @@ are tested by backdating the relevant value directly (a mocked clock for
 sessions, a past `locked_until` write for lockout), not by bypassing checks.
 """
 from datetime import datetime, timedelta
+from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
@@ -30,7 +31,7 @@ from admin_dashboard.auth import (
     verify_password,
 )
 from admin_dashboard.cli import create_account, reset_password
-from admin_dashboard.dependencies import get_db
+from admin_dashboard.dependencies import get_db, open_db
 from admin_dashboard.routers.accounting import PAPER_FULL_COUNT
 from admin_dashboard.seed_demo_data import FIXTURES, SIM_DB_PATH, seed, seed_transaction
 from database.db_manager import SIM_DB_NAME, DatabaseManager
@@ -86,6 +87,20 @@ class TestPasswordHashing:
 
 
 class TestCLIAccountManagement:
+    def test_cli_uses_the_same_sim_mode_db_file_as_the_dashboard(self, monkeypatch):
+        """Regression: the CLI used to always write to the real DB, so with
+        SIM_MODE=true newly created accounts were invisible to /login."""
+        monkeypatch.setenv("SIM_MODE", "true")
+        pre_existing = SIM_DB_PATH.exists()
+
+        db = open_db()
+        try:
+            assert Path(db.db_path).resolve() == SIM_DB_PATH.resolve()
+        finally:
+            db.close()
+            if not pre_existing and SIM_DB_PATH.exists():
+                SIM_DB_PATH.unlink()
+
     def test_create_account_stores_an_argon2_hash_not_plaintext(self, temp_db):
         assert create_account(temp_db, "alice", "s3cret!", "dev") is True
 
@@ -389,10 +404,20 @@ class TestAccountingEndpoints:
 
         assert response.status_code == 401
 
-    def test_page_requires_login(self, client):
-        response = client.get("/accounting")
+    def test_page_redirects_to_the_login_form_without_a_session(self, client):
+        response = client.get("/accounting", follow_redirects=False)
 
-        assert response.status_code == 401
+        assert response.status_code == 303
+        assert response.headers["location"] == "/login"
+
+    def test_page_redirects_to_the_login_form_with_an_expired_session(self, client):
+        expired = create_session_token("alice", "dev", last_activity=0)
+        client.cookies.set(SESSION_COOKIE_NAME, expired)
+
+        response = client.get("/accounting", follow_redirects=False)
+
+        assert response.status_code == 303
+        assert response.headers["location"] == "/login"
 
     def test_dev_role_can_view_the_data_endpoint_and_page(self, client, temp_db):
         create_account(temp_db, "dev1", "s3cret!", "dev")
@@ -476,6 +501,33 @@ class TestChartAsset:
         response = client.get("/accounting")
 
         assert '"source": "usb"' in response.text or '"source":"usb"' in response.text
+
+
+class TestBrowserEntryPoints:
+    """The browser-facing routes: / as the landing page and the GET /login
+    sign-in form."""
+
+    def test_root_redirects_to_accounting(self, client):
+        response = client.get("/", follow_redirects=False)
+
+        assert response.status_code in (302, 303, 307)
+        assert response.headers["location"] == "/accounting"
+
+    def test_login_form_is_served_without_a_session(self, client):
+        response = client.get("/login")
+
+        assert response.status_code == 200
+        assert "<form" in response.text
+        assert 'type="password"' in response.text
+
+    def test_root_lands_on_accounting_once_logged_in(self, client, temp_db):
+        create_account(temp_db, "dev1", "s3cret!", "dev")
+        client.post("/login", json={"username": "dev1", "password": "s3cret!"})
+
+        response = client.get("/")
+
+        assert response.status_code == 200
+        assert "Accounting" in response.text
 
 
 class TestPaperReset:

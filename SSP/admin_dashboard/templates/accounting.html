@@ -152,6 +152,11 @@
 
     async function loadRange(range) {
         const response = await fetch(`/accounting/data?range=${range}`);
+        // Session timed out while the page was open — send them back to sign in.
+        if (response.status === 401) {
+            window.location.href = "/login";
+            return;
+        }
         if (!response.ok) return;
         const data = await response.json();
         renderRows(data.sources);

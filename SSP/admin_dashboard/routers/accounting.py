@@ -16,7 +16,7 @@ from fastapi import APIRouter, Depends, Query, Request
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
 
-from admin_dashboard.auth import get_current_user, require_dev
+from admin_dashboard.auth import get_current_user, get_current_user_page, require_dev
 from admin_dashboard.dependencies import get_db
 
 router = APIRouter()
@@ -60,7 +60,7 @@ def accounting_data(
 @router.get("/accounting", response_class=HTMLResponse)
 def accounting_page(
     request: Request,
-    current_user: dict = Depends(get_current_user),
+    current_user: dict = Depends(get_current_user_page),
     db=Depends(get_db),
 ):
     sources = db.get_accounting_summary(since=_range_start("today"))
