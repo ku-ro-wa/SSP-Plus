@@ -306,6 +306,49 @@ EMAIL_PASSWORD=your16charapppassword</code></pre>
 <hr>
 </section>
 </section>
+<section id="admin-dashboard-sspadmin_dashboard" class="level2">
+<h2 class="anchored" data-anchor-id="admin-dashboard-sspadmin_dashboard">Admin Dashboard (<code>SSP/admin_dashboard</code>)</h2>
+<p>A separate, authenticated FastAPI/Uvicorn process for kiosk revenue reporting — not started by <code>make run-sim</code>/<code>make run</code>, and not part of the kiosk GUI or the Wi-Fi portal. It has its own port so a bug or compromise in the low-trust, unauthenticated Wi-Fi portal can never become a path into this DB-write-capable surface.</p>
+<section id="configure-your-environment" class="level3">
+<h3 class="anchored" data-anchor-id="configure-your-environment">1. Configure your environment</h3>
+<p>Same <code>.env</code> as everything else (<code>cp .env.example .env</code>, <code>SIM_MODE=true</code>). Relevant dashboard-specific vars, already set to sane defaults in <code>.env.example</code>:</p>
+<pre class="env"><code>ADMIN_DASHBOARD_PORT=8100
+ADMIN_DASHBOARD_SESSION_HOURS=10
+ADMIN_DASHBOARD_LOCKOUT_MINUTES=15</code></pre>
+</section>
+<section id="create-an-account" class="level3">
+<h3 class="anchored" data-anchor-id="create-an-account">2. Create an account</h3>
+<p>There’s no self-service signup — accounts are created by hand via the CLI:</p>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb24"><pre class="sourceCode bash code-with-copy"><code class="sourceCode bash"><span id="cb24-1"><a href="#cb24-1" aria-hidden="true" tabindex="-1"></a><span class="va">PYTHONPATH</span><span class="op">=</span>SSP <span class="ex">python</span> <span class="at">-m</span> admin_dashboard.cli create-account <span class="at">--username</span> you <span class="at">--password</span> yourpassword <span class="at">--role</span> dev</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<p>The CLI writes to the same DB file the dashboard reads: with <code>SIM_MODE=true</code> that’s the demo file <code>SSP/database/ssp_database.sim.db</code>, not the real <code>ssp_database.db</code> (it prints which one on every run). Create accounts with the same <code>SIM_MODE</code> you’ll run the dashboard with.</p>
+<p>(From the repo root, same as <code>make run-admin-dashboard</code> — <code>PYTHONPATH=SSP</code> is what lets <code>admin_dashboard</code>/<code>database</code> resolve as importable packages.) Roles are <code>dev</code> (full read/write, including the dev-only <code>/paper-reset</code> endpoint) and <code>admin</code> (read-only) — unrelated to, and less privileged than, the touchscreen’s own <code>Kiosk Admin</code>/<code>ADMIN_PIN</code>. The password is Argon2id-hashed before it’s stored in the <code>users</code> table. Reset a forgotten password the same way:</p>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb25"><pre class="sourceCode bash code-with-copy"><code class="sourceCode bash"><span id="cb25-1"><a href="#cb25-1" aria-hidden="true" tabindex="-1"></a><span class="va">PYTHONPATH</span><span class="op">=</span>SSP <span class="ex">python</span> <span class="at">-m</span> admin_dashboard.cli reset-password <span class="at">--username</span> you <span class="at">--password</span> newpassword</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+</section>
+<section id="run-it-1" class="level3">
+<h3 class="anchored" data-anchor-id="run-it-1">3. Run it</h3>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb26"><pre class="sourceCode bash code-with-copy"><code class="sourceCode bash"><span id="cb26-1"><a href="#cb26-1" aria-hidden="true" tabindex="-1"></a><span class="fu">make</span> run-admin-dashboard</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<p>This launches Uvicorn directly against the <code>admin_dashboard</code> package on <code>ADMIN_DASHBOARD_PORT</code> (default 8100). It’s a standalone process — run it alongside <code>make run-sim</code> in a separate terminal if you want real transactions to show up, or on its own against whatever’s already in <code>SSP/database/ssp_database.db</code>.</p>
+<ul>
+<li><code>http://127.0.0.1:8100/</code> → redirects to <code>/accounting</code>; any dashboard page visited without a valid session redirects to the <code>/login</code> sign-in form</li>
+<li><code>http://127.0.0.1:8100/login</code> → sign in with the account you created above</li>
+<li><code>http://127.0.0.1:8100/accounting</code> → per-source (<code>usb</code>/<code>wifi</code>/<code>email</code>/<code>scanner</code>) revenue and transaction-count view, with a <code>range=today|week|month|all</code> filter</li>
+<li>Five consecutive failed logins locks that account for <code>ADMIN_DASHBOARD_LOCKOUT_MINUTES</code>; every attempt is written to <code>dashboard_login_log</code></li>
+</ul>
+</section>
+<section id="seed-demo-data-optional" class="level3">
+<h3 class="anchored" data-anchor-id="seed-demo-data-optional">4. Seed demo data (optional)</h3>
+<p>To see the accounting view populated without running real transactions through the kiosk, seed a separate demo database (never touches your real <code>ssp_database.db</code>):</p>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb27"><pre class="sourceCode bash code-with-copy"><code class="sourceCode bash"><span id="cb27-1"><a href="#cb27-1" aria-hidden="true" tabindex="-1"></a><span class="fu">make</span> seed-demo-data</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<p>This writes fixture rows to <code>SSP/database/ssp_database.sim.db</code>, which the dashboard reads instead of the real DB when <code>SIM_MODE=true</code>.</p>
+</section>
+<section id="automated-tests" class="level3">
+<h3 class="anchored" data-anchor-id="automated-tests">5. Automated tests</h3>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb28"><pre class="sourceCode bash code-with-copy"><code class="sourceCode bash"><span id="cb28-1"><a href="#cb28-1" aria-hidden="true" tabindex="-1"></a><span class="fu">make</span> test</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<p><code>tests/test_admin_dashboard.py</code> drives <code>admin_dashboard.main:app</code> in-process via FastAPI’s <code>TestClient</code> — auth, sessions, lockout, role-gating, and the accounting aggregate queries all run through real HTTP requests against the real app, no mocked business logic, no port actually opened.</p>
+<p>See <code>docs/adr/0002-admin-dashboard-auth-and-remote-access-architecture.md</code> for the full design (why a separate process/port, the auth model, what’s deferred to a later remote-access phase).</p>
+<hr>
+</section>
+</section>
 <section id="workflow" class="level2">
 <h2 class="anchored" data-anchor-id="workflow">Workflow</h2>
 <pre><code>main ← PRs only (one review required before merge)
