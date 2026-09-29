@@ -45,8 +45,10 @@ User-facing name for the OTP in messages and on-screen copy. Same thing as the O
 _Avoid_: collection code, claim code.
 
 **QR payload**:
-The `session_id:otp` string encoded in the QR image handed to the user. Redeemable the same
-way a typed OTP is; kiosk-side QR *scanning* is not built yet, so today it's decorative.
+The string encoded in a QR image handed to the user. Two kinds: a *Session payload*
+(`session_id:otp`, redeemable the same way a typed OTP is) and a *Voucher payload* (a
+type-tagged **Voucher code**, only accepted at payment). Kiosk-side QR *scanning* is not
+built yet, so today both are decorative.
 _Avoid_: QR token, QR code (say "QR image" for the picture, "QR payload" for its contents).
 
 **Redemption**:
@@ -95,3 +97,27 @@ An on-kiosk transaction whose Source is `scanner` and whose destination is the p
 as opposed to scan-to-email or scan-to-session-download. Not a separate intake path of its
 own — it's the one `scanner`-sourced case the Admin Dashboard's revenue view counts.
 _Avoid_: copy job, scan job (ambiguous with the non-print scan destinations).
+
+### Vouchers
+
+**Voucher**:
+Kiosk-issued store credit for change the kiosk owed but did not physically dispense. Its
+value is always a **Shortfall**, never the full change amount; whatever coins the hoppers
+can give are still given.
+_Avoid_: credit note, IOU, change ticket, balance.
+
+**Shortfall**:
+The change owed on a transaction minus the change actually dispensed. Nonzero whether the
+kiosk predicted it couldn't make change or a hopper failed mid-dispense; any nonzero
+Shortfall becomes a Voucher.
+_Avoid_: missing change, underpayment (that's the customer paying too little, the opposite).
+
+**Voucher code**:
+The identifier a customer holds to prove they own a Voucher, shown on-screen as typeable
+text and as a QR image. Unrelated to the **OTP** / **Pickup code**, which identify a
+**Session**.
+_Avoid_: OTP, pickup code, voucher PIN.
+
+**Apply** (a Voucher):
+Using a Voucher code at payment so its value counts toward the transaction's cost.
+_Avoid_: redeem, redemption (reserved for **Session** redemption), claim, cash in.
