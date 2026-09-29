@@ -8,7 +8,7 @@ _VENV_PY := $(firstword $(wildcard .venv/Scripts/python.exe) $(wildcard .venv/bi
 _WIN_PY := $(shell for p in $$(ls /mnt/c/Users/*/AppData/Local/Programs/Python/Python3*/python.exe 2>/dev/null | sort -V); do $$p -c "import pytest" 2>/dev/null && echo $$p && break; done)
 PYTHON ?= $(if $(_VENV_PY),$(_VENV_PY),$(if $(_WIN_PY),$(_WIN_PY),python3))
 
-.PHONY: run run-sim run-admin-dashboard test lint
+.PHONY: run run-sim run-admin-dashboard seed-demo-data test lint
 
 # Run the app on the kiosk (requires hardware + CUPS + pigpiod)
 # Runs from repo root so config.py finds .env here (SSP/.env is gitignored)
@@ -28,6 +28,13 @@ run-sim:
 # package importable without a real Uvicorn socket needing --app-dir.
 run-admin-dashboard:
 	PYTHONPATH=SSP $(PYTHON) -X utf8 -m admin_dashboard.main
+
+# Seed the SIM_MODE-gated demo fixture DB (SSP/database/ssp_database.sim.db)
+# so /accounting has realistic data to show before the kiosk has
+# accumulated any real transactions. Refuses to run unless SIM_MODE=true.
+# Never touches the real ssp_database.db.
+seed-demo-data:
+	SIM_MODE=true PYTHONPATH=SSP $(PYTHON) -X utf8 -m admin_dashboard.seed_demo_data
 
 # Run the test suite
 test:

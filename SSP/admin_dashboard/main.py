@@ -8,10 +8,15 @@
 #
 # Started via `make run-admin-dashboard`, never spawned by main_app.py.
 
-from fastapi import FastAPI
+from pathlib import Path
+
+from fastapi import FastAPI, Request
+from fastapi.responses import RedirectResponse
+from fastapi.staticfiles import StaticFiles
 
 from config import get_config
-from admin_dashboard.routers import auth
+from admin_dashboard.auth import SESSION_COOKIE_NAME, LoginRequired
+from admin_dashboard.routers import accounting, auth
 
 config = get_config()
 
@@ -23,6 +28,29 @@ redoc_url = "/redoc" if config.docs_enabled else None
 app = FastAPI(title="AIO SPARK Admin Dashboard", docs_url=docs_url, redoc_url=redoc_url)
 
 app.include_router(auth.router)
+app.include_router(accounting.router)
+
+
+@app.get("/", include_in_schema=False)
+def root():
+    # Accounting is the dashboard's only page so far, so it's the landing page.
+    return RedirectResponse("/accounting")
+
+
+@app.exception_handler(LoginRequired)
+def redirect_to_login(request: Request, exc: LoginRequired):
+    """HTML pages (via get_current_user_page) send an unauthenticated
+    browser to the sign-in form instead of a JSON 401, clearing any stale or
+    expired cookie on the way."""
+    response = RedirectResponse("/login", status_code=303)
+    response.delete_cookie(SESSION_COOKIE_NAME)
+    return response
+
+# Serves the dashboard's own vendored static files (e.g. static/js/chart.umd.min.js,
+# issue #16) at /static/... — a local copy, not a CDN fetch, consistent with
+# this being a local-first, possibly-offline surface.
+BASE_DIR = Path(__file__).resolve().parent
+app.mount("/static", StaticFiles(directory=BASE_DIR / "static"), name="static")
 
 
 if __name__ == "__main__":

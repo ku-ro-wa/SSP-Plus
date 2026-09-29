@@ -293,6 +293,97 @@ message won't re-trigger. Wi-Fi has no such constraint — just upload again.
 
 ---
 
+## Admin Dashboard (`SSP/admin_dashboard`)
+
+A separate, authenticated FastAPI/Uvicorn process for kiosk revenue reporting — not
+started by `make run-sim`/`make run`, and not part of the kiosk GUI or the Wi-Fi
+portal. It has its own port so a bug or compromise in the low-trust, unauthenticated
+Wi-Fi portal can never become a path into this DB-write-capable surface.
+
+### 1. Configure your environment
+
+Same `.env` as everything else (`cp .env.example .env`, `SIM_MODE=true`). Relevant
+dashboard-specific vars, already set to sane defaults in `.env.example`:
+
+```env
+ADMIN_DASHBOARD_PORT=8100
+ADMIN_DASHBOARD_SESSION_HOURS=10
+ADMIN_DASHBOARD_LOCKOUT_MINUTES=15
+```
+
+### 2. Create an account
+
+There's no self-service signup — accounts are created by hand via the CLI:
+
+```bash
+PYTHONPATH=SSP python -m admin_dashboard.cli create-account --username you --password yourpassword --role dev
+```
+
+The CLI writes to the same DB file the dashboard reads: with `SIM_MODE=true` that's the
+demo file `SSP/database/ssp_database.sim.db`, not the real `ssp_database.db` (it prints
+which one on every run). Create accounts with the same `SIM_MODE` you'll run the
+dashboard with.
+
+(From the repo root, same as `make run-admin-dashboard` — `PYTHONPATH=SSP` is what lets
+`admin_dashboard`/`database` resolve as importable packages.) Roles are `dev` (full
+read/write, including the dev-only `/paper-reset` endpoint) and `admin` (read-only) —
+unrelated to, and less privileged than, the touchscreen's own `Kiosk Admin`/`ADMIN_PIN`.
+The password is Argon2id-hashed before it's stored in the `users` table. Reset a
+forgotten password the same way:
+
+```bash
+PYTHONPATH=SSP python -m admin_dashboard.cli reset-password --username you --password newpassword
+```
+
+### 3. Run it
+
+```bash
+make run-admin-dashboard
+```
+
+This launches Uvicorn directly against the `admin_dashboard` package on
+`ADMIN_DASHBOARD_PORT` (default 8100). It's a standalone process — run it alongside
+`make run-sim` in a separate terminal if you want real transactions to show up, or on
+its own against whatever's already in `SSP/database/ssp_database.db`.
+
+- `http://127.0.0.1:8100/` → redirects to `/accounting`; any dashboard page visited
+  without a valid session redirects to the `/login` sign-in form
+- `http://127.0.0.1:8100/login` → sign in with the account you created above
+- `http://127.0.0.1:8100/accounting` → per-source (`usb`/`wifi`/`email`/`scanner`)
+  revenue and transaction-count view, with a `range=today|week|month|all` filter
+- Five consecutive failed logins locks that account for
+  `ADMIN_DASHBOARD_LOCKOUT_MINUTES`; every attempt is written to
+  `dashboard_login_log`
+
+### 4. Seed demo data (optional)
+
+To see the accounting view populated without running real transactions through the
+kiosk, seed a separate demo database (never touches your real `ssp_database.db`):
+
+```bash
+make seed-demo-data
+```
+
+This writes fixture rows to `SSP/database/ssp_database.sim.db`, which the dashboard
+reads instead of the real DB when `SIM_MODE=true`.
+
+### 5. Automated tests
+
+```bash
+make test
+```
+
+`tests/test_admin_dashboard.py` drives `admin_dashboard.main:app` in-process via
+FastAPI's `TestClient` — auth, sessions, lockout, role-gating, and the accounting
+aggregate queries all run through real HTTP requests against the real app, no
+mocked business logic, no port actually opened.
+
+See `docs/adr/0002-admin-dashboard-auth-and-remote-access-architecture.md` for the
+full design (why a separate process/port, the auth model, what's deferred to a
+later remote-access phase).
+
+---
+
 ## Workflow
 
 ```

@@ -177,6 +177,19 @@ def init_db(db_path=None):
     ''')
     print("OK - Created users table")
 
+    # Create Dashboard Login Log table (issue #14's login audit log — every
+    # login attempt against the Admin Dashboard, successful or not).
+    cursor.execute('''
+    CREATE TABLE IF NOT EXISTS dashboard_login_log (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        timestamp DATETIME NOT NULL,
+        username TEXT NOT NULL,
+        success BOOLEAN NOT NULL,
+        source_ip TEXT
+    )
+    ''')
+    print("OK - Created dashboard_login_log table")
+
     # Initialize default settings if they don't exist
     cursor.execute("INSERT OR IGNORE INTO settings (key, value) VALUES ('paper_count', '100')")
     print("OK - Initialized paper_count setting")

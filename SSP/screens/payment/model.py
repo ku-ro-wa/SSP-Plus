@@ -465,7 +465,8 @@ class PaymentModel(QObject):
             'total_cost': self.total_cost,
             'amount_paid': self.amount_received,
             'change_given': change_amount,
-            'status': 'completed'
+            'status': 'completed',
+            'source': self.payment_data.get('source')
         }
         
         # Update cash inventory - add received coins to existing inventory
@@ -783,7 +784,8 @@ class PaymentModel(QObject):
                 'total_cost': float(self.total_cost or 0),
                 'amount_paid': float(self.amount_received or 0),
                 'change_given': 0,  # No change given since transaction cancelled
-                'status': 'cancelled_partial_payment'
+                'status': 'cancelled_partial_payment',
+                'source': self.payment_data.get('source')
             }
             try:
                 self.db_manager.log_transaction(transaction_data)

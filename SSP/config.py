@@ -457,6 +457,24 @@ class Config:
             return "dev-insecure-secret-change-me"
 
     @property
+    def admin_dashboard_session_hours(self) -> int:
+        """Sliding inactivity timeout (hours) for a dashboard login session —
+        any authenticated request resets the countdown."""
+        try:
+            return self.get('ADMIN_DASHBOARD_SESSION_HOURS', int)
+        except KeyError:
+            return 10
+
+    @property
+    def admin_dashboard_lockout_minutes(self) -> int:
+        """How long a dashboard account stays locked after 5 consecutive
+        failed login attempts."""
+        try:
+            return self.get('ADMIN_DASHBOARD_LOCKOUT_MINUTES', int)
+        except KeyError:
+            return 15
+
+    @property
     def scan_upload_dir(self) -> str:
         """Directory scanner-composed PDFs are copied to before being handed
         to SessionManager for the scan-to-Wi-Fi/email redeem flow."""
