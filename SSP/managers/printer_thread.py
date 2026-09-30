@@ -3,7 +3,6 @@ import subprocess
 import tempfile
 import time
 from PyQt5.QtCore import QThread, pyqtSignal
-from config import get_config
 from managers.sms_manager import send_paper_jam_sms, send_printing_error_sms, send_no_paper_sms
 
 try:

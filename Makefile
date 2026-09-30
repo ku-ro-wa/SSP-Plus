@@ -42,4 +42,4 @@ test:
 
 # Lint the source tree (max line length 120, ignoring cache dirs)
 lint:
-	$(PYTHON) -m flake8 SSP/ --max-line-length=120 --exclude=__pycache__,__init__.py
+	$(PYTHON) -m flake8 SSP/

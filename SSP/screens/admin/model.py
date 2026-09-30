@@ -4,6 +4,7 @@ from PyQt5.QtCore import QObject, pyqtSignal
 from database.db_manager import DatabaseManager
 from managers.sms_manager import get_sms_manager
 
+
 class AdminModel(QObject):
     """Handles the data and business logic for the admin screen."""
     paper_count_changed = pyqtSignal(int, str)  # Emits new count and display color
@@ -18,7 +19,7 @@ class AdminModel(QObject):
         self.paper_count = 100
         self.sms_alert_sent = False
         self._loading_cmyk = False  # Flag to prevent recursive calls
-        
+
         # Initialize the modem when the model is created
         self.sms_manager.initialize_modem()
 
@@ -35,7 +36,7 @@ class AdminModel(QObject):
         self.db_manager.update_setting('paper_count', self.paper_count)
         self.sms_alert_sent = False
         print("Paper count reset to 100, SMS alert flag reset.")
-        self.load_paper_count() # Reload to emit signal
+        self.load_paper_count()  # Reload to emit signal
 
     def increase_paper_count(self):
         """Increases the paper count by 1."""
@@ -61,7 +62,7 @@ class AdminModel(QObject):
             new_count = int(count_str)
             if not (0 <= new_count <= 100):
                 self.show_message.emit("Invalid Input", "Paper count must be between 0 and 100.")
-                self.load_paper_count() # Revert display to current value
+                self.load_paper_count()  # Revert display to current value
                 return
 
             old_count = self.paper_count
@@ -70,14 +71,14 @@ class AdminModel(QObject):
 
             if new_count > old_count and new_count > 10:
                 self.sms_alert_sent = False
-            
+
             self.check_low_paper_alert()
-            self.load_paper_count() # Reload to emit signal
+            self.load_paper_count()  # Reload to emit signal
             print(f"Paper count updated from {old_count} to {new_count} sheets.")
 
         except ValueError:
             self.show_message.emit("Invalid Input", "Please enter a valid number.")
-            self.load_paper_count() # Revert display
+            self.load_paper_count()  # Revert display
 
     def check_paper_availability(self, pages_to_print: int) -> bool:
         """Checks if there's enough paper for a print job. Returns True if available."""
@@ -94,7 +95,7 @@ class AdminModel(QObject):
             self.paper_count = max(0, self.paper_count - pages_to_print)
             self.db_manager.update_setting('paper_count', self.paper_count)
             self.check_low_paper_alert()
-            self.load_paper_count() # Emit signal to update any listening UI
+            self.load_paper_count()  # Emit signal to update any listening UI
             print(f"Paper count updated to {self.paper_count} sheets.")
             return True
         else:
@@ -106,7 +107,7 @@ class AdminModel(QObject):
         if self.paper_count <= 10 and not self.sms_alert_sent:
             print(f"Low paper detected: {self.paper_count} sheets remaining. Sending alert.")
             message = f"ALERT: Paper is low ({self.paper_count} sheets left). Please refill soon."
-            
+
             # FIX: Use the correct method from sms_manager
             if self.sms_manager.send_custom_alert(message):
                 self.sms_alert_sent = True
@@ -123,16 +124,16 @@ class AdminModel(QObject):
             inventory = self.db_manager.get_cash_inventory()
             coin_1_count = 0
             coin_5_count = 0
-            
+
             for item in inventory:
                 if item['denomination'] == 1 and item['type'] == 'coin':
                     coin_1_count = item['count']
                 elif item['denomination'] == 5 and item['type'] == 'coin':
                     coin_5_count = item['count']
-            
+
             self.coin_count_changed.emit(coin_1_count, coin_5_count)
             print(f"Coin counts loaded: ₱1={coin_1_count}, ₱5={coin_5_count}")
-            
+
         except Exception as e:
             print(f"Error loading coin counts: {e}")
             self.coin_count_changed.emit(0, 0)
@@ -187,7 +188,7 @@ class AdminModel(QObject):
                 if item['denomination'] == 1 and item['type'] == 'coin':
                     current_count = item['count']
                     break
-            
+
             if current_count < 1000:  # Max limit
                 new_count = current_count + 1
                 self.db_manager.update_cash_inventory(1, new_count, 'coin')
@@ -205,7 +206,7 @@ class AdminModel(QObject):
                 if item['denomination'] == 1 and item['type'] == 'coin':
                     current_count = item['count']
                     break
-            
+
             if current_count > 0:  # Min limit
                 new_count = current_count - 1
                 self.db_manager.update_cash_inventory(1, new_count, 'coin')
@@ -223,7 +224,7 @@ class AdminModel(QObject):
                 if item['denomination'] == 5 and item['type'] == 'coin':
                     current_count = item['count']
                     break
-            
+
             if current_count < 1000:  # Max limit
                 new_count = current_count + 1
                 self.db_manager.update_cash_inventory(5, new_count, 'coin')
@@ -241,7 +242,7 @@ class AdminModel(QObject):
                 if item['denomination'] == 5 and item['type'] == 'coin':
                     current_count = item['count']
                     break
-            
+
             if current_count > 0:  # Min limit
                 new_count = current_count - 1
                 self.db_manager.update_cash_inventory(5, new_count, 'coin')
@@ -257,29 +258,29 @@ class AdminModel(QObject):
             inventory = self.db_manager.get_cash_inventory()
             current_1 = 0
             current_5 = 0
-            
+
             for item in inventory:
                 if item['denomination'] == 1 and item['type'] == 'coin':
                     current_1 = item['count']
                 elif item['denomination'] == 5 and item['type'] == 'coin':
                     current_5 = item['count']
-            
+
             # Check if we have enough coins
             if current_1 < peso_1_needed or current_5 < peso_5_needed:
                 print(f"ERROR: Not enough coins. Required: ₱1={peso_1_needed}, ₱5={peso_5_needed}. Available: ₱1={current_1}, ₱5={current_5}")
                 return False
-            
+
             # Update counts
             new_1_count = current_1 - peso_1_needed
             new_5_count = current_5 - peso_5_needed
-            
+
             self.db_manager.update_cash_inventory(1, new_1_count, 'coin')
             self.db_manager.update_cash_inventory(5, new_5_count, 'coin')
-            
+
             self.load_coin_counts()
             print(f"Coins dispensed: ₱1={peso_1_needed}, ₱5={peso_5_needed}. Remaining: ₱1={new_1_count}, ₱5={new_5_count}")
             return True
-            
+
         except Exception as e:
             print(f"Error dispensing coins: {e}")
             return False
@@ -290,15 +291,15 @@ class AdminModel(QObject):
             inventory = self.db_manager.get_cash_inventory()
             coin_1_count = 0
             coin_5_count = 0
-            
+
             for item in inventory:
                 if item['denomination'] == 1 and item['type'] == 'coin':
                     coin_1_count = item['count']
                 elif item['denomination'] == 5 and item['type'] == 'coin':
                     coin_5_count = item['count']
-            
+
             return coin_1_count, coin_5_count
-            
+
         except Exception as e:
             print(f"Error getting coin counts: {e}")
             return 0, 0
@@ -308,15 +309,15 @@ class AdminModel(QObject):
         if self._loading_cmyk:
             print("DEBUG: load_cmyk_levels already in progress, skipping")
             return
-            
+
         self._loading_cmyk = True
         try:
             cmyk_data = self.db_manager.get_cmyk_ink_levels()
             if cmyk_data:
                 self.cmyk_levels_changed.emit(
-                    cmyk_data['cyan'], 
-                    cmyk_data['magenta'], 
-                    cmyk_data['yellow'], 
+                    cmyk_data['cyan'],
+                    cmyk_data['magenta'],
+                    cmyk_data['yellow'],
                     cmyk_data['black']
                 )
                 print(f"CMYK levels loaded: C:{cmyk_data['cyan']:.1f}% M:{cmyk_data['magenta']:.1f}% Y:{cmyk_data['yellow']:.1f}% K:{cmyk_data['black']:.1f}%")
@@ -329,7 +330,7 @@ class AdminModel(QObject):
             self.cmyk_levels_changed.emit(100.0, 100.0, 100.0, 100.0)
         finally:
             self._loading_cmyk = False
-    
+
     def refresh_cmyk_levels(self):
         """Refresh CMYK levels from database (alias for load_cmyk_levels)."""
         self.load_cmyk_levels()
@@ -338,7 +339,7 @@ class AdminModel(QObject):
         """Updates CMYK ink levels in the database."""
         try:
             # Validate ranges
-            if not (0.0 <= cyan <= 100.0 and 0.0 <= magenta <= 100.0 and 
+            if not (0.0 <= cyan <= 100.0 and 0.0 <= magenta <= 100.0 and
                     0.0 <= yellow <= 100.0 and 0.0 <= black <= 100.0):
                 self.show_message.emit("Invalid Input", "CMYK values must be between 0.0 and 100.0")
                 self.load_cmyk_levels()
@@ -350,7 +351,7 @@ class AdminModel(QObject):
                 print(f"CMYK levels updated: C:{cyan:.1f}% M:{magenta:.1f}% Y:{yellow:.1f}% K:{black:.1f}%")
             else:
                 self.show_message.emit("Database Error", "Failed to update CMYK levels")
-                
+
         except Exception as e:
             print(f"Error updating CMYK levels: {e}")
             self.show_message.emit("Error", f"Failed to update CMYK levels: {e}")
@@ -370,6 +371,8 @@ class AdminModel(QObject):
 
     def _get_color_for_count(self, count: int) -> str:
         """Determines the display color based on the paper count."""
-        if count <= 20: return "#dc3545"
-        if count <= 50: return "#ffc107"
+        if count <= 20:
+            return "#dc3545"
+        if count <= 50:
+            return "#ffc107"
         return "#28a745"

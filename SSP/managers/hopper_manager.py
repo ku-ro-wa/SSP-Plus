@@ -39,6 +39,7 @@ class HopperController:
     Controls a single coin hopper motor and sensor.
     This class is adapted from the user-provided script.
     """
+
     def __init__(self, pi_instance, name, signal_pin, enable_pin):
         self.pi = pi_instance
         if not self.pi.connected:
@@ -89,7 +90,7 @@ class HopperController:
                 print(f"[{self.name}] Hopper disabled during cleanup")
             elif self.pi is None:
                 print(f"[{self.name}] No pigpio connection to clean up")
-            
+
             # Then cancel the callback
             if self.callback:
                 try:
@@ -98,7 +99,7 @@ class HopperController:
                     print(f"[{self.name}] Callback cleaned up")
                 except Exception as callback_error:
                     print(f"[{self.name}] Error canceling callback: {callback_error}")
-                
+
         except Exception as e:
             print(f"[{self.name}] Error during cleanup: {e}")
 
@@ -107,7 +108,7 @@ class HopperController:
             print(f"[{self.name}] ERROR: pigpio connection not available")
             return False
         try:
-            self.pi.write(self.enable_pin, 0) # Active low
+            self.pi.write(self.enable_pin, 0)  # Active low
             self.enabled = True
             print(f"[{self.name}] Hopper motor ENABLED")
             return True
@@ -120,7 +121,7 @@ class HopperController:
             print(f"[{self.name}] ERROR: pigpio connection not available")
             return False
         try:
-            self.pi.write(self.enable_pin, 1) # Inactive high
+            self.pi.write(self.enable_pin, 1)  # Inactive high
             self.enabled = False
             return True
         except Exception as e:
@@ -187,7 +188,7 @@ class HopperController:
         if self.dispensing:
             print(f"[{self.name}] Cannot start new dispense, already in progress.")
             return False
-            
+
         self.dispensing = True
         print(f"\n--- [{self.name}] Dispensing 1 coin ---")
 
@@ -203,7 +204,7 @@ class HopperController:
                 print(f"[{self.name}] FAILED: Attempt {attempt} was unsuccessful.")
                 if self.coin_passage_count > 1:
                     print(f"[{self.name}] CRITICAL: Dispensed too many coins. Aborting.")
-                    break # Don't retry if we over-dispensed
+                    break  # Don't retry if we over-dispensed
                 if attempt < MAX_RETRY_ATTEMPTS:
                     print(f"[{self.name}] Retrying in {RETRY_DELAY}s...")
                     time.sleep(RETRY_DELAY)
@@ -217,8 +218,10 @@ class HopperController:
         self.dispensing = False
         return success
 
+
 class ChangeDispenser:
     """High-level manager for all hoppers."""
+
     def __init__(self):
         self.pi = None
         self.hoppers = {}
@@ -229,7 +232,7 @@ class ChangeDispenser:
                 self.pi = pigpio.pi()
                 if not self.pi.connected:
                     raise RuntimeError("Could not connect to pigpiod daemon.")
-                
+
                 # Create a controller for each hopper defined in config
                 for name, config in HOPPER_CONFIGS.items():
                     print(f"Initializing Hopper '{name}' on Signal={config['signal_pin']}, Enable={config['enable_pin']}")
@@ -239,7 +242,7 @@ class ChangeDispenser:
                         signal_pin=config['signal_pin'],
                         enable_pin=config['enable_pin']
                     )
-                    
+
             except Exception as e:
                 print(f"CRITICAL: Failed to initialize pigpio or hoppers: {e}. Switching to simulation mode.")
                 self.simulated = True
@@ -248,7 +251,7 @@ class ChangeDispenser:
         """Check if pigpio connection is still valid and try to reconnect if needed."""
         if self.simulated:
             return True
-            
+
         if not self.pi or not self.pi.connected:
             print("pigpio connection lost, attempting to reconnect...")
             try:
@@ -256,7 +259,7 @@ class ChangeDispenser:
                 if self.pi:
                     self.cleanup_all_hoppers()
                     self.pi.stop()
-                
+
                 # Create new connection
                 self.pi = pigpio.pi()
                 if self.pi.connected:
@@ -279,7 +282,6 @@ class ChangeDispenser:
                 return False
         return True
 
-
     def __del__(self):
         """Destructor to ensure cleanup."""
         try:
@@ -293,11 +295,11 @@ class ChangeDispenser:
         """Reinitialize all hoppers with current pigpio connection."""
         if self.simulated or not self.pi or not self.pi.connected:
             return False
-        
+
         try:
             # Clean up existing hoppers
             self.cleanup_all_hoppers()
-            
+
             # Recreate all hopper controllers
             for name, config in HOPPER_CONFIGS.items():
                 print(f"Reinitializing Hopper '{name}' on Signal={config['signal_pin']}, Enable={config['enable_pin']}")
@@ -324,7 +326,7 @@ class ChangeDispenser:
             if status_callback:
                 status_callback(error_msg)
             return {'success': False, 'coins_1': 0, 'coins_5': 0, 'error': 'pigpio_connection_failed'}
-        
+
         # Reinitialize hoppers if needed
         if not self.hoppers:
             print("Hoppers not properly initialized, reinitializing...")
@@ -337,7 +339,7 @@ class ChangeDispenser:
 
         num_fives = int(amount // 5)
         num_ones = int(round(amount % 5))
-        
+
         print(f"Dispensing ₱{amount:.2f}: {num_fives}x ₱5, {num_ones}x ₱1")
         if status_callback:
             status_callback(f"Preparing to dispense ₱{amount:.2f}...")
@@ -349,11 +351,12 @@ class ChangeDispenser:
         # Dispense 5-peso coins
         for i in range(num_fives):
             msg = f"Dispensing ₱5 coin ({i + 1} of {num_fives})"
-            if status_callback: status_callback(msg)
+            if status_callback:
+                status_callback(msg)
             print(msg)
-            
+
             if self.simulated:
-                time.sleep(1.5) # Simulate dispense time
+                time.sleep(1.5)  # Simulate dispense time
                 success = True
             else:
                 success = self.hoppers['B'].dispense_single_coin()
@@ -363,7 +366,8 @@ class ChangeDispenser:
                 print(f"DEBUG: Successfully dispensed ₱5 coin {actual_fives}/{num_fives}")
             else:
                 error_msg = f"CRITICAL: Failed to dispense ₱5 coin {i + 1}. Dispensed {actual_fives}/{num_fives} so far."
-                if status_callback: status_callback(error_msg)
+                if status_callback:
+                    status_callback(error_msg)
                 print(error_msg)
                 # Continue with what we have instead of failing completely
                 break
@@ -371,9 +375,10 @@ class ChangeDispenser:
         # Dispense 1-peso coins
         for i in range(num_ones):
             msg = f"Dispensing ₱1 coin ({i + 1} of {num_ones})"
-            if status_callback: status_callback(msg)
+            if status_callback:
+                status_callback(msg)
             print(msg)
-            
+
             if self.simulated:
                 time.sleep(1.5)
                 success = True
@@ -385,19 +390,21 @@ class ChangeDispenser:
                 print(f"DEBUG: Successfully dispensed ₱1 coin {actual_ones}/{num_ones}")
             else:
                 error_msg = f"CRITICAL: Failed to dispense ₱1 coin {i + 1}. Dispensed {actual_ones}/{num_ones} so far."
-                if status_callback: status_callback(error_msg)
+                if status_callback:
+                    status_callback(error_msg)
                 print(error_msg)
                 # Continue with what we have instead of failing completely
                 break
-        
+
         # Calculate actual change dispensed
         actual_change = (actual_fives * 5) + (actual_ones * 1)
         expected_change = (num_fives * 5) + (num_ones * 1)
-        
+
         final_msg = f"Change dispensing complete. Dispensed ₱{actual_change:.2f} (₱{actual_fives}x5 + ₱{actual_ones}x1) of ₱{expected_change:.2f} expected."
-        if status_callback: status_callback(final_msg)
+        if status_callback:
+            status_callback(final_msg)
         print(final_msg)
-        
+
         return {
             'success': True,
             'coins_1': actual_ones,
@@ -405,7 +412,7 @@ class ChangeDispenser:
             'actual_change': actual_change,
             'expected_change': expected_change
         }
-    
+
     def cleanup_all_hoppers(self):
         """Clean up all hopper controllers."""
         print("Cleaning up all hopper controllers...")
@@ -417,14 +424,14 @@ class ChangeDispenser:
                 print(f"[{name}] Error cleaning up hopper: {e}")
         # Clear the hoppers dictionary
         self.hoppers.clear()
-    
+
     def cleanup(self):
         """Safely shut down all hoppers and the pigpio connection."""
         if self.pi and not self.simulated:
             print("Cleaning up all hopper controllers...")
             # Clean up all hoppers first
             self.cleanup_all_hoppers()
-            
+
             # Then stop the pigpio connection
             try:
                 self.pi.stop()
@@ -452,18 +459,18 @@ class DispenseThread(QThread):
         if self.dispenser is None:
             print("ERROR: Dispenser is None, cannot dispense change")
             result = {
-                'success': False, 
-                'coins_1': 0, 
-                'coins_5': 0, 
+                'success': False,
+                'coins_1': 0,
+                'coins_5': 0,
                 'error': 'dispenser_not_available'
             }
             self.dispensing_finished.emit(result)
             return
-            
+
         result = self.dispenser.dispense_change(
-            self.amount, 
-            self.status_update.emit, 
-            self.admin_screen, 
+            self.amount,
+            self.status_update.emit,
+            self.admin_screen,
             self.db_threader
         )
         self.dispensing_finished.emit(result)

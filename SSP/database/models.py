@@ -1,6 +1,5 @@
 import os
 import sqlite3
-from datetime import datetime
 
 
 def _column_exists(cursor, table, column):
@@ -33,7 +32,7 @@ def init_db(db_path=None):
     # Connect to database (creates it if it doesn't exist)
     conn = sqlite3.connect(db_path)
     cursor = conn.cursor()
-    
+
     print("Creating database tables...")
 
     # Create Transactions table
@@ -193,7 +192,7 @@ def init_db(db_path=None):
     # Initialize default settings if they don't exist
     cursor.execute("INSERT OR IGNORE INTO settings (key, value) VALUES ('paper_count', '100')")
     print("OK - Initialized paper_count setting")
-    
+
     # Initialize default CMYK ink levels if none exist
     cursor.execute("SELECT COUNT(*) FROM cmyk_ink_levels")
     cmyk_count = cursor.fetchone()[0]

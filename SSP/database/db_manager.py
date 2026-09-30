@@ -104,7 +104,8 @@ class DatabaseManager:
 
     # --- Existing Methods (assuming they are here) ---
     def log_transaction(self, data):
-        if not self.conn: return
+        if not self.conn:
+            return
         try:
             cursor = self.conn.cursor()
             cursor.execute("""
@@ -120,7 +121,7 @@ class DatabaseManager:
             print(f"Error logging transaction: {e}")
 
     def get_transaction_history(self):
-        if not self.conn: 
+        if not self.conn:
             print("❌ ERROR: No database connection for get_transaction_history")
             return []
         try:
@@ -137,7 +138,8 @@ class DatabaseManager:
             return []
 
     def update_cash_inventory(self, denomination, count, type):
-        if not self.conn: return
+        if not self.conn:
+            return
         try:
             cursor = self.conn.cursor()
             cursor.execute("SELECT count FROM cash_inventory WHERE denomination = ? AND type = ?", (denomination, type))
@@ -158,7 +160,7 @@ class DatabaseManager:
             print(f"Error updating cash inventory: {e}")
 
     def get_cash_inventory(self):
-        if not self.conn: 
+        if not self.conn:
             print("❌ ERROR: No database connection for get_cash_inventory")
             return []
         try:
@@ -175,7 +177,8 @@ class DatabaseManager:
             return []
 
     def log_error(self, error_type, message, context):
-        if not self.conn: return
+        if not self.conn:
+            return
         try:
             cursor = self.conn.cursor()
             cursor.execute(
@@ -187,7 +190,7 @@ class DatabaseManager:
             print(f"Error logging error: {e}")
 
     def get_error_log(self):
-        if not self.conn: 
+        if not self.conn:
             print("❌ ERROR: No database connection for get_error_log")
             return []
         try:
@@ -208,23 +211,23 @@ class DatabaseManager:
         """Get current paper and coin inventory status."""
         if not self.conn:
             return None
-            
+
         try:
             cursor = self.conn.cursor()
-            
+
             # Get paper count from settings
             cursor.execute("SELECT value FROM settings WHERE key = 'paper_count'")
             paper_result = cursor.fetchone()
             paper_count = int(paper_result['value']) if paper_result else 0
-            
+
             # Get coin inventory
             cursor.execute("""
-                SELECT denomination, count 
-                FROM cash_inventory 
+                SELECT denomination, count
+                FROM cash_inventory
                 WHERE type = 'coin' AND denomination IN (1.0, 5.0)
             """)
             coins = {row['denomination']: row['count'] for row in cursor.fetchall()}
-            
+
             # Build status dictionary
             status = {
                 "paper_count": paper_count,
@@ -234,7 +237,7 @@ class DatabaseManager:
                 },
                 "warnings": []
             }
-            
+
             # Add warnings based on thresholds
             if paper_count < 20:
                 status["warnings"].append("Low paper level!")
@@ -242,9 +245,9 @@ class DatabaseManager:
                 status["warnings"].append("Low on ₱1 coins!")
             if coins.get(5.0, 0) < 20:
                 status["warnings"].append("Low on ₱5 coins!")
-                
+
             return status
-            
+
         except sqlite3.Error as e:
             print(f"Error getting supplies status: {e}")
             return None
@@ -260,7 +263,7 @@ class DatabaseManager:
         current_thread = threading.current_thread()
         print(f"DEBUG: get_cmyk_ink_levels called from thread: {current_thread.name} (id: {current_thread.ident})")
         print(f"DEBUG: Database connection: {self.conn}")
-        
+
         if not self.conn:
             print("DEBUG: No database connection available")
             return None
@@ -268,8 +271,8 @@ class DatabaseManager:
             cursor = self.conn.cursor()
             cursor.execute("""
                 SELECT cyan_level, magenta_level, yellow_level, black_level, last_updated
-                FROM cmyk_ink_levels 
-                ORDER BY last_updated DESC 
+                FROM cmyk_ink_levels
+                ORDER BY last_updated DESC
                 LIMIT 1
             """)
             result = cursor.fetchone()
@@ -284,7 +287,8 @@ class DatabaseManager:
                     }
                 except (ValueError, TypeError) as e:
                     print(f"Error converting CMYK values from database: {e}")
-                    print(f"Raw values: cyan={result['cyan_level']}, magenta={result['magenta_level']}, yellow={result['yellow_level']}, black={result['black_level']}")
+                    print(f"Raw values: cyan={result['cyan_level']}, magenta={result['magenta_level']}, "
+                          f"yellow={result['yellow_level']}, black={result['black_level']}")
                     # Return default values if conversion fails
                     return {
                         'cyan': 100.0,
@@ -308,9 +312,9 @@ class DatabaseManager:
             magenta_float = float(magenta)
             yellow_float = float(yellow)
             black_float = float(black)
-            
+
             print(f"DEBUG: Storing CMYK values as floats: C:{cyan_float}, M:{magenta_float}, Y:{yellow_float}, K:{black_float}")
-            
+
             cursor = self.conn.cursor()
             cursor.execute("""
                 INSERT INTO cmyk_ink_levels (cyan_level, magenta_level, yellow_level, black_level, timestamp, last_updated)
@@ -333,8 +337,8 @@ class DatabaseManager:
             cursor = self.conn.cursor()
             cursor.execute("""
                 SELECT cyan_level, magenta_level, yellow_level, black_level, last_updated
-                FROM cmyk_ink_levels 
-                ORDER BY last_updated DESC 
+                FROM cmyk_ink_levels
+                ORDER BY last_updated DESC
                 LIMIT ?
             """, (limit,))
             return cursor.fetchall()
@@ -666,26 +670,26 @@ class DatabaseManager:
         """Get current supplies status including CMYK ink levels."""
         if not self.conn:
             return None
-            
+
         try:
             cursor = self.conn.cursor()
-            
+
             # Get paper count from settings
             cursor.execute("SELECT value FROM settings WHERE key = 'paper_count'")
             paper_result = cursor.fetchone()
             paper_count = int(paper_result['value']) if paper_result else 0
-            
+
             # Get coin inventory
             cursor.execute("""
-                SELECT denomination, count 
-                FROM cash_inventory 
+                SELECT denomination, count
+                FROM cash_inventory
                 WHERE type = 'coin' AND denomination IN (1, 5)
             """)
             coins = {row['denomination']: row['count'] for row in cursor.fetchall()}
-            
+
             # Get CMYK ink levels
             cmyk_levels = self.get_cmyk_ink_levels()
-            
+
             # Build status dictionary
             status = {
                 "paper_count": paper_count,
@@ -696,7 +700,7 @@ class DatabaseManager:
                 "cmyk_levels": cmyk_levels,
                 "warnings": []
             }
-            
+
             # Add warnings based on thresholds
             if paper_count < 20:
                 status["warnings"].append("Low paper level!")
@@ -704,7 +708,7 @@ class DatabaseManager:
                 status["warnings"].append("Low on ₱1 coins!")
             if coins.get(5.0, 0) < 20:
                 status["warnings"].append("Low on ₱5 coins!")
-            
+
             # Add CMYK ink warnings
             if cmyk_levels:
                 if cmyk_levels['cyan'] < 10.0:
@@ -715,9 +719,9 @@ class DatabaseManager:
                     status["warnings"].append("Low Yellow ink level!")
                 if cmyk_levels['black'] < 10.0:
                     status["warnings"].append("Low Black ink level!")
-                
+
             return status
-            
+
         except sqlite3.Error as e:
             print(f"Error getting supplies status with CMYK: {e}")
             return None

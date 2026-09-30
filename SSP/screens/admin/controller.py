@@ -5,15 +5,17 @@ from PyQt5.QtWidgets import QWidget, QGridLayout
 from .model import AdminModel
 from .view import AdminScreenView
 
+
 class AdminController(QWidget):
     """Manages the Admin screen's logic and UI."""
+
     def __init__(self, main_app, parent=None):
         super().__init__(parent)
         self.main_app = main_app
 
         self.model = AdminModel()
         self.view = AdminScreenView()
-        
+
         # Connect to database thread manager if available
         if hasattr(main_app, 'db_threader'):
             self._connect_to_database_thread_manager()
@@ -21,7 +23,7 @@ class AdminController(QWidget):
         layout = QGridLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.addWidget(self.view, 0, 0)
-        
+
         self._connect_signals()
 
     # --- NEW PROPERTY TO FIX THE ERROR ---
@@ -47,33 +49,33 @@ class AdminController(QWidget):
         self.view.update_cmyk_clicked.connect(self.model.update_cmyk_levels)
         self.view.reset_cmyk_clicked.connect(self.model.reset_cmyk_levels)
         self.view.refresh_cmyk_clicked.connect(self.model.refresh_cmyk_levels)
-        
+
         # --- Model -> View ---
         self.model.paper_count_changed.connect(self.view.update_paper_count_display)
         self.model.coin_count_changed.connect(self.view.update_coin_count_display)
         self.model.cmyk_levels_changed.connect(self.view.update_cmyk_display)
         self.model.show_message.connect(self.view.show_message_box)
-    
+
     def _connect_to_database_thread_manager(self):
         """Connect to database thread manager for real-time updates."""
         if hasattr(self.main_app, 'db_threader'):
             # Connect CMYK level updates from database thread
             self.main_app.db_threader.cmyk_levels_updated.connect(self._on_cmyk_levels_updated)
             print("Admin screen connected to database thread manager")
-    
+
     def _on_cmyk_levels_updated(self, cmyk_data):
         """Handle CMYK levels updated from database thread."""
         print(f"Admin screen received CMYK update: {cmyk_data}")
         if cmyk_data:
             self.model.cmyk_levels_changed.emit(
                 cmyk_data['cyan'],
-                cmyk_data['magenta'], 
+                cmyk_data['magenta'],
                 cmyk_data['yellow'],
                 cmyk_data['black']
             )
 
     # --- Public API for main_app and other screens ---
-    
+
     def on_enter(self):
         """Called by main_app when this screen becomes active."""
         print("Admin screen entered. Refreshing data.")
@@ -83,7 +85,7 @@ class AdminController(QWidget):
         # Debug: Show what paper count is loaded
         print(f"Admin on_enter: Paper count loaded as {self.model.paper_count}")
         print(f"Admin on_enter: Fresh DB value: {self.model.db_manager.get_setting('paper_count', default=100)}")
-    
+
     def refresh_cmyk_levels(self):
         """Manually refresh CMYK levels from database."""
         print("Manually refreshing CMYK levels...")
