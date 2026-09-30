@@ -16,9 +16,9 @@ import os
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
 from PyQt5 import QtCore
-from PyQt5.QtWidgets import QApplication, QMainWindow, QStackedWidget
-from PyQt5.QtCore import QTimer
-from PyQt5.QtGui import QIcon
+from PyQt5.QtWidgets import QApplication, QMainWindow, QStackedWidget, QInputDialog, QShortcut
+from PyQt5.QtCore import QObject, QTimer, pyqtSignal
+from PyQt5.QtGui import QIcon, QKeySequence
 from screens.idle import IdleController
 from screens.usb import USBController
 from screens.wifi import WifiController
@@ -39,6 +39,9 @@ from managers.db_threader import DatabaseThreadManager
 from managers.ink_analysis_threader import InkAnalysisThreadManager
 from managers.webapp_thread import WebAppThreadManager
 from managers.email_poller_thread import EmailPollerThreadManager
+from managers.qr_reader import QrReaderManager, classify_payload, decide_redemption
+from managers.session_manager import SessionManager
+from database.db_manager import DatabaseManager
 from managers.sms_manager import cleanup_sms
 from managers.persistent_gpio import cleanup_persistent_gpio
 from config import get_config
@@ -48,6 +51,12 @@ try:
     from managers.usb_file_manager import USBFileManager
 except Exception as e:
     print(f"❌ Failed to import USBFileManager: {e}")
+
+
+class _QrReadBridge(QObject):
+    """Carries reads from the QR reader's thread to the GUI thread (a signal
+    emitted off-thread is delivered queued on the receiver's thread)."""
+    read = pyqtSignal(str)
 
 
 class PrintingSystemApp(QMainWindow):
@@ -154,6 +163,8 @@ class PrintingSystemApp(QMainWindow):
 
         # Connect thread managers for real-time data updates
         self._connect_thread_managers()
+
+        self._setup_qr_reader()
         
         # Initialize printer manager (no dependencies)
         self.printer_manager = PrinterManager()
@@ -249,6 +260,56 @@ class PrintingSystemApp(QMainWindow):
             }
         """)
     
+    def _setup_qr_reader(self):
+        """Start the QR reader thread (if QR_READER_PORT is set) and, in SIM
+        mode only, the dev shortcut that injects a read from a text box."""
+        # Built on the GUI thread: SessionManager's DB connection is used here only.
+        self.qr_session_manager = SessionManager(DatabaseManager())
+        self._qr_bridge = _QrReadBridge()
+        self._qr_bridge.read.connect(self._on_qr_read)
+        self.qr_reader = QrReaderManager.from_config(self._qr_bridge.read.emit)
+        if self.qr_reader is not None:
+            self.qr_reader.start()
+            print("✅ QR reader started")
+        else:
+            print("ℹ️ QR reader off (QR_READER_PORT blank or unavailable) — typed codes only")
+
+        if get_config().sim_mode:
+            self._qr_inject_shortcut = QShortcut(QKeySequence("Ctrl+Shift+Q"), self)
+            self._qr_inject_shortcut.activated.connect(self._inject_qr_read)
+
+    def _inject_qr_read(self):
+        text, ok = QInputDialog.getText(self, "SIM: inject QR read", "QR payload:")
+        if ok:
+            self._on_qr_read(text.strip())
+
+    def _current_screen_name(self):
+        index = self.stacked_widget.currentIndex()
+        return next((name for name, i in self.SCREEN_MAP.items() if i == index), None)
+
+    def _on_qr_read(self, text):
+        """One read from the reader (or the SIM injector): classify, decide, act."""
+        read = classify_payload(text)
+        outcome = decide_redemption(read, self._current_screen_name(), self.qr_session_manager)
+        print(f"QR read ({read.kind}) -> {outcome.action}: {outcome.message}")
+        if outcome.action == "open_files":
+            if not self.open_session_files(outcome.source, outcome.files):
+                print("⚠️ QR read verified but the session's files could not be loaded")
+
+    def open_session_files(self, source, files):
+        """Load a redeemed wifi/email Session's files into file_browser — the one
+        path both a correct typed OTP and a read QR payload take. Returns False
+        if none of the files could be loaded."""
+        from managers.usb_file_manager import USBFileManager  # same import the wifi/email controllers used
+        source_paths = [f['path'] for f in files]
+        pdf_files = USBFileManager().scan_and_copy_pdf_files_by_paths(source_paths)
+        if not pdf_files:
+            return False
+        self.file_browser_screen.set_source(source)
+        self.file_browser_screen.load_pdf_files(pdf_files)
+        self.show_screen('file_browser')
+        return True
+
     def _setup_display(self):
         """
         Configure display settings using the real screen resolution, then go fullscreen.
@@ -769,6 +830,10 @@ class PrintingSystemApp(QMainWindow):
             if hasattr(self, 'email_poller_thread') and self.email_poller_thread:
                 print("🔄 Stopping email poller thread...")
                 self.email_poller_thread.stop()
+
+            if getattr(self, 'qr_reader', None):
+                print("🔄 Stopping QR reader...")
+                self.qr_reader.stop()
 
             # Stop USB monitoring thread
             if hasattr(self, 'usb_screen') and hasattr(self.usb_screen, 'model'):

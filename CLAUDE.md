@@ -7,7 +7,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 Run everything from the **repo root** (`SSP-Plus/`), not from `SSP/`:
 
 ```bash
-make test      # pytest tests/ -v  (177 tests, no hardware/DB required)
+make test      # pytest tests/ -v  (226 tests, no hardware/DB required)
 make lint      # flake8 SSP/ --max-line-length=120
 make run-sim   # launches the GUI with SIM_MODE=true (no GPIO/CUPS/modem needed)
 make run       # launches the GUI against real hardware (kiosk only)
@@ -49,6 +49,12 @@ Two persistent `QThread` managers are started in `PrintingSystemApp.__init__` an
 | Coin/bill acceptors | `managers/persistent_gpio.py` | `pigpio` (GPIO pulse counting) |
 | Coin hoppers (change dispenser) | `managers/hopper_manager.py` (`ChangeDispenser`, `HopperController`) | `pigpio` |
 | SMS alerts | `managers/sms_manager.py` | `pyserial` (AT commands to GSM modem) |
+| QR reader (kiosk 2D reader) | `managers/qr_reader.py` | `pyserial` (USB serial, CR-terminated reads) |
+
+The QR reader is on when `QR_READER_PORT` is set in `.env` (blank = off, typed codes only). Reads are
+classified and decided in `managers/qr_reader.py` (`classify_payload`, `decide_redemption`), then
+`main_app._on_qr_read` acts on them via `open_session_files()` — the same path a typed OTP takes. In
+`SIM_MODE`, Ctrl+Shift+Q opens a box to inject a payload. See ADR 0004.
 
 `pigpio` requires the `pigpiod` daemon. All GPIO code degrades gracefully (simulated mode with console warnings) when `pigpio`/`pigpiod` is unavailable, independent of `SIM_MODE`.
 

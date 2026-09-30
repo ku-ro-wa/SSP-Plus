@@ -47,8 +47,8 @@ _Avoid_: collection code, claim code.
 **QR payload**:
 The string encoded in a QR image handed to the user. Two kinds: a *Session payload*
 (`session_id:otp`, redeemable the same way a typed OTP is) and a *Voucher payload* (a
-type-tagged **Voucher code**, only accepted at payment). Kiosk-side QR *scanning* is not
-built yet, so today both are decorative.
+type-tagged **Voucher code**, only accepted at payment). The kiosk's **QR reader**
+reads a Session payload on idle or the homepage; Voucher payloads are not read yet.
 _Avoid_: QR token, QR code (say "QR image" for the picture, "QR payload" for its contents).
 
 **QR reader**:
@@ -58,8 +58,8 @@ to the flatbed document scanner behind the `scanner` **Source** and **Photocopy*
 _Avoid_: scanner, barcode scanner, QR scanner, scanning (for this device).
 
 **Redemption**:
-The act at the kiosk of proving you hold a session — typing the OTP (or, later, scanning the
-QR) — which flips the session to `verified` and copies its files into a private working
+The act at the kiosk of proving you hold a session — typing the OTP, or the **QR reader**
+reading the QR payload — which flips the session to `verified` and copies its files into a private working
 directory for the print path.
 _Avoid_: claim, verification (verification is one step inside redemption), unlock.
 

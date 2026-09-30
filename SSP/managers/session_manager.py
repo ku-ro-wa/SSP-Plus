@@ -101,6 +101,12 @@ class SessionManager:
             expires_at=expires_at,
         )
 
+    def get_session_source(self, session_id: str):
+        """Read-only: the Source ('wifi', 'email', ...) of a session, or None
+        if it doesn't exist. Never counts as an attempt."""
+        row = self.db_manager.get_session(session_id)
+        return None if row is None else row['source']
+
     def verify_qr_payload(self, payload: str):
         """Parse a scanned 'session_id:otp' QR payload and verify it."""
         try:

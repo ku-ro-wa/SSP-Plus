@@ -3,7 +3,6 @@
 from PyQt5.QtWidgets import QWidget, QGridLayout
 from PyQt5.QtCore import QTimer
 
-from managers.usb_file_manager import USBFileManager
 from managers.webapp_thread import wifi_portal_url
 
 from .model import WifiModel
@@ -54,15 +53,7 @@ class WifiController(QWidget):
             self.view.show_status(message, is_error=False)
             print("WiFi screen: OTP accepted")
 
-            temp_manager = USBFileManager()
-            source_paths = [f['path'] for f in files]
-            pdf_files = temp_manager.scan_and_copy_pdf_files_by_paths(source_paths)
-
-            if pdf_files:
-                self.main_app.file_browser_screen.set_source("wifi")
-                self.main_app.file_browser_screen.load_pdf_files(pdf_files)
-                self.main_app.show_screen('file_browser')
-            else:
+            if not self.main_app.open_session_files("wifi", files):
                 self.view.show_status("Could not load the uploaded file(s).", is_error=True)
         else:
             self.view.show_status(message, is_error=True)

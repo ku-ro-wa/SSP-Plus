@@ -252,6 +252,15 @@ class Config:
         except KeyError:
             return False
 
+    @property
+    def qr_reader_port(self) -> str:
+        """Serial port of the kiosk QR reader (e.g. /dev/ttyACM0, /dev/cu.usbmodem*).
+        Blank or unset means no reader: the kiosk runs with typed codes only."""
+        try:
+            return self.get('QR_READER_PORT', str).strip()
+        except KeyError:
+            return ""
+
     # Web backend (FastAPI) settings
 
     @property
