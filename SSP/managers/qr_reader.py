@@ -14,6 +14,7 @@
 
 import re
 import threading
+import time
 from dataclasses import dataclass
 
 from config import get_config
@@ -32,9 +33,18 @@ _JOIN_TIMEOUT_SECONDS = 2.0
 _SESSION_PAYLOAD = re.compile(r"([0-9a-f]{16}):([0-9]{6})")
 _VOUCHER_PREFIX = "V1:"
 
-# Screens that accept a read Session payload. Other screens are the next ticket.
-_REDEEMABLE_SCREENS = {"idle", "homepage"}
+# Screens that accept a read (and can show a message about it). Every other
+# screen ignores reads silently.
+_REDEEMABLE_SCREENS = {"idle", "homepage", "wifi", "email"}
 _KIOSK_SOURCES = {"wifi", "email"}
+
+DUPLICATE_WINDOW_SECONDS = 3.0
+
+MSG_CANT_READ = "Couldn't read that, type your code."
+MSG_CANT_USE_HERE = "This code can't be used here."
+MSG_VOUCHER_AT_PAYMENT = "Vouchers can only be used at payment."
+# Same wording a typed code gets for a session that is gone or already used.
+MSG_NOT_FOUND_OR_USED = "Incorrect or expired code"
 
 
 @dataclass
@@ -46,7 +56,7 @@ class QrRead:
 
 @dataclass
 class RedemptionOutcome:
-    action: str  # 'open_files' | 'rejected' | 'ignore'
+    action: str  # 'open_files' | 'rejected' (show `message`) | 'ignore' (silent)
     source: str = None
     files: list = None
     message: str = None
@@ -63,22 +73,48 @@ def classify_payload(text: str) -> QrRead:
 
 def decide_redemption(read: QrRead, screen: str, session_manager) -> RedemptionOutcome:
     """Decide what a read means on `screen`. Only a well-formed Session payload
-    on an accepting screen can touch the Session Manager; malformed reads and
-    Voucher payloads never count as a failed attempt."""
-    if read.kind != "session":
-        return RedemptionOutcome("ignore", message=f"{read.kind} read not handled")
+    on an accepting screen can touch the Session Manager; malformed reads,
+    Voucher payloads and wrong-Source Sessions never count as a failed attempt."""
     if screen not in _REDEEMABLE_SCREENS:
-        return RedemptionOutcome("ignore", message=f"reads are not accepted on '{screen}'")
+        return RedemptionOutcome("ignore")
+    if read.kind == "voucher":
+        return RedemptionOutcome("rejected", message=MSG_VOUCHER_AT_PAYMENT)
+    if read.kind != "session":
+        return RedemptionOutcome("rejected", message=MSG_CANT_READ)
 
     # Checked before verification so a wrong-source Session never gets an attempt counted.
     source = session_manager.get_session_source(read.session_id)
+    if source is None:
+        return RedemptionOutcome("rejected", message=MSG_NOT_FOUND_OR_USED)
     if source not in _KIOSK_SOURCES:
-        return RedemptionOutcome("rejected", message="session not found or not a kiosk source")
+        return RedemptionOutcome("rejected", message=MSG_CANT_USE_HERE)
+    # A typed code never resolves a used Session, so a read must not reopen its files.
+    if session_manager.get_session_status(read.session_id) == "verified":
+        return RedemptionOutcome("rejected", message=MSG_NOT_FOUND_OR_USED)
 
     success, message, files = session_manager.verify_otp(read.session_id, read.otp)
     if not success:
         return RedemptionOutcome("rejected", message=message)
     return RedemptionOutcome("open_files", source=source, files=files, message=message)
+
+
+class DuplicateReadFilter:
+    """Drops an identical payload repeated within a few seconds, so one
+    accidental double read doesn't show a 'code already used' error. Suppressed
+    repeats don't extend the window."""
+
+    def __init__(self, window_seconds=DUPLICATE_WINDOW_SECONDS, clock=time.monotonic):
+        self._window = window_seconds
+        self._clock = clock
+        self._last_text = None
+        self._last_time = 0.0
+
+    def is_duplicate(self, text: str) -> bool:
+        now = self._clock()
+        if text == self._last_text and now - self._last_time < self._window:
+            return True
+        self._last_text, self._last_time = text, now
+        return False
 
 
 class QrReaderManager:

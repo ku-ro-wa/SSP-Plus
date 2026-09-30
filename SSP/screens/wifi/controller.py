@@ -58,6 +58,10 @@ class WifiController(QWidget):
         else:
             self.view.show_status(message, is_error=True)
 
+    def show_qr_message(self, message):
+        """A message about a QR read (from main_app), shown like a typed-code error."""
+        self.view.show_status(message, is_error=True)
+
     def _go_back(self):
         self.main_app.show_screen('homepage')
 

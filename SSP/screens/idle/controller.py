@@ -58,6 +58,10 @@ class IdleController(QWidget):
         else:
             print("PIN Dialog closed without correct PIN.")
     
+    def show_qr_message(self, message):
+        """A message about a QR read (from main_app)."""
+        self.view.show_status(message, is_error=True)
+
     def _show_message(self, title, text):
         """Shows a message to the user."""
         print(f"{title}: {text}")
@@ -113,6 +117,7 @@ class IdleController(QWidget):
     def on_enter(self):
         """Called by main_app when this screen becomes active."""
         print("Idle screen entered.")
+        self.view.show_status("")
         
         # Manually disable acceptors to ensure they are turned off
         self._disable_acceptors()

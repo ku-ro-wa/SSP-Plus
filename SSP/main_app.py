@@ -39,7 +39,7 @@ from managers.db_threader import DatabaseThreadManager
 from managers.ink_analysis_threader import InkAnalysisThreadManager
 from managers.webapp_thread import WebAppThreadManager
 from managers.email_poller_thread import EmailPollerThreadManager
-from managers.qr_reader import QrReaderManager, classify_payload, decide_redemption
+from managers.qr_reader import DuplicateReadFilter, QrReaderManager, classify_payload, decide_redemption
 from managers.session_manager import SessionManager
 from database.db_manager import DatabaseManager
 from managers.sms_manager import cleanup_sms
@@ -265,6 +265,7 @@ class PrintingSystemApp(QMainWindow):
         mode only, the dev shortcut that injects a read from a text box."""
         # Built on the GUI thread: SessionManager's DB connection is used here only.
         self.qr_session_manager = SessionManager(DatabaseManager())
+        self._qr_duplicates = DuplicateReadFilter()
         self._qr_bridge = _QrReadBridge()
         self._qr_bridge.read.connect(self._on_qr_read)
         self.qr_reader = QrReaderManager.from_config(self._qr_bridge.read.emit)
@@ -288,13 +289,20 @@ class PrintingSystemApp(QMainWindow):
         return next((name for name, i in self.SCREEN_MAP.items() if i == index), None)
 
     def _on_qr_read(self, text):
-        """One read from the reader (or the SIM injector): classify, decide, act."""
+        """One read from the reader (or the SIM injector): de-duplicate, classify, decide, act."""
+        if self._qr_duplicates.is_duplicate(text):
+            print("QR read ignored: identical read just now")
+            return
         read = classify_payload(text)
-        outcome = decide_redemption(read, self._current_screen_name(), self.qr_session_manager)
-        print(f"QR read ({read.kind}) -> {outcome.action}: {outcome.message}")
+        screen = self._current_screen_name()
+        outcome = decide_redemption(read, screen, self.qr_session_manager)
+        print(f"QR read ({read.kind}) on '{screen}' -> {outcome.action}: {outcome.message}")
         if outcome.action == "open_files":
             if not self.open_session_files(outcome.source, outcome.files):
                 print("⚠️ QR read verified but the session's files could not be loaded")
+        elif outcome.action == "rejected":
+            # Only accepting screens get here, and each has a show_qr_message().
+            self.stacked_widget.currentWidget().show_qr_message(outcome.message)
 
     def open_session_files(self, source, files):
         """Load a redeemed wifi/email Session's files into file_browser — the one

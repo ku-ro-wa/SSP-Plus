@@ -107,6 +107,11 @@ class SessionManager:
         row = self.db_manager.get_session(session_id)
         return None if row is None else row['source']
 
+    def get_session_status(self, session_id: str):
+        """Read-only: a session's status ('pending', 'verified', ...), or None."""
+        row = self.db_manager.get_session(session_id)
+        return None if row is None else row['status']
+
     def verify_qr_payload(self, payload: str):
         """Parse a scanned 'session_id:otp' QR payload and verify it."""
         try:

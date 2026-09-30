@@ -6,7 +6,7 @@ from PyQt5.QtWidgets import (
 from PyQt5.QtCore import Qt, pyqtSignal
 
 from ui.theme import COLORS, FONT
-from ui.widgets import Card, Header
+from ui.widgets import Card, Header, ReaderHint, StatusBanner
 
 
 class HomepageScreenView(QWidget):
@@ -45,11 +45,17 @@ class HomepageScreenView(QWidget):
         disclaimer.setAlignment(Qt.AlignCenter)
         disclaimer.setStyleSheet(f"color: {COLORS['text_muted']}; font-size: {FONT['size_sm']}px; font-weight: 600;")
 
+        self.reader_hint = ReaderHint()
+        self.status_banner = StatusBanner()
+
         fg_layout.addStretch(1)
         fg_layout.addWidget(title)
         fg_layout.addSpacing(8)
         fg_layout.addWidget(subtitle)
         fg_layout.addWidget(disclaimer)
+        fg_layout.addSpacing(8)
+        fg_layout.addWidget(self.reader_hint)
+        fg_layout.addWidget(self.status_banner)
         fg_layout.addStretch(1)
 
         # Cards: 2x2 grid.
@@ -77,3 +83,6 @@ class HomepageScreenView(QWidget):
         grid_wrapper.addStretch()
         fg_layout.addLayout(grid_wrapper)
         fg_layout.addStretch(2)
+
+    def show_status(self, message, is_error=True):
+        self.status_banner.show_message(message, variant="error" if is_error else "success")

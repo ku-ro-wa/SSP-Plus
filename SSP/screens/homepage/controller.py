@@ -52,6 +52,10 @@ class HomepageController(QWidget):
         else:
             print(f"Landing screen: Unknown method selected: {method_key}")
 
+    def show_qr_message(self, message):
+        """A message about a QR read (from main_app)."""
+        self.view.show_status(message, is_error=True)
+
     def _go_back(self):
         """Navigates back to the idle screen."""
         self.main_app.show_screen('idle')
@@ -61,6 +65,7 @@ class HomepageController(QWidget):
     def on_enter(self):
         """Called by main_app when this screen becomes active."""
         print("Homepage screen entered")
+        self.view.show_status("")
         self.timeout_timer.start(60000)
         print("Homepage screen timeout started (1 minute)")
 

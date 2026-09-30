@@ -48,7 +48,7 @@ _Avoid_: collection code, claim code.
 The string encoded in a QR image handed to the user. Two kinds: a *Session payload*
 (`session_id:otp`, redeemable the same way a typed OTP is) and a *Voucher payload* (a
 type-tagged **Voucher code**, only accepted at payment). The kiosk's **QR reader**
-reads a Session payload on idle or the homepage; Voucher payloads are not read yet.
+reads a Session payload on idle, the homepage and the Wi-Fi/Email code screens (other screens ignore it); Voucher payloads are not applied yet.
 _Avoid_: QR token, QR code (say "QR image" for the picture, "QR payload" for its contents).
 
 **QR reader**:

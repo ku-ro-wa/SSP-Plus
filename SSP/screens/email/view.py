@@ -8,7 +8,7 @@ from PyQt5.QtGui import QIntValidator
 
 from ui.theme import COLORS, FONT
 from ui.qr import qr_pixmap
-from ui.widgets import BackButton, Card, Header, PrimaryButton, StatusBanner
+from ui.widgets import BackButton, Card, Header, PrimaryButton, ReaderHint, StatusBanner
 
 
 class EmailScreenView(QWidget):
@@ -113,7 +113,10 @@ class EmailScreenView(QWidget):
         cards_row.addStretch()
         body_layout.addLayout(cards_row)
 
-        body_layout.addSpacing(16)
+        body_layout.addSpacing(12)
+        self.reader_hint = ReaderHint()
+        body_layout.addWidget(self.reader_hint)
+        body_layout.addSpacing(8)
 
         self.status_banner = StatusBanner()
         body_layout.addWidget(self.status_banner)
