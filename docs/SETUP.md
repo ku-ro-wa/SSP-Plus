@@ -384,6 +384,89 @@ later remote-access phase).
 
 ---
 
+## QR reader (kiosk)
+
+The kiosk's **QR reader** is a generic embedded 2D module. Its manual is the booklet titled
+**"M300D, M800D, M900D, 9800D-V1.3"** that ships with the reader (the vendor manual isn't
+committed to the repo). Every settings barcode below is named exactly as that booklet labels it.
+
+The reader runs as a USB serial port, not a keyboard. The module can't be stopped from reading
+settings barcodes, so anyone at the kiosk can switch it to keyboard mode with one; the kiosk OS
+therefore ignores the reader as an input device. See
+`docs/adr/0004-qr-reader-serial-mode-and-untrusted-payloads.md` for why.
+
+### 1. Ignore the reader as a keyboard (udev)
+
+Plug the reader in and find its USB vendor and product ID. Don't guess them:
+
+```bash
+lsusb
+# Bus 001 Device 004: ID xxxx:yyyy ...   <- the reader; unplug/replug to see which line changes
+```
+
+Create `/etc/udev/rules.d/99-qr-reader.rules`, replacing `xxxx` / `yyyy` with the IDs from `lsusb`:
+
+```
+# QR reader: never treat it as a keyboard, even if a settings barcode switches it to HID-KBW
+SUBSYSTEM=="input", ATTRS{idVendor}=="xxxx", ATTRS{idProduct}=="yyyy", ENV{ID_INPUT}="", ENV{ID_INPUT_KEYBOARD}="", ENV{LIBINPUT_IGNORE_DEVICE}="1"
+```
+
+Reload with `sudo udevadm control --reload && sudo udevadm trigger`, then unplug and replug the
+reader. This rule only silences the keyboard side. The stable serial path comes from the stock
+udev serial rules, not from this file, and appears under `/dev/serial/by-id/`:
+
+```bash
+ls -l /dev/serial/by-id/
+```
+
+> Not yet verified on the kiosk Pi; that's the separate "verify on the kiosk Pi" ticket (GitHub
+> issue #38). The rule assumes a libinput desktop session.
+
+### 2. Point the app at it
+
+In the kiosk's `.env`, use the stable by-id path (the `usb-...` name from the listing above):
+
+```
+QR_READER_PORT=/dev/serial/by-id/usb-<name shown by ls>
+```
+
+Leave it blank for no reader (typed codes only). On a Mac, use `/dev/cu.usbmodem*` instead.
+
+### 3. Configure the reader
+
+Read these settings barcodes from the booklet, in this order:
+
+1. **Restore Defaults**
+2. **USB COM** (Interface setup)
+3. **Auto-Sensing Mode** (Trigger Mode)
+4. **2D-ON**
+5. **1D-OFF**
+6. **End Mark CR**
+7. **No Swap** (Capital & Lowercase Setup)
+8. **Invoice Function-OFF**
+9. **Duplicate Detection-ON**
+10. **Duplicate Detection time setting**, then Appendix 1 **Parameter Code** `3`, `0`, `0`, `0`
+11. **Save settings**
+
+Then unplug and replug the reader to confirm the settings persisted. The same sequence restores a
+reader a customer has reconfigured.
+
+### 4. Check it from a terminal
+
+pyserial's miniterm shows what the reader sends. The `hexlify` encoding makes the line ending
+visible:
+
+```bash
+python -m serial.tools.miniterm --encoding hexlify /dev/serial/by-id/usb-<name> 9600
+```
+
+Read a Session payload (its QR image, from a phone). The payload appears as hex ending in `0d` (CR only, no `0a`).
+Decode `session_id:otp` to compare: 16 lowercase hex characters, `:`, 6 digits.
+
+Phone screens need brightness up: reads fail at the lowest brightness.
+
+---
+
 ## Workflow
 
 ```
