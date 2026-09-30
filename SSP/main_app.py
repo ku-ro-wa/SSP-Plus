@@ -39,7 +39,8 @@ from managers.db_threader import DatabaseThreadManager
 from managers.ink_analysis_threader import InkAnalysisThreadManager
 from managers.webapp_thread import WebAppThreadManager
 from managers.email_poller_thread import EmailPollerThreadManager
-from managers.qr_reader import DuplicateReadFilter, QrReaderManager, classify_payload, decide_redemption
+from managers.qr_reader import (CONNECTED, DuplicateReadFilter, QrReaderManager, classify_payload, decide_redemption,
+                                describe_reader_status, should_log_status_change)
 from managers.session_manager import SessionManager
 from database.db_manager import DatabaseManager
 from managers.sms_manager import cleanup_sms
@@ -263,16 +264,34 @@ class PrintingSystemApp(QMainWindow):
         self._qr_duplicates = DuplicateReadFilter()
         self._qr_bridge = _QrReadBridge()
         self._qr_bridge.read.connect(self._on_qr_read)
-        self.qr_reader = QrReaderManager.from_config(self._qr_bridge.read.emit)
+        self.qr_reader = QrReaderManager.from_config(self._qr_bridge.read.emit, self._on_qr_reader_status)
         if self.qr_reader is not None:
             self.qr_reader.start()
             print("✅ QR reader started")
         else:
-            print("ℹ️ QR reader off (QR_READER_PORT blank or unavailable) — typed codes only")
+            print("ℹ️ QR reader off — typed codes only")
+            if get_config().qr_reader_port:
+                # Port is configured but the reader can't run (pyserial missing): a fault, not "off".
+                from utils.error_logger import log_error
+                log_error("QR Reader", "QR_READER_PORT is set but pyserial is not installed", "qr_reader")
 
         if get_config().sim_mode:
             self._qr_inject_shortcut = QShortcut(QKeySequence("Ctrl+Shift+Q"), self)
             self._qr_inject_shortcut.activated.connect(self._inject_qr_read)
+
+    def _on_qr_reader_status(self, status, previous, detail):
+        """Runs on the reader thread. Loss and recovery each get one error_log entry."""
+        if should_log_status_change(status, previous):
+            from utils.error_logger import log_error
+            message = ("QR reader recovered" if status == CONNECTED
+                       else f"QR reader unavailable, typed codes only ({detail})")
+            log_error("QR Reader", message, "qr_reader")
+
+    def qr_reader_status_text(self):
+        reader = getattr(self, 'qr_reader', None)
+        if reader is None and get_config().qr_reader_port:
+            return "Not connected (pyserial missing)"
+        return describe_reader_status(reader)
 
     def _inject_qr_read(self):
         text, ok = QInputDialog.getText(self, "SIM: inject QR read", "QR payload:")

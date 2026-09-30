@@ -78,6 +78,7 @@ class AdminScreenView(QWidget):
         body_layout.addWidget(self._create_paper_management_group())
         body_layout.addWidget(self._create_coin_management_group())
         body_layout.addWidget(self._create_cmyk_management_group())
+        body_layout.addWidget(self._create_qr_reader_group())
         body_layout.addStretch(1)
 
         self.back_button = BackButton("Back to Main Screen")
@@ -233,7 +234,23 @@ class AdminScreenView(QWidget):
         layout.addLayout(button_row)
         return group
 
+    def _create_qr_reader_group(self):
+        group = QGroupBox("QR Reader")
+        group.setStyleSheet(GROUPBOX_QSS)
+        layout = QHBoxLayout(group)
+        layout.addWidget(self._section_label("Status:"))
+        self.qr_reader_status_label = QLabel("")
+        self.qr_reader_status_label.setStyleSheet(
+            f"color: {COLORS['text']}; font-size: {FONT['size_md']}px; font-weight: 700;"
+        )
+        layout.addWidget(self.qr_reader_status_label)
+        layout.addStretch(1)
+        return group
+
     # ------------------------------------------------------------- model -> view
+
+    def update_qr_reader_status(self, text):
+        self.qr_reader_status_label.setText(text)
 
     def update_paper_count_display(self, count, color=None):
         """Updates the paper count label, tinted by remaining level."""

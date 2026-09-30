@@ -27,6 +27,11 @@ except ImportError:  # pyserial is optional unless a reader port is configured
 READER_BAUDRATE = 9600  # ignored by a USB CDC port, but pyserial wants one
 _POLL_TIMEOUT_SECONDS = 0.1
 _JOIN_TIMEOUT_SECONDS = 2.0
+DEFAULT_RETRY_SECONDS = 5.0
+
+# Reader availability, as reported by QrReaderManager.status
+CONNECTED = "connected"
+UNAVAILABLE = "unavailable"
 
 # fullmatch + [0-9]/[0-9a-f] (not \d or $) so a trailing newline, whitespace,
 # uppercase hex or non-ASCII digits are all malformed.
@@ -98,6 +103,19 @@ def decide_redemption(read: QrRead, screen: str, session_manager) -> RedemptionO
     return RedemptionOutcome("open_files", source=source, files=files, message=message)
 
 
+def describe_reader_status(manager) -> str:
+    """Kiosk Admin's one-line reader status. No manager means QR_READER_PORT is
+    blank: that's a choice, not a fault."""
+    if manager is None:
+        return "Not configured"
+    return {CONNECTED: "Connected", UNAVAILABLE: "Not connected"}.get(manager.status, "Starting")
+
+
+def should_log_status_change(new, previous) -> bool:
+    """Loss and recovery go to error_log; a healthy first connect doesn't."""
+    return new == UNAVAILABLE or previous == UNAVAILABLE
+
+
 class DuplicateReadFilter:
     """Drops an identical payload repeated within a few seconds, so one
     accidental double read doesn't show a 'code already used' error. Suppressed
@@ -118,31 +136,43 @@ class DuplicateReadFilter:
 
 
 class QrReaderManager:
-    """Reads CR-terminated lines from an open serial port on a daemon thread and
-    calls `on_read(text)` once per non-empty read. Stray LFs are dropped."""
+    """Reads CR-terminated lines from a serial port on a daemon thread and calls
+    `on_read(text)` once per non-empty read. Stray LFs are dropped.
 
-    def __init__(self, port, on_read):
-        self._port = port
+    The port comes from `open_port()` so it can be reopened: if it can't be
+    opened, or disappears mid-run (unplugged, or switched out of serial mode),
+    the manager goes UNAVAILABLE and retries every `retry_seconds` until the
+    reader is back. `on_status(new, previous)` fires once per change of
+    availability, never per retry, so callers can log each change once."""
+
+    def __init__(self, open_port, on_read, on_status=None, retry_seconds=DEFAULT_RETRY_SECONDS):
+        self._open_port = open_port
         self._on_read = on_read
+        self._on_status = on_status
+        self.retry_seconds = retry_seconds
+        self._status = None  # None until the first open attempt
         self._thread = None
         self._stop_event = threading.Event()
 
+    @property
+    def status(self):
+        return self._status
+
     @classmethod
-    def from_config(cls, on_read):
-        """Returns None when QR_READER_PORT is blank (reader off) or can't be opened."""
+    def from_config(cls, on_read, on_status=None):
+        """Returns None when QR_READER_PORT is blank (reader off) or pyserial is
+        missing. An unopenable port still returns a manager: it keeps retrying."""
         port_name = get_config().qr_reader_port
         if not port_name:
             return None
         if serial is None:
             print("⚠️ QR_READER_PORT is set but pyserial is not installed; QR reader off")
             return None
-        try:
-            port = serial.serial_for_url(port_name, baudrate=READER_BAUDRATE,
+
+        def open_port():
+            return serial.serial_for_url(port_name, baudrate=READER_BAUDRATE,
                                          timeout=_POLL_TIMEOUT_SECONDS)
-        except (serial.SerialException, OSError, ValueError) as e:
-            print(f"⚠️ Could not open QR reader port '{port_name}': {e}")
-            return None
-        return cls(port, on_read)
+        return cls(open_port, on_read, on_status)
 
     def start(self):
         self._thread = threading.Thread(target=self._run, name="qr-reader", daemon=True)
@@ -153,24 +183,57 @@ class QrReaderManager:
         if self._thread is not None:
             self._thread.join(timeout=_JOIN_TIMEOUT_SECONDS)
             self._thread = None
-        try:
-            self._port.close()
-        except Exception as e:
-            print(f"⚠️ Error closing QR reader port: {e}")
 
     def _run(self):
-        buffer = b""
         while not self._stop_event.is_set():
             try:
-                buffer += self._port.read(self._port.in_waiting or 1)
+                port = self._open_port()
             except Exception as e:
-                print(f"⚠️ QR reader port error, reader stopped: {e}")
+                self._set_status(UNAVAILABLE, f"could not open the port: {e}")
+                self._stop_event.wait(self.retry_seconds)
+                continue
+            try:
+                self._read_until_lost(port)
+            finally:
+                self._close(port)
+            if not self._stop_event.is_set():
+                self._stop_event.wait(self.retry_seconds)
+
+    def _read_until_lost(self, port):
+        buffer = b""  # a partial line dies with the port
+        while not self._stop_event.is_set():
+            try:
+                buffer += port.read(port.in_waiting or 1)
+            except Exception as e:
+                self._set_status(UNAVAILABLE, f"lost the port: {e}")
                 return
+            # Only a read that worked proves the reader is there: a stale device
+            # node can open fine yet fail every read, and must not flap the status.
+            self._set_status(CONNECTED)
             while b"\r" in buffer:
                 line, buffer = buffer.split(b"\r", 1)
                 text = line.replace(b"\n", b"").decode("ascii", errors="replace")
                 if text:
                     self._emit(text)
+
+    def _set_status(self, status, detail=""):
+        if status == self._status:
+            return
+        previous, self._status = self._status, status
+        print(f"{'✅' if status == CONNECTED else '⚠️'} QR reader {status}"
+              f"{': ' + detail if detail else ''}")
+        if self._on_status is not None:
+            try:
+                self._on_status(status, previous, detail)
+            except Exception as e:
+                print(f"⚠️ QR reader status handler failed: {e}")
+
+    @staticmethod
+    def _close(port):
+        try:
+            port.close()
+        except Exception as e:
+            print(f"⚠️ Error closing QR reader port: {e}")
 
     def _emit(self, text):
         try:

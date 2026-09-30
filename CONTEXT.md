@@ -55,6 +55,8 @@ _Avoid_: QR token, QR code (say "QR image" for the picture, "QR payload" for its
 The kiosk's fixed 2D code reader that reads a **QR payload** off a customer's phone. Unrelated
 to the flatbed document scanner behind the `scanner` **Source** and **Photocopy**. The act is
 *reading* a QR payload, never "scanning", which belongs to the flatbed.
+If the reader disappears, the kiosk keeps working with typed codes, logs the loss and recovery
+to `error_log`, and keeps retrying; Kiosk Admin shows whether it is connected.
 _Avoid_: scanner, barcode scanner, QR scanner, scanning (for this device).
 
 **Redemption**:

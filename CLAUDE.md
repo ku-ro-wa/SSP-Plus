@@ -7,7 +7,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 Run everything from the **repo root** (`SSP-Plus/`), not from `SSP/`:
 
 ```bash
-make test      # pytest tests/ -v  (257 tests, no hardware/DB required)
+make test      # pytest tests/ -v  (275 tests, no hardware/DB required)
 make lint      # flake8 SSP/  (config in .flake8)
 make run-sim   # launches the GUI with SIM_MODE=true (no GPIO/CUPS/modem needed)
 make run       # launches the GUI against real hardware (kiosk only)
@@ -56,7 +56,10 @@ classified and decided in `managers/qr_reader.py` (`classify_payload`, `decide_r
 `main_app._on_qr_read` acts on them via `open_session_files()` — the same path a typed OTP takes.
 Accepting screens are idle, homepage, wifi and email (each has `show_qr_message()` for the reply);
 all others ignore reads silently. An identical read within 3 s is dropped (`DuplicateReadFilter`). In
-`SIM_MODE`, Ctrl+Shift+Q opens a box to inject a payload. See ADR 0004.
+`SIM_MODE`, Ctrl+Shift+Q opens a box to inject a payload. If the reader is unplugged or fails to
+open, `QrReaderManager` goes `unavailable`, retries every 5 s and resumes on its own; each loss and
+recovery writes one `error_log` row (`QR Reader`), and Kiosk Admin shows the status (blank port =
+"Not configured"). See ADR 0004.
 
 `pigpio` requires the `pigpiod` daemon. All GPIO code degrades gracefully (simulated mode with console warnings) when `pigpio`/`pigpiod` is unavailable, independent of `SIM_MODE`.
 
