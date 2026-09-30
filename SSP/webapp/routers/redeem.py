@@ -40,7 +40,7 @@ async def redeem_verify(
     session_manager=Depends(get_session_manager),
 ):
     success, message, files, session_id = session_manager.verify_otp_for_source_with_id(
-        "scan", otp.strip()
+        "scanner", otp.strip()
     )
     if not success:
         return templates.TemplateResponse(

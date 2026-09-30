@@ -44,7 +44,7 @@ class TestHandleScan:
 
         success, message, session = adapter.handle_scan(str(source))
 
-        assert db.sessions[session.session_id]['source'] == "scan"
+        assert db.sessions[session.session_id]['source'] == "scanner"
 
     def test_defaults_filename_when_not_given(self, tmp_path):
         adapter, db, upload_dir = _make_adapter(tmp_path)

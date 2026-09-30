@@ -243,9 +243,9 @@ class TestVerifyOtpForSourceWithId:
     def test_success_returns_session_id(self):
         db = FakeDBManager()
         sm = SessionManager(db)
-        session = sm.create_session('scan', _files())
+        session = sm.create_session('scanner', _files())
 
-        ok, msg, files, session_id = sm.verify_otp_for_source_with_id('scan', session.otp)
+        ok, msg, files, session_id = sm.verify_otp_for_source_with_id('scanner', session.otp)
 
         assert ok is True
         assert files == _files()
@@ -254,9 +254,9 @@ class TestVerifyOtpForSourceWithId:
     def test_failure_returns_none_for_files_and_session_id(self):
         db = FakeDBManager()
         sm = SessionManager(db)
-        sm.create_session('scan', _files())
+        sm.create_session('scanner', _files())
 
-        ok, msg, files, session_id = sm.verify_otp_for_source_with_id('scan', '000000')
+        ok, msg, files, session_id = sm.verify_otp_for_source_with_id('scanner', '000000')
 
         assert ok is False
         assert files is None

@@ -26,7 +26,7 @@ class ScanAdapter:
     ) -> Tuple[bool, str, Optional[Session]]:
         """
         Copy an already-composed scan PDF into upload_dir and register a
-        source='scan' session for it. Copies rather than moves — the
+        source='scanner' session for it. Copies rather than moves — the
         scanner's own session directory (managers/scanner_manager.py) is
         cleaned up separately by its caller.
         """
@@ -42,7 +42,7 @@ class ScanAdapter:
         shutil.copy2(pdf_path, dest_path)
 
         session = self.session_manager.create_session(
-            source="scan",
+            source="scanner",
             files=[{"path": dest_path, "original_filename": filename}],
         )
         return True, "Scan registered", session
