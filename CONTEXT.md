@@ -51,6 +51,12 @@ type-tagged **Voucher code**, only accepted at payment). Kiosk-side QR *scanning
 built yet, so today both are decorative.
 _Avoid_: QR token, QR code (say "QR image" for the picture, "QR payload" for its contents).
 
+**QR reader**:
+The kiosk's fixed 2D code reader that reads a **QR payload** off a customer's phone. Unrelated
+to the flatbed document scanner behind the `scanner` **Source** and **Photocopy**. The act is
+*reading* a QR payload, never "scanning", which belongs to the flatbed.
+_Avoid_: scanner, barcode scanner, QR scanner, scanning (for this device).
+
 **Redemption**:
 The act at the kiosk of proving you hold a session — typing the OTP (or, later, scanning the
 QR) — which flips the session to `verified` and copies its files into a private working
