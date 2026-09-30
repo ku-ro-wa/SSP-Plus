@@ -446,6 +446,7 @@ Read these settings barcodes from the booklet, in this order:
 8. **Invoice Function-OFF**
 9. **Duplicate Detection-ON**
 10. **Duplicate Detection time setting**, then Appendix 1 **Parameter Code** `3`, `0`, `0`, `0`
+    (the time is in milliseconds, so 3000 ms = 3 s; the booklet allows 1–3600000 ms)
 11. **Save settings**
 
 Then unplug and replug the reader to confirm the settings persisted. The same sequence restores a
