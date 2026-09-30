@@ -36,6 +36,33 @@ class TestUploadForm:
         assert "<form" in response.text
 
 
+class TestUploadSuccessPage:
+    """The success page carries the QR image, so it also has to help the QR reader read it."""
+
+    @staticmethod
+    def _success_html(tmp_path):
+        app.dependency_overrides[get_wifi_adapter] = _override_with_temp_adapter(tmp_path)
+        try:
+            return client.post(
+                "/upload",
+                files=[("files", ("document.pdf", PDF_BYTES, "application/pdf"))],
+            ).text
+        finally:
+            app.dependency_overrides.pop(get_wifi_adapter, None)
+
+    def test_shows_brightness_reminder_next_to_the_qr_image(self, tmp_path):
+        html = self._success_html(tmp_path)
+
+        reminder = html.index("screen brightness")
+        assert html.index('alt="QR"') < reminder < html.index('id="otp-display"')
+
+    def test_requests_a_screen_wake_lock_and_re_requests_when_visible_again(self, tmp_path):
+        html = self._success_html(tmp_path)
+
+        assert "navigator.wakeLock.request" in html
+        assert "visibilitychange" in html
+
+
 class TestPostUpload:
     def test_valid_pdf_returns_otp_and_qr(self, tmp_path):
         app.dependency_overrides[get_wifi_adapter] = _override_with_temp_adapter(tmp_path)

@@ -7,7 +7,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 Run everything from the **repo root** (`SSP-Plus/`), not from `SSP/`:
 
 ```bash
-make test      # pytest tests/ -v  (226 tests, no hardware/DB required)
+make test      # pytest tests/ -v  (231 tests, no hardware/DB required)
 make lint      # flake8 SSP/ --max-line-length=120
 make run-sim   # launches the GUI with SIM_MODE=true (no GPIO/CUPS/modem needed)
 make run       # launches the GUI against real hardware (kiosk only)

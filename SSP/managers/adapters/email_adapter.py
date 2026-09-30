@@ -136,6 +136,7 @@ class EmailAdapter:
         msg.set_content(
             f"Your pickup code is: {session.otp}\n\n"
             "Scan the attached QR code at the kiosk, or enter the code manually.\n"
+            "Turn your screen brightness all the way up so the kiosk can read the QR image.\n"
             f"This code expires at {session.expires_at.isoformat()}."
         )
         msg.add_attachment(session.qr_bytes, maintype="image", subtype="png", filename="qr.png")
