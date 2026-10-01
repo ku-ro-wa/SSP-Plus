@@ -264,7 +264,8 @@ class PrintingSystemApp(QMainWindow):
         self._qr_duplicates = DuplicateReadFilter()
         self._qr_bridge = _QrReadBridge()
         self._qr_bridge.read.connect(self._on_qr_read)
-        self.qr_reader = QrReaderManager.from_config(self._qr_bridge.read.emit, self._on_qr_reader_status)
+        self.qr_reader = QrReaderManager.from_config(self._qr_bridge.read.emit, self._on_qr_reader_status,
+                                                     self._on_qr_reader_config_error)
         if self.qr_reader is not None:
             self.qr_reader.start()
             print("✅ QR reader started")
@@ -286,6 +287,11 @@ class PrintingSystemApp(QMainWindow):
             message = ("QR reader recovered" if status == CONNECTED
                        else f"QR reader unavailable, typed codes only ({detail})")
             log_error("QR Reader", message, "qr_reader")
+
+    def _on_qr_reader_config_error(self, detail):
+        """Runs on the reader thread, once per port open where a code was NAKed or unanswered."""
+        from utils.error_logger import log_error
+        log_error("QR Reader", f"Reader config not fully applied ({detail})", "qr_reader")
 
     def qr_reader_status_text(self):
         reader = getattr(self, 'qr_reader', None)

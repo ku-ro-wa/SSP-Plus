@@ -9,8 +9,8 @@ import threading
 import pytest
 import serial
 
-from managers.qr_reader import (CONNECTED, UNAVAILABLE, QrReaderManager, classify_payload,
-                                describe_reader_status, should_log_status_change)
+from managers.qr_reader import (ACK, CONNECTED, KIOSK_CONFIG, NAK, NEVER_SEND, UNAVAILABLE, QrReaderManager,
+                                classify_payload, describe_reader_status, should_log_status_change)
 
 SESSION_ID = "0123456789abcdef"
 
@@ -21,7 +21,8 @@ def reader():
     come back to the manager exactly as a reader would send them."""
     port = serial.serial_for_url("loop://", timeout=0.02)
     reads = queue.Queue()
-    manager = QrReaderManager(lambda: port, reads.put)
+    # No config send: loop:// would echo the commands back as read bytes
+    manager = QrReaderManager(lambda: port, reads.put, config=())
     manager.start()
     yield port, reads
     manager.stop()
@@ -30,6 +31,14 @@ def reader():
 
 def _next(reads):
     return reads.get(timeout=2)
+
+
+def _wait_for(condition, timeout=2.0):
+    for _ in range(int(timeout / 0.02)):
+        if condition():
+            return
+        threading.Event().wait(0.02)
+    raise AssertionError("condition not met in time")
 
 
 class TestFraming:
@@ -110,19 +119,38 @@ class TestFromConfig:
 
 
 class FakePort:
-    """A port whose reads fail once `unplug()` is called, like a pulled USB cable."""
+    """A port whose reads and writes fail once `unplug()` is called, like a
+    pulled USB cable. Answers each `#<code>;` command with ACK, or with the
+    bytes `replies[code]` gives (b"" for silence, or read bytes around a reply)."""
 
     in_waiting = 0
 
-    def __init__(self, data=b""):
+    def __init__(self, data=b"", replies=None):
         self._chunks = queue.Queue()
         if data:
             self._chunks.put(data)
+        self._replies = replies or {}
         self._unplugged = threading.Event()
         self.closed = False
+        self.written = []
 
     def unplug(self):
         self._unplugged.set()
+
+    def feed(self, data):
+        self._chunks.put(data)
+
+    def sent_codes(self):
+        return [frame[1:-1].decode() for frame in self.written]
+
+    def write(self, frame):
+        if self._unplugged.is_set():
+            raise serial.SerialException("device disappeared")
+        self.written.append(frame)
+        reply = self._replies.get(frame[1:-1].decode(), bytes([ACK]))
+        if reply:
+            self._chunks.put(reply)
+        return len(frame)
 
     def read(self, size=1):
         if self._unplugged.is_set():
@@ -136,38 +164,43 @@ class FakePort:
         self.closed = True
 
 
+@pytest.fixture
+def harness():
+    """Runs a manager against a scripted port factory: each open() takes the next
+    FakePort or Exception from `plan`."""
+    class Harness:
+        def __init__(self):
+            self.reads = queue.Queue()
+            self.changes = queue.Queue()
+            self.config_errors = queue.Queue()
+            self.opens = []      # every port handed out (or the failure raised)
+            self.plan = []       # next open() outcomes: a FakePort or an Exception
+            self.manager = None
+
+        def open(self):
+            outcome = self.plan.pop(0) if self.plan else OSError("no reader")
+            self.opens.append(outcome)
+            if isinstance(outcome, Exception):
+                raise outcome
+            return outcome
+
+        def start(self, reply_timeout=0.1):
+            self.manager = QrReaderManager(
+                self.open, self.reads.put,
+                on_status=lambda new, old, detail="": self.changes.put((new, old)),
+                on_config_error=self.config_errors.put,
+                retry_seconds=0.02, reply_timeout=reply_timeout)
+            self.manager.start()
+            return self.manager
+
+    h = Harness()
+    yield h
+    if h.manager is not None:
+        h.manager.stop()
+
+
 class TestReaderAvailability:
     """Reader loss and recovery, driven with a scripted port factory."""
-
-    @pytest.fixture
-    def harness(self):
-        class Harness:
-            def __init__(self):
-                self.reads = queue.Queue()
-                self.changes = queue.Queue()
-                self.opens = []      # every port handed out (or the failure raised)
-                self.plan = []       # next open() outcomes: a FakePort or an Exception
-                self.manager = None
-
-            def open(self):
-                outcome = self.plan.pop(0) if self.plan else OSError("no reader")
-                self.opens.append(outcome)
-                if isinstance(outcome, Exception):
-                    raise outcome
-                return outcome
-
-            def start(self):
-                self.manager = QrReaderManager(
-                    self.open, self.reads.put,
-                    on_status=lambda new, old, detail="": self.changes.put((new, old)),
-                    retry_seconds=0.02)
-                self.manager.start()
-                return self.manager
-
-        h = Harness()
-        yield h
-        if h.manager is not None:
-            h.manager.stop()
 
     def test_port_that_fails_to_open_reports_unavailable_once_across_retries(self, harness):
         harness.plan = [OSError("nope")] * 3
@@ -230,6 +263,116 @@ class TestReaderAvailability:
         assert harness.changes.get(timeout=2) == (UNAVAILABLE, None)
         harness.manager.retry_seconds = 60
         harness.manager.stop()
+
+
+class TestKioskConfig:
+    """The reader's settings are re-asserted over serial on every port open (#39, ADR 0004)."""
+
+    def test_config_is_the_thirteen_codes_in_order(self):
+        assert KIOSK_CONFIG == ("JA060", "DC010", "AB060", "AB030", "DK010", "DN030", "JD040",
+                                "DF000", "DG000", "DP020", "JD060", "CD010", "CD032")
+
+    def test_restore_defaults_and_keyboard_mode_are_never_in_the_config(self):
+        assert NEVER_SEND == {"AB160", "JA020"}
+        assert not NEVER_SEND.intersection(KIOSK_CONFIG)
+
+    @pytest.mark.parametrize("code", ["AB160", "JA020"])
+    def test_manager_refuses_a_config_that_would_remove_the_port(self, code):
+        with pytest.raises(ValueError):
+            QrReaderManager(lambda: None, lambda text: None, config=KIOSK_CONFIG + (code,))
+
+    def test_config_is_sent_as_hash_code_semicolon_frames(self, harness):
+        port = FakePort()
+        harness.plan = [port]
+        harness.start()
+        assert harness.changes.get(timeout=2) == (CONNECTED, None)
+        _wait_for(lambda: len(port.written) == len(KIOSK_CONFIG))
+        assert port.written[0] == b"#JA060;"
+        assert port.sent_codes() == list(KIOSK_CONFIG)
+
+    def test_config_is_sent_before_the_first_read_is_handed_on(self, harness):
+        port = FakePort(b"abc\r")  # a read already waiting when the port opens
+        harness.plan = [port]
+        harness.start()
+        assert harness.reads.get(timeout=2) == "abc"
+        assert port.sent_codes() == list(KIOSK_CONFIG)
+
+    def test_config_is_sent_again_after_a_reconnect(self, harness):
+        first, second = FakePort(), FakePort(b"two\r")
+        harness.plan = [first, second]
+        harness.start()
+        assert harness.changes.get(timeout=2) == (CONNECTED, None)
+        _wait_for(lambda: len(first.written) == len(KIOSK_CONFIG))
+        first.unplug()
+        assert harness.reads.get(timeout=2) == "two"
+        assert first.sent_codes() == second.sent_codes() == list(KIOSK_CONFIG)
+
+    def test_all_acks_report_no_config_error(self, harness):
+        port = FakePort()
+        harness.plan = [port]
+        harness.start()
+        _wait_for(lambda: len(port.written) == len(KIOSK_CONFIG))
+        port.feed(b"abc\r")
+        assert harness.reads.get(timeout=2) == "abc"
+        assert harness.config_errors.empty()
+
+    def test_nak_and_no_reply_are_reported_once_per_open_and_reading_continues(self, harness):
+        port = FakePort(replies={"DN030": bytes([NAK]), "CD032": b""})
+        harness.plan = [port]
+        harness.start()
+        detail = harness.config_errors.get(timeout=3)
+        assert "DN030" in detail and "NAK" in detail
+        assert "CD032" in detail and "no reply" in detail
+        port.feed(b"abc\r")
+        assert harness.reads.get(timeout=2) == "abc"
+        assert harness.config_errors.empty()
+        assert port.sent_codes() == list(KIOSK_CONFIG)
+
+    def test_read_interleaved_with_replies_is_handed_on_after_the_send(self, harness):
+        ack = bytes([ACK])
+        port = FakePort(replies={"AB060": b"abc\r" + ack, "DK010": b"de", "DN030": ack + b"f\r"})
+        harness.plan = [port]
+        harness.start()
+        # "de" is held as a partial line and finished by "f\r" after DN030's reply
+        assert [harness.reads.get(timeout=2), harness.reads.get(timeout=2)] == ["abc", "def"]
+        assert port.sent_codes() == list(KIOSK_CONFIG)
+        port.feed(b"xyz\r")
+        assert harness.reads.get(timeout=2) == "xyz"
+
+    def test_late_reply_bytes_never_prefix_a_read(self, harness):
+        port = FakePort(replies={"CD032": b""})  # its reply comes after the send gave up
+        harness.plan = [port]
+        harness.start()
+        harness.config_errors.get(timeout=3)
+        port.feed(bytes([ACK, NAK]) + b"abc\r")
+        assert harness.reads.get(timeout=2) == "abc"
+
+    def test_late_reply_inside_a_partial_read_never_reaches_it(self, harness):
+        port = FakePort(replies={"CD032": b""})
+        harness.plan = [port]
+        harness.start()
+        harness.config_errors.get(timeout=3)
+        port.feed(b"ab")
+        port.feed(bytes([ACK]) + b"c\r")
+        assert harness.reads.get(timeout=2) == "abc"
+
+    def test_stop_during_the_last_code_logs_nothing_and_hands_on_nothing(self, harness):
+        port = FakePort(data=b"abc\r", replies={"CD032": b""})
+        harness.plan = [port]
+        harness.start(reply_timeout=5)
+        _wait_for(lambda: len(port.written) == len(KIOSK_CONFIG))
+        harness.manager.stop()
+        assert harness.config_errors.empty()
+        assert harness.reads.empty()
+
+    def test_reply_bytes_alone_are_never_a_read(self, harness):
+        port = FakePort()
+        harness.plan = [port]
+        harness.start()
+        _wait_for(lambda: len(port.written) == len(KIOSK_CONFIG))
+        port.feed(bytes([ACK]) + b"\r" + bytes([NAK]) + b"\rabc\r")
+        assert harness.reads.get(timeout=2) == "abc"
+        assert harness.reads.empty()
 
 
 class TestStatusPresentation:

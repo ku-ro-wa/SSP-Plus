@@ -42,8 +42,10 @@ reader.
   - The app never sends Restore Defaults (`AB160`) or keyboard mode (`JA020`): either one would
     cut the app off from the reader.
   - Multi-step parameter entry (Duplicate Detection time: `DN010`, digit codes, Save) is NAKed
-    over serial. The reader's own duplicate timer is therefore untrusted; the app drops an
-    identical read within 3 s itself (`DuplicateReadFilter`).
+    over serial. The reader's own duplicate timer is therefore untrusted; the app drops a
+    payload read again within 3 s of its last accepted read itself (`DuplicateReadFilter`).
+  - Each reply takes 0.42–0.58 s (measured 2026-10-01), so the app waits up to 1.5 s per code
+    and the full send takes about 8 s. Reads that arrive during it are held until it ends.
   - Each command looks like a flash write, so the app sends the config on open, not on a
     timer.
 

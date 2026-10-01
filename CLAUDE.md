@@ -55,11 +55,14 @@ The QR reader is on when `QR_READER_PORT` is set in `.env` (blank = off, typed c
 classified and decided in `managers/qr_reader.py` (`classify_payload`, `decide_redemption`), then
 `main_app._on_qr_read` acts on them via `open_session_files()` — the same path a typed OTP takes.
 Accepting screens are idle, homepage, wifi and email (each has `show_qr_message()` for the reply);
-all others ignore reads silently. An identical read within 3 s is dropped (`DuplicateReadFilter`). In
-`SIM_MODE`, Ctrl+Shift+Q opens a box to inject a payload. If the reader is unplugged or fails to
-open, `QrReaderManager` goes `unavailable`, retries every 5 s and resumes on its own; each loss and
-recovery writes one `error_log` row (`QR Reader`), and Kiosk Admin shows the status (blank port =
-"Not configured"). See ADR 0004.
+all others ignore reads silently. A payload read again within 3 s of its last accepted read is dropped,
+even with other reads in between (`DuplicateReadFilter`; the reader's own duplicate time can't be set
+over serial). On every port open `QrReaderManager` first re-sends the reader's settings as `#<code>;`
+(`KIOSK_CONFIG`, ~8 s; reads during it are held until it ends); NAKed or unanswered codes write one
+`error_log` row per open. In `SIM_MODE`, Ctrl+Shift+Q opens a box to inject a payload. If the
+reader is unplugged or fails to open, `QrReaderManager` goes `unavailable`, retries every 5 s and
+resumes on its own; each loss and recovery writes one `error_log` row (`QR Reader`), and Kiosk Admin
+shows the status (blank port = "Not configured"). See ADR 0004.
 
 `pigpio` requires the `pigpiod` daemon. All GPIO code degrades gracefully (simulated mode with console warnings) when `pigpio`/`pigpiod` is unavailable, independent of `SIM_MODE`.
 

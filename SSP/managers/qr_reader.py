@@ -5,8 +5,9 @@
 # managers/scanner.py.
 #
 # Three pieces, all free of Qt so they can be tested without an event loop:
-#   - QrReaderManager: background thread that frames the serial stream into
-#     CR-terminated reads and hands each one to a callback.
+#   - QrReaderManager: background thread that re-asserts the reader's config on
+#     every port open, then frames the serial stream into CR-terminated reads
+#     and hands each one to a callback.
 #   - classify_payload(): every read is untrusted (anyone can reconfigure the
 #     reader), so it's checked against exact formats before anything acts on it.
 #   - decide_redemption(): classified read + current screen + SessionManager
@@ -28,6 +29,34 @@ READER_BAUDRATE = 9600  # ignored by a USB CDC port, but pyserial wants one
 _POLL_TIMEOUT_SECONDS = 0.1
 _JOIN_TIMEOUT_SECONDS = 2.0
 DEFAULT_RETRY_SECONDS = 5.0
+# The bench reader takes 0.42-0.58 s to answer each command (2026-10-01), so the
+# full send takes ~8 s; reads that arrive meanwhile are held until it ends.
+DEFAULT_REPLY_TIMEOUT_SECONDS = 1.5
+
+# The reader's settings, sent as `#<code>;` each time the port opens so a
+# settings barcode a customer showed it is undone (ADR 0004). Each command looks
+# like a flash write: send on open only, never on a timer.
+KIOSK_CONFIG = (
+    "JA060",  # USB COM
+    "DC010",  # Auto-Sensing
+    "AB060",  # 2D-ON
+    "AB030",  # 1D-OFF
+    "DK010",  # End Mark CR
+    "DN030",  # Duplicate Detection ON (its time is NAKed over serial: see DuplicateReadFilter)
+    "JD040",  # No Swap
+    "DF000",  # Display Prefix OFF
+    "DG000",  # Display Suffix OFF
+    "DP020",  # Delete Characters OFF
+    "JD060",  # Invoice Function OFF
+    "CD010",  # Volume ON
+    "CD032",  # Low Volume
+)
+# Restore Defaults and keyboard mode: either one removes the serial port.
+NEVER_SEND = frozenset({"AB160", "JA020"})
+# One-byte replies to a command. They aren't CR-terminated, so they share the read stream.
+ACK = 0x06
+NAK = 0x15
+_REPLY_BYTES = bytes((ACK, NAK))
 
 # Reader availability, as reported by QrReaderManager.status
 CONNECTED = "connected"
@@ -138,9 +167,27 @@ class DuplicateReadFilter:
         return False
 
 
+def _split_reads(buffer):
+    """CR-terminated reads in `buffer`, and the partial line left over. Stray
+    LFs and command replies (a late one can land mid-line) are dropped: neither
+    byte is in any valid payload."""
+    *lines, rest = buffer.split(b"\r")
+    texts = []
+    for line in lines:
+        text = line.translate(None, b"\n" + _REPLY_BYTES).decode("ascii", errors="replace")
+        if text:
+            texts.append(text)
+    return texts, rest
+
+
 class QrReaderManager:
     """Reads CR-terminated lines from a serial port on a daemon thread and calls
     `on_read(text)` once per non-empty read. Stray LFs are dropped.
+
+    Each time the port opens, the manager first sends `config` and waits up to
+    `reply_timeout` for each code's ACK. Reads that arrive during the send are
+    handed on after it. Codes that were NAKed or got no reply are reported by one
+    `on_config_error(detail)` call per open; reading carries on regardless.
 
     The port comes from `open_port()` so it can be reopened: if it can't be
     opened, or disappears mid-run (unplugged, or switched out of serial mode),
@@ -148,11 +195,18 @@ class QrReaderManager:
     reader is back. `on_status(new, previous)` fires once per change of
     availability, never per retry, so callers can log each change once."""
 
-    def __init__(self, open_port, on_read, on_status=None, retry_seconds=DEFAULT_RETRY_SECONDS):
+    def __init__(self, open_port, on_read, on_status=None, retry_seconds=DEFAULT_RETRY_SECONDS,
+                 config=KIOSK_CONFIG, on_config_error=None, reply_timeout=DEFAULT_REPLY_TIMEOUT_SECONDS):
+        forbidden = NEVER_SEND.intersection(config)
+        if forbidden:
+            raise ValueError(f"refusing to send reader codes that remove the port: {sorted(forbidden)}")
         self._open_port = open_port
         self._on_read = on_read
         self._on_status = on_status
         self.retry_seconds = retry_seconds
+        self._config = tuple(config)
+        self._on_config_error = on_config_error
+        self._reply_timeout = reply_timeout
         self._status = None  # None until the first open attempt
         self._thread = None
         self._stop_event = threading.Event()
@@ -162,7 +216,7 @@ class QrReaderManager:
         return self._status
 
     @classmethod
-    def from_config(cls, on_read, on_status=None):
+    def from_config(cls, on_read, on_status=None, on_config_error=None):
         """Returns None when QR_READER_PORT is blank (reader off) or pyserial is
         missing. An unopenable port still returns a manager: it keeps retrying."""
         port_name = get_config().qr_reader_port
@@ -175,7 +229,7 @@ class QrReaderManager:
         def open_port():
             return serial.serial_for_url(port_name, baudrate=READER_BAUDRATE,
                                          timeout=_POLL_TIMEOUT_SECONDS)
-        return cls(open_port, on_read, on_status)
+        return cls(open_port, on_read, on_status, on_config_error=on_config_error)
 
     def start(self):
         self._thread = threading.Thread(target=self._run, name="qr-reader", daemon=True)
@@ -203,21 +257,73 @@ class QrReaderManager:
                 self._stop_event.wait(self.retry_seconds)
 
     def _read_until_lost(self, port):
-        buffer = b""  # a partial line dies with the port
+        held = []
+        buffer = self._send_config(port, held)  # a partial line dies with the port
+        if buffer is None:
+            return
+        for text in held:
+            self._emit(text)
         while not self._stop_event.is_set():
+            chunk = self._read_chunk(port)
+            if chunk is None:
+                return
+            texts, buffer = _split_reads(buffer + chunk)
+            for text in texts:
+                self._emit(text)
+
+    def _send_config(self, port, held):
+        """Sends each config code and takes its reply out of the stream. Reads
+        that complete meanwhile go into `held`. Returns the partial line left
+        over, or None if the port was lost (or stop() was called)."""
+        buffer = b""
+        failures = []
+        for code in self._config:
+            if self._stop_event.is_set():
+                return None
             try:
-                buffer += port.read(port.in_waiting or 1)
+                port.write(f"#{code};".encode("ascii"))
             except Exception as e:
                 self._set_status(UNAVAILABLE, f"lost the port: {e}")
-                return
-            # Only a read that worked proves the reader is there: a stale device
-            # node can open fine yet fail every read, and must not flap the status.
-            self._set_status(CONNECTED)
-            while b"\r" in buffer:
-                line, buffer = buffer.split(b"\r", 1)
-                text = line.replace(b"\n", b"").decode("ascii", errors="replace")
-                if text:
-                    self._emit(text)
+                return None
+            reply = None
+            deadline = time.monotonic() + self._reply_timeout
+            while reply is None and time.monotonic() < deadline and not self._stop_event.is_set():
+                chunk = self._read_chunk(port)
+                if chunk is None:
+                    return None
+                buffer += chunk
+                at = next((i for i, byte in enumerate(buffer) if byte in _REPLY_BYTES), None)
+                if at is not None:
+                    reply, buffer = buffer[at], buffer[:at] + buffer[at + 1:]
+                texts, buffer = _split_reads(buffer)
+                held.extend(texts)
+            if self._stop_event.is_set():
+                return None
+            if reply != ACK:
+                failures.append(f"{code} {'NAK' if reply == NAK else 'no reply'}")
+        if failures:
+            self._report_config_error(", ".join(failures))
+        return buffer
+
+    def _read_chunk(self, port):
+        """Bytes from the port (maybe none), or None once the port is lost."""
+        try:
+            chunk = port.read(port.in_waiting or 1)
+        except Exception as e:
+            self._set_status(UNAVAILABLE, f"lost the port: {e}")
+            return None
+        # Only a read that worked proves the reader is there: a stale device
+        # node can open fine yet fail every read, and must not flap the status.
+        self._set_status(CONNECTED)
+        return chunk
+
+    def _report_config_error(self, detail):
+        print(f"⚠️ QR reader config not fully applied: {detail}")
+        if self._on_config_error is not None:
+            try:
+                self._on_config_error(detail)
+            except Exception as e:
+                print(f"⚠️ QR reader config error handler failed: {e}")
 
     def _set_status(self, status, detail=""):
         if status == self._status:
