@@ -4,6 +4,7 @@ import json
 import sqlite3
 import os
 from datetime import datetime
+from database.voucher_db import VoucherDBMixin
 
 # Canonical Source vocabulary (CONTEXT.md's Source term) — the fixed
 # grouping key for the Admin Dashboard's accounting summary.
@@ -17,7 +18,7 @@ ACCOUNTING_SOURCES = ("usb", "wifi", "email", "scanner")
 SIM_DB_NAME = "ssp_database.sim.db"
 
 
-class DatabaseManager:
+class DatabaseManager(VoucherDBMixin):
     def __init__(self, db_name="ssp_database.db", db_path=None):
         # db_path lets callers (tests, the demo/fixture DB) point at an
         # arbitrary SQLite file instead of the fixed database/ directory
@@ -108,12 +109,16 @@ class DatabaseManager:
         try:
             cursor = self.conn.cursor()
             cursor.execute("""
-                INSERT INTO transactions (timestamp, file_name, pages, copies, color_mode, total_cost, amount_paid, change_given, status, error_message, source)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                INSERT INTO transactions (timestamp, file_name, pages, copies, color_mode, total_cost,
+                    amount_paid, change_given, status, error_message, source,
+                    change_dispensed, voucher_issued, voucher_applied, payment_ref)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
                 datetime.now(), data['file_name'], data['pages'], data['copies'], data['color_mode'],
                 data['total_cost'], data['amount_paid'], data['change_given'], data['status'],
-                data.get('error_message', None), data.get('source', None)
+                data.get('error_message', None), data.get('source', None),
+                data.get('change_dispensed', None), data.get('voucher_issued', 0),
+                data.get('voucher_applied', 0), data.get('payment_ref', None)
             ))
             self.conn.commit()
         except sqlite3.Error as e:
