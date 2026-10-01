@@ -117,21 +117,24 @@ def should_log_status_change(new, previous) -> bool:
 
 
 class DuplicateReadFilter:
-    """Drops an identical payload repeated within a few seconds, so one
-    accidental double read doesn't show a 'code already used' error. Suppressed
-    repeats don't extend the window."""
+    """Drops a payload read again within a few seconds of its last accepted
+    read, even with other reads in between, so one accidental double read
+    doesn't show a 'code already used' error. Suppressed repeats don't extend
+    the window. The source of truth for duplicates: the reader's own Duplicate
+    Detection time can't be set over serial (ADR 0004)."""
 
     def __init__(self, window_seconds=DUPLICATE_WINDOW_SECONDS, clock=time.monotonic):
         self._window = window_seconds
         self._clock = clock
-        self._last_text = None
-        self._last_time = 0.0
+        self._accepted_at = {}  # payload -> time of its last accepted read
 
     def is_duplicate(self, text: str) -> bool:
         now = self._clock()
-        if text == self._last_text and now - self._last_time < self._window:
+        # Forget expired payloads so a long-running kiosk doesn't keep every read
+        self._accepted_at = {t: at for t, at in self._accepted_at.items() if now - at < self._window}
+        if text in self._accepted_at:
             return True
-        self._last_text, self._last_time = text, now
+        self._accepted_at[text] = now
         return False
 
 

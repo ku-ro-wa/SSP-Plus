@@ -188,6 +188,17 @@ class TestDuplicateReadFilter:
         reads.is_duplicate("abc")
         assert not reads.is_duplicate("abd")
 
+    def test_repeat_after_another_payload_within_window_is_suppressed(self):
+        clock = FakeClock()
+        reads = DuplicateReadFilter(window_seconds=3, clock=clock)
+        reads.is_duplicate("abc")
+        clock.now += 1.0
+        assert not reads.is_duplicate("xyz")
+        clock.now += 1.0
+        assert reads.is_duplicate("abc")
+        clock.now += 1.1  # 3.1s after the first "abc"
+        assert not reads.is_duplicate("abc")
+
     def test_suppressed_repeats_do_not_extend_the_window(self):
         clock = FakeClock()
         reads = DuplicateReadFilter(window_seconds=3, clock=clock)
