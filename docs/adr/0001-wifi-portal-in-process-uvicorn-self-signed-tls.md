@@ -1,5 +1,9 @@
 # Wi-Fi portal served by the in-process Uvicorn thread with self-signed TLS
 
+> **Superseded for the Pi deployment (2026-10-06)** by ADR-0007 (own hotspot with hostapd +
+> dnsmasq, no RaspAP captive portal, real certificate) and ADR-0006 (the portal becomes its own
+> sandboxed process). The self-signed TLS setup below still applies to developer laptops.
+
 `project_objectives.txt` module 5 specifies the Wi-Fi upload portal behind a RaspAP access
 point with a Nodogsplash captive portal, on a TLS-secured Uvicorn instance. For local
 end-to-end development we serve the portal from the Uvicorn instance that

@@ -23,9 +23,16 @@ class AdminModel(QObject):
         # Initialize the modem when the model is created
         self.sms_manager.initialize_modem()
 
+    def _refresh_paper_count(self):
+        """Re-reads the paper count from the database before any write that
+        starts from the current value. The DB is shared with the Admin
+        Dashboard (ADR-0005), so a refill made there must not be overwritten
+        by a stale in-memory count here."""
+        self.paper_count = self.db_manager.get_setting('paper_count', default=100)
+
     def load_paper_count(self):
         """Loads the paper count from the database and emits a signal."""
-        self.paper_count = self.db_manager.get_setting('paper_count', default=100)
+        self._refresh_paper_count()
         print(f"AdminModel.load_paper_count: Loaded {self.paper_count} from database")
         color = self._get_color_for_count(self.paper_count)
         self.paper_count_changed.emit(self.paper_count, color)
@@ -40,6 +47,7 @@ class AdminModel(QObject):
 
     def increase_paper_count(self):
         """Increases the paper count by 1."""
+        self._refresh_paper_count()
         if self.paper_count < 100:
             self.paper_count += 1
             self.db_manager.update_setting('paper_count', self.paper_count)
@@ -49,6 +57,7 @@ class AdminModel(QObject):
 
     def decrease_paper_count(self):
         """Decreases the paper count by 1."""
+        self._refresh_paper_count()
         if self.paper_count > 0:
             self.paper_count -= 1
             self.db_manager.update_setting('paper_count', self.paper_count)
@@ -65,6 +74,7 @@ class AdminModel(QObject):
                 self.load_paper_count()  # Revert display to current value
                 return
 
+            self._refresh_paper_count()
             old_count = self.paper_count
             self.paper_count = new_count
             self.db_manager.update_setting('paper_count', self.paper_count)
@@ -91,6 +101,7 @@ class AdminModel(QObject):
 
     def decrement_paper_count(self, pages_to_print: int) -> bool:
         """Decrements paper count for a print job. Returns True on success."""
+        self._refresh_paper_count()
         if self.paper_count >= pages_to_print:
             self.paper_count = max(0, self.paper_count - pages_to_print)
             self.db_manager.update_setting('paper_count', self.paper_count)

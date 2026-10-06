@@ -55,6 +55,10 @@ of the app itself.
 
 ## Deferred (not part of this local-first build)
 
+> **Taken up 2026-10-06** in ADR-0005, which also adds Kiosk Admin's functions to the
+> dashboard. The decisions below still hold. ADR-0005 adds that devices are tagged now, so
+> ACLs can switch on when a second site's operator joins the tailnet.
+
 These are already decided in the remote-access design; they're future work, not open questions:
 
 - **Tailscale** as the private mesh network that makes the dashboard's port reachable off the

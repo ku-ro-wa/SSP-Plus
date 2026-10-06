@@ -380,7 +380,29 @@ mocked business logic, no port actually opened.
 
 See `docs/adr/0002-admin-dashboard-auth-and-remote-access-architecture.md` for the
 full design (why a separate process/port, the auth model, what's deferred to a
-later remote-access phase).
+later remote-access phase), and
+`docs/adr/0005-one-remote-admin-surface-via-tailscale-serve.md` for remote access.
+
+---
+
+## External accounts (remote access)
+
+Remote access relies on a few accounts outside this repo (see ADR-0005, ADR-0006 and
+ADR-0007). They are planned, not all created yet. Rules for whoever sets them up:
+
+- **Owned by one dedicated project account**, an email address created for SSP-Plus
+  and run by the project lead. Never a personal Gmail, so that the accounts can be
+  handed over in one piece.
+- **What it owns:**
+  - the Tailscale tailnet for remote admin;
+  - the Cloudflare account, with the domain behind `print.<domain>`, its DNS, and
+    (later) the public upload tunnel.
+- **The domain must not lapse.** If it expires, every sticker and bookmark breaks, and
+  whoever buys the name next receives customers' uploads. Register it for several
+  years at a time, with auto-renew on and a payment method that won't quietly expire.
+- **Handover:** when the project changes hands, transfer the project account's
+  credentials (and the recovery email/phone on it) to the kiosk's owners or the next
+  lead, and record the date here.
 
 ---
 
