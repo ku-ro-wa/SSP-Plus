@@ -169,6 +169,43 @@ def init_db(db_path=None):
     ''')
     print("OK - Created sessions table")
 
+
+    # Vouchers (see CONTEXT.md "Vouchers", docs/adr/0003). Values are whole pesos.
+    # No status column: active = remaining_value > 0 AND expires_at > now.
+    # payment_ref ties a voucher / its applications to the transactions row
+    # logged later (transactions.payment_ref), since the transaction id doesn't
+    # exist yet when the voucher is issued or applied.
+    cursor.execute('''
+    CREATE TABLE IF NOT EXISTS vouchers (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        voucher_id TEXT UNIQUE NOT NULL,
+        code_hash TEXT NOT NULL,
+        initial_value INTEGER NOT NULL,
+        remaining_value INTEGER NOT NULL,
+        created_at DATETIME NOT NULL,
+        expires_at DATETIME NOT NULL,
+        payment_ref TEXT
+    )
+    ''')
+    cursor.execute('''
+    CREATE TABLE IF NOT EXISTS voucher_applications (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        voucher_id TEXT NOT NULL,
+        amount INTEGER NOT NULL,
+        payment_ref TEXT,
+        applied_at DATETIME NOT NULL
+    )
+    ''')
+    print("OK - Created voucher tables")
+
+    # Accounting: cash / change / voucher credit as distinct amounts (ADR 0003).
+    # amount_paid stays "cash received"; change_given stays "change owed".
+    _add_column_if_missing(cursor, 'transactions', 'change_dispensed', 'REAL')
+    _add_column_if_missing(cursor, 'transactions', 'voucher_issued', 'REAL NOT NULL DEFAULT 0')
+    _add_column_if_missing(cursor, 'transactions', 'voucher_applied', 'REAL NOT NULL DEFAULT 0')
+    _add_column_if_missing(cursor, 'transactions', 'payment_ref', 'TEXT')
+    
+
     # Create Email Intake Log table (for tracking email intake processing outcomes)
     cursor.execute('''
     CREATE TABLE IF NOT EXISTS email_intake_log (

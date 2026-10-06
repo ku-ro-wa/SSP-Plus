@@ -32,6 +32,7 @@ from screens.payment import PaymentController
 from screens.print_options import PrintOptionsController
 from screens.admin import AdminController
 from screens.data_viewer import DataViewerController
+from screens.voucher import VoucherController
 from screens.thank_you import ThankYouController
 from database.models import init_db
 from managers.printer_manager import PrinterManager
@@ -85,6 +86,7 @@ class PrintingSystemApp(QMainWindow):
         'thank_you': 11,
         'scan_destination': 12,
         'scan_result': 13,
+        'voucher': 14,
     }
 
     def __init__(self):
@@ -181,6 +183,7 @@ class PrintingSystemApp(QMainWindow):
         self.thank_you_screen = ThankYouController(self)
         self.scan_destination_screen = ScanDestinationController(self)
         self.scan_result_screen = ScanResultController(self)
+        self.voucher_screen = VoucherController(self)
 
         # Connect payment completion to the print workflow once screens exist.
         self.payment_screen.payment_completed.connect(self.on_payment_completed)
@@ -206,6 +209,7 @@ class PrintingSystemApp(QMainWindow):
         self.stacked_widget.addWidget(self.thank_you_screen)
         self.stacked_widget.addWidget(self.scan_destination_screen)
         self.stacked_widget.addWidget(self.scan_result_screen)
+        self.stacked_widget.addWidget(self.voucher_screen)
 
         # Manually disable payment acceptors at startup
         print("🔄 Disabling payment acceptors at startup...")
@@ -461,7 +465,7 @@ class PrintingSystemApp(QMainWindow):
             current_widget.on_leave()
 
         # Check paper and ink before switching to most screens (except admin and thank_you)
-        if screen_name not in ['admin', 'thank_you']:
+        if screen_name not in ['admin', 'thank_you', 'voucher']:
             if self.check_paper_count_and_redirect():
                 print(f"Cannot navigate to {screen_name} - insufficient paper")
                 return

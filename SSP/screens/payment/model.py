@@ -6,6 +6,7 @@ from PyQt5.QtCore import QObject, QThread, pyqtSignal
 from managers.hopper_manager import ChangeDispenser, DispenseThread
 from managers.payment_algorithm_manager import PaymentAlgorithmManager
 from database.db_manager import DatabaseManager
+from utils.error_logger import log_error
 
 try:
     import pigpio
@@ -13,6 +14,20 @@ except ImportError:
     pigpio = None  # GPIOPaymentThread falls back to mock GPIO when pigpio is missing
 
 from managers.persistent_gpio import get_persistent_gpio, PIGPIO_AVAILABLE as PAYMENT_GPIO_AVAILABLE
+import uuid
+from managers.voucher_manager import VoucherManager
+
+
+def measure_shortfall(result, change_owed):
+    """Change owed minus change actually dispensed, whole pesos. The failure
+    paths (no pigpio, hopper init, dispenser None) return no actual_change,
+    so they count as nothing dispensed: the whole change becomes a voucher."""
+    if isinstance(result, dict) and 'actual_change' in result:
+        expected = result.get('expected_change', change_owed)
+        actual = result['actual_change']
+    else:
+        expected, actual = change_owed, 0
+    return max(0, int(round(expected - actual)))
 
 
 class GPIOPaymentThread(QThread):
@@ -196,6 +211,38 @@ class PaymentModel(QObject):
         self.dispense_thread = None
         self.change_dispenser = ChangeDispenser()
         self.best_payment_suggestion = None  # {'amount', 'change', 'reason'}
+        self.payment_ref = None
+        self.voucher_shortfall = 0
+        self.issued_voucher = None
+        self.voucher_failed = False
+        self.change_owed = 0
+        self.change_dispensed = {}
+
+        
+
+    def _issue_shortfall_voucher(self, result, change_owed):
+        shortfall = measure_shortfall(result, change_owed)
+        self.voucher_shortfall = shortfall
+        self.issued_voucher = None
+        self.voucher_failed = False
+        if shortfall > 0 and self.db_manager.get_setting('vouchers_enabled', 1):
+            try:
+                self.issued_voucher = VoucherManager(self.db_manager).issue(
+                    shortfall, payment_ref=self.payment_ref)
+            except Exception as e:
+                print(f"CRITICAL: could not issue voucher for P{shortfall}: {e}")
+                self.voucher_failed = True
+                try:
+                    log_error("Voucher Issue Failed",
+                              f"Could not issue a P{shortfall} voucher (payment_ref={self.payment_ref}): {e}",
+                              "payment_model")
+                except Exception:
+                    pass
+        td = getattr(self, 'transaction_data', None)
+        if td is not None:
+            td['change_dispensed'] = change_owed - shortfall
+            td['voucher_issued'] = self.issued_voucher.value if self.issued_voucher else 0
+        return self.issued_voucher
 
     def set_payment_data(self, payment_data):
         """Sets the payment data and initializes payment state."""
@@ -438,7 +485,7 @@ class PaymentModel(QObject):
     def get_payment_suggestions(self) -> List[Dict]:
         """Get payment suggestions for the current total cost."""
         return self.payment_algorithm.find_optimal_payment_amounts(self.total_cost)
-
+    
     def log_transaction_after_print_success(self):
         """Log the transaction to database after successful printing."""
         if hasattr(self, 'transaction_data') and self.transaction_data:
@@ -452,14 +499,52 @@ class PaymentModel(QObject):
 
     # Print job signals are now handled by the thank you screen
     # No need to connect them here since the thank you screen will manage the entire print lifecycle
+    
+    # calls voucher first 
+
+    def _navigate_to_thank_you(self):
+        """Every post-dispense path ends here. If change went short, show the voucher
+        (or the failure notice) first; the voucher screen calls continue_to_thank_you()
+        when the customer is done."""
+        if self._show_voucher_screen_if_needed():
+            return
+        self.continue_to_thank_you()
+
+    def _show_voucher_screen_if_needed(self):
+        issued = getattr(self, 'issued_voucher', None)
+        failed = getattr(self, 'voucher_failed', False)
+        if not issued and not failed:
+            return False
+        shortfall = getattr(self, 'voucher_shortfall', 0)
+        try:
+            screen = self.main_app.voucher_screen
+            if issued:
+                screen.show_issued(issued)
+            else:
+                screen.show_failure(shortfall)
+            self.main_app.show_screen('voucher')
+        except Exception as e:
+            # Could not show it: carry on so the print still happens.
+            print(f"CRITICAL: could not show the voucher screen: {e}")
+            try:
+                log_error("Voucher Not Shown",
+                          f"A P{shortfall} voucher/notice could not be displayed: {e}", "payment_model")
+            except Exception:
+                pass
+            return False
+        # Handed off: the raw code now lives only on the voucher screen.
+        self.issued_voucher = None
+        self.voucher_failed = False
+        self.voucher_shortfall = 0
+        return True
 
     # Print job success/failure handling is now done by the thank you screen
     # The thank you screen will monitor lpstat and handle print completion
 
     # Print timeout handling is now done by the thank you screen
     # The thank you screen will handle all print job monitoring and timeouts
-
-    def _navigate_to_thank_you(self):
+    
+    def continue_to_thank_you(self):
         """Navigate to thank you screen after all operations are complete."""
         print("DEBUG: _navigate_to_thank_you called")
         print("DEBUG: Current thread:", threading.current_thread().name)
@@ -503,7 +588,13 @@ class PaymentModel(QObject):
         self.amount_received = 0
         self.cash_received = {}
         self.payment_processing = False
-
+        self.payment_ref = None
+        self.voucher_shortfall = 0
+        self.issued_voucher = None
+        self.voucher_failed = False
+        self.change_owed = 0
+        self.change_dispensed = {}
+        
         self.amount_received_updated.emit(0)
         self.change_updated.emit(0, "")
 
@@ -618,8 +709,16 @@ class PaymentModel(QObject):
             print(f"WARNING: _log_partial_payment encountered an error but will not block navigation: {e}")
 
     def complete_payment(self, main_app):
-        """Complete the payment process - dispense change and start printing."""
+        """Complete the payment: record the transaction, dispense change,
+        then hand off to printing. (Single definition; merged from the two
+        former duplicates.)"""
         print("Starting payment completion process...")
+        self.payment_ref = uuid.uuid4().hex
+
+        # so a stale voucher can never reach the next user's screen
+        self.issued_voucher = None
+        self.voucher_failed = False
+        self.voucher_shortfall = 0
 
         try:
             # Validate payment data exists
@@ -635,12 +734,22 @@ class PaymentModel(QObject):
             if self.amount_received < self.total_cost:
                 return False, "Payment is not sufficient."
 
-            # Calculate change to dispense
+            # Paper check (no decrement; main_app does that after a successful print).
+            total_pages = len(self.payment_data['selected_pages']) * self.payment_data['copies']
+            if not main_app.admin_screen.check_paper_availability(total_pages):
+                return False, (f"Not enough paper to complete print job.\n"
+                               f"Required: {total_pages} sheets. Please contact administrator to refill paper.")
+
+            # NOTE: payment_algorithm.validate_payment() is deliberately NOT
+            # called here. With vouchers (ADR 0003) a sale must never be
+            # blocked just because the hoppers can't make change.
             change_amount = self.amount_received - self.total_cost
+            self.change_owed = change_amount
+            self.change_dispensed = {}
             print(f"Change to dispense: P{change_amount:.2f}")
 
-            # Store transaction data for logging after successful printing
-            # (see log_transaction_after_print_success)
+            # Logged by main_app via log_transaction_after_print_success();
+            # _issue_shortfall_voucher fills in change_dispensed / voucher_issued.
             self.transaction_data = {
                 'file_name': os.path.basename(self.payment_data['pdf_data']['path']),
                 'pages': len(self.payment_data['selected_pages']),
@@ -650,29 +759,27 @@ class PaymentModel(QObject):
                 'amount_paid': self.amount_received,
                 'change_given': change_amount,
                 'status': 'completed',
-                'source': self.payment_data.get('source')
+                'source': self.payment_data.get('source'),
+                'change_dispensed': 0 if change_amount <= 0 else None,
+                'voucher_issued': 0,
+                'voucher_applied': 0,          # until the apply step exists
+                'payment_ref': self.payment_ref,
             }
 
-            # Cleared per payment so main_app doesn't subtract a previous
-            # transaction's change from inventory again
-            self.change_dispensed = {}
-
             # Stop any existing dispense thread to prevent conflicts
-            if hasattr(self, 'dispense_thread') and self.dispense_thread and self.dispense_thread.isRunning():
+            if self.dispense_thread and self.dispense_thread.isRunning():
                 print("WARNING: Stopping existing dispense thread")
                 self.dispense_thread.terminate()
                 self.dispense_thread.wait(1000)
                 self.dispense_thread = None
 
-            # Create change dispenser if not exists
-            if not hasattr(self, 'change_dispenser') or self.change_dispenser is None:
-                from managers.hopper_manager import ChangeDispenser
+            if self.change_dispenser is None:
                 self.change_dispenser = ChangeDispenser()
                 print("SUCCESS: Change dispenser created")
 
-            # Start dispensing change in a separate thread
             if change_amount > 0:
                 print(f"Starting change dispensing for P{change_amount:.2f}")
+                self.payment_status_updated.emit(f"Please wait... Dispensing change: P{change_amount:.2f}")
                 self.dispense_thread = DispenseThread(
                     dispenser=self.change_dispenser,
                     amount=change_amount,
@@ -698,40 +805,38 @@ class PaymentModel(QObject):
             return False, f"Payment completion failed: {str(e)}"
 
     def _on_dispensing_finished(self, result):
-        """Handle completion of change dispensing."""
+        """Change dispensing is done (fully, partly, or not at all): issue a
+        Voucher for any shortfall, record what actually came out, then print.
+        Coin inventory is updated by main_app after the print succeeds, using
+        self.change_dispensed, so it is NOT updated here (that double-counted)."""
         print(f"Change dispensing finished: {result}")
 
         try:
-            # Reset payment completing flag
-            if hasattr(self, '_payment_completing'):
-                self._payment_completing = False
+            self._payment_completing = False
 
-            # Record coins actually dispensed; main_app subtracts these from
-            # inventory after a successful print
-            if result:
+            if isinstance(result, dict):
                 self.change_dispensed = {1: result.get('coins_1', 0), 5: result.get('coins_5', 0)}
-
-            if result and result.get('success', False):
-                print("SUCCESS: Change dispensing successful")
-                # Start printing after change is dispensed
-                self._start_printing()
             else:
-                print("ERROR: Change dispensing failed")
-                error_msg = result.get('error', 'Unknown error') if result else 'No result received'
+                self.change_dispensed = {}
+
+            self._issue_shortfall_voucher(result, self.change_owed)
+            if self.voucher_failed:
+                self.payment_status_updated.emit(
+                    f"Could not issue a voucher for P{self.voucher_shortfall}. Please contact the attendant.")
+            elif self.voucher_shortfall:
+                print(f"WARNING: P{self.voucher_shortfall} change short and vouchers are disabled")
+
+            if not (isinstance(result, dict) and result.get('success', False)):
+                error_msg = result.get('error', 'Unknown error') if isinstance(result, dict) else 'No result received'
                 self.payment_status_updated.emit(f"Change dispensing failed: {error_msg}")
-                # Still try to proceed to printing in case of minor dispensing issues
-                print("WARNING: Attempting to proceed to printing despite dispensing issues")
-                self._start_printing()
+                
         except Exception as e:
             print(f"ERROR: Error handling dispensing completion: {e}")
-            # Reset flag and try to proceed
-            if hasattr(self, '_payment_completing'):
-                self._payment_completing = False
             self.payment_status_updated.emit(f"Error processing change: {str(e)}")
-            # Still try to proceed to printing
-            print("WARNING: Attempting to proceed to printing despite error")
-            self._start_printing()
 
+        # Whatever happened with the change, the customer paid: print.
+        self._start_printing()
+    
     def _start_printing(self):
         """Start the printing process."""
         print("Starting printing process...")
