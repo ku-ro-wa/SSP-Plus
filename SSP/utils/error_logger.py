@@ -11,16 +11,18 @@ from database.db_manager import DatabaseManager
 # Thread-local storage for database connections
 _thread_local = threading.local()
 
+
 def get_db_manager():
     """Get a thread-local database manager instance."""
     if not hasattr(_thread_local, 'db_manager'):
         _thread_local.db_manager = DatabaseManager()
     return _thread_local.db_manager
 
+
 def log_error(error_type, message, context):
     """
     Log an error to the database in a thread-safe manner.
-    
+
     Args:
         error_type: Type of error (e.g., "Printing Error", "Database Error")
         message: Detailed error message
@@ -33,6 +35,7 @@ def log_error(error_type, message, context):
         print(f"Failed to log error to database: {e}")
         print(f"Original error: {error_type} - {message}")
 
+
 def cleanup_db_connections():
     """Clean up all thread-local database connections."""
     try:
@@ -41,4 +44,3 @@ def cleanup_db_connections():
             delattr(_thread_local, 'db_manager')
     except Exception as e:
         print(f"Error cleaning up database connections: {e}")
-

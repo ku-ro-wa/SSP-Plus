@@ -7,8 +7,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 Run everything from the **repo root** (`SSP-Plus/`), not from `SSP/`:
 
 ```bash
-make test      # pytest tests/ -v  (177 tests, no hardware/DB required)
-make lint      # flake8 SSP/ --max-line-length=120
+make test      # pytest tests/ -v  (275 tests, no hardware/DB required)
+make lint      # flake8 SSP/  (config in .flake8)
 make run-sim   # launches the GUI with SIM_MODE=true (no GPIO/CUPS/modem needed)
 make run       # launches the GUI against real hardware (kiosk only)
 make run-admin-dashboard   # launches the Admin Dashboard (separate process, own port — see below)
@@ -49,6 +49,20 @@ Two persistent `QThread` managers are started in `PrintingSystemApp.__init__` an
 | Coin/bill acceptors | `managers/persistent_gpio.py` | `pigpio` (GPIO pulse counting) |
 | Coin hoppers (change dispenser) | `managers/hopper_manager.py` (`ChangeDispenser`, `HopperController`) | `pigpio` |
 | SMS alerts | `managers/sms_manager.py` | `pyserial` (AT commands to GSM modem) |
+| QR reader (kiosk 2D reader) | `managers/qr_reader.py` | `pyserial` (USB serial, CR-terminated reads) |
+
+The QR reader is on when `QR_READER_PORT` is set in `.env` (blank = off, typed codes only). Reads are
+classified and decided in `managers/qr_reader.py` (`classify_payload`, `decide_redemption`), then
+`main_app._on_qr_read` acts on them via `open_session_files()` — the same path a typed OTP takes.
+Accepting screens are idle, homepage, wifi and email (each has `show_qr_message()` for the reply);
+all others ignore reads silently. A payload read again within 3 s of its last accepted read is dropped,
+even with other reads in between (`DuplicateReadFilter`; the reader's own duplicate time can't be set
+over serial). On every port open `QrReaderManager` first re-sends the reader's settings as `#<code>;`
+(`KIOSK_CONFIG`, ~8 s; reads during it are held until it ends); NAKed or unanswered codes write one
+`error_log` row per open. In `SIM_MODE`, Ctrl+Shift+Q opens a box to inject a payload. If the
+reader is unplugged or fails to open, `QrReaderManager` goes `unavailable`, retries every 5 s and
+resumes on its own; each loss and recovery writes one `error_log` row (`QR Reader`), and Kiosk Admin
+shows the status (blank port = "Not configured"). See ADR 0004.
 
 `pigpio` requires the `pigpiod` daemon. All GPIO code degrades gracefully (simulated mode with console warnings) when `pigpio`/`pigpiod` is unavailable, independent of `SIM_MODE`.
 
@@ -77,9 +91,11 @@ Start it with `make run-admin-dashboard`; it runs on its own port (`ADMIN_DASHBO
 default 8100, distinct from the Wi-Fi portal's 8000) so a bug or compromise in the low-trust,
 unauthenticated portal can never become a path into this DB-write-capable surface.
 
-Auth is individual accounts in a `users` table, Argon2id-hashed passwords, two roles: `dev`
-(full read/write) and `admin` (read-only — unrelated to, and less privileged than, the
-touchscreen's `Kiosk Admin`/`ADMIN_PIN`). Accounts are created and passwords reset only via
+Auth is individual accounts in a `users` table, Argon2id-hashed passwords, two roles: `admin`
+(full read/write) and `operator` (read-only), both unrelated to the touchscreen's
+`Kiosk Admin`/`ADMIN_PIN`. The session cookie carries only the username; the role is read from
+`users` on every request. `database/models.py`'s `migrate_dashboard_roles` renamed the original
+`dev`/`admin` roles once, guarded by a settings marker. Accounts are created and passwords reset only via
 `admin_dashboard/cli.py`, run by hand on the kiosk — no self-service signup or reset flow.
 Login issues a signed cookie session with a 10-hour sliding inactivity timeout
 (`ADMIN_DASHBOARD_SESSION_HOURS`); 5 consecutive failed attempts locks the account for
@@ -90,7 +106,7 @@ Login issues a signed cookie session with a 10-hour sliding inactivity timeout
 (`usb`/`wifi`/`email`/`scanner`) revenue and transaction-count aggregates via
 `DatabaseManager.get_accounting_summary()` — a `scanner`-sourced row only exists when the scan's
 destination was print (a Photocopy); scan-to-email/session-download never produce a
-transactions row. `/paper-reset` (the SMS fuzzy-match reset fallback) is `dev`-only.
+transactions row. `/paper-reset` (the SMS fuzzy-match reset fallback) is `admin`-only.
 Real transactions get their `source` value from `screens/print_options/controller.py`'s
 `self.source` (set per intake screen — usb/wifi/email/scanner controllers all call
 `set_pdf_data(..., source=...)`), carried through `payment/model.py`'s `transaction_data` dict

@@ -1,0 +1,7 @@
+[flake8]
+# Most long lines are print()/SQL strings; the longest today is 150.
+max-line-length = 160
+exclude = __pycache__,__init__.py,.venv
+per-file-ignores =
+    # main_app.py appends SSP/ to sys.path before its own imports.
+    SSP/main_app.py:E402

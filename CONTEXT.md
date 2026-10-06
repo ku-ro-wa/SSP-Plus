@@ -47,13 +47,21 @@ _Avoid_: collection code, claim code.
 **QR payload**:
 The string encoded in a QR image handed to the user. Two kinds: a *Session payload*
 (`session_id:otp`, redeemable the same way a typed OTP is) and a *Voucher payload* (a
-type-tagged **Voucher code**, only accepted at payment). Kiosk-side QR *scanning* is not
-built yet, so today both are decorative.
+type-tagged **Voucher code**, only accepted at payment). The kiosk's **QR reader**
+reads a Session payload on idle, the homepage and the Wi-Fi/Email code screens (other screens ignore it); Voucher payloads are not applied yet.
 _Avoid_: QR token, QR code (say "QR image" for the picture, "QR payload" for its contents).
 
+**QR reader**:
+The kiosk's fixed 2D code reader that reads a **QR payload** off a customer's phone. Unrelated
+to the flatbed document scanner behind the `scanner` **Source** and **Photocopy**. The act is
+*reading* a QR payload, never "scanning", which belongs to the flatbed.
+If the reader disappears, the kiosk keeps working with typed codes, logs the loss and recovery
+to `error_log`, and keeps retrying; Kiosk Admin shows whether it is connected.
+_Avoid_: scanner, barcode scanner, QR scanner, scanning (for this device).
+
 **Redemption**:
-The act at the kiosk of proving you hold a session — typing the OTP (or, later, scanning the
-QR) — which flips the session to `verified` and copies its files into a private working
+The act at the kiosk of proving you hold a session — typing the OTP, or the **QR reader**
+reading the QR payload — which flips the session to `verified` and copies its files into a private working
 directory for the print path.
 _Avoid_: claim, verification (verification is one step inside redemption), unlock.
 
@@ -76,7 +84,7 @@ The PIN-gated `screens/admin` surface reached at the touchscreen, with full read
 control over paper, coin, and CMYK state. A physical-possession threat model — unrelated to
 the Admin Dashboard's login. Always say "Kiosk Admin" rather than bare "admin" when the web
 dashboard is anywhere nearby in the conversation, since the dashboard also has a role called
-`admin` (see **Dashboard admin role**) that is *less* privileged than Kiosk Admin, not more.
+`admin` (see **Dashboard role**) behind a separate login.
 _Avoid_: admin (unqualified).
 
 **Login session**:
@@ -86,11 +94,12 @@ happen to share the English word "session"; only Login session belongs to the Ad
 Dashboard.
 _Avoid_: session (unqualified), auth session.
 
-**Dashboard admin role**:
-One of the Admin Dashboard's two account roles (`dev`: full read/write; `admin`: read-only).
-A network-login threat model, distinct from and less privileged than Kiosk Admin despite the
-shared name. See `docs/adr/0002-admin-dashboard-auth-and-remote-access-architecture.md`.
-_Avoid_: admin (unqualified).
+**Dashboard role**:
+One of the Admin Dashboard's two account roles: `admin` (full read/write) and `operator`
+(read-only). A network-login threat model, separate from Kiosk Admin despite the shared word.
+Renamed on 2026-10-06 from `dev`/`admin` respectively. The old `admin` meant read-only, so read
+older notes with care. See `docs/adr/0002-admin-dashboard-auth-and-remote-access-architecture.md`.
+_Avoid_: admin (unqualified), dev (as a role name).
 
 **Photocopy**:
 An on-kiosk transaction whose Source is `scanner` and whose destination is the print path,

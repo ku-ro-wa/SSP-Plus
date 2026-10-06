@@ -97,6 +97,13 @@
             margin-top: 18px
         }
 
+        .brightness-note {
+            margin-top: 10px;
+            max-width: 280px;
+            font-size: 14px;
+            color: #555
+        }
+
         .otp-card {
             background: none;
             box-shadow: none;
@@ -229,6 +236,8 @@
                     <div class="success-layout">
                         <div class="left-column"><img class="qr-image" src="data:image/png;base64,{{ qr }}" alt="QR">
                             <p class="scan-text">Scan with the kiosk</p>
+                            <p class="brightness-note"><i class="fa-solid fa-sun"></i> Turn your screen brightness all
+                                the way up so the kiosk can read the QR image.</p>
                         </div>
                         <div class="right-column">
                             <div class="otp-card">
@@ -241,6 +250,20 @@
             </div>
         </div>
     </div>
+    <script>
+        // Keep the phone awake while the QR is showing, so it doesn't dim or lock on the walk to the kiosk.
+        // The lock is released whenever the page is hidden, so ask again when it becomes visible.
+        (function () {
+            if (!('wakeLock' in navigator)) return;
+            function requestWakeLock() {
+                navigator.wakeLock.request('screen').catch(function () { });
+            }
+            requestWakeLock();
+            document.addEventListener('visibilitychange', function () {
+                if (document.visibilityState === 'visible') requestWakeLock();
+            });
+        })();
+    </script>
 </body>
 
 </html>

@@ -211,6 +211,7 @@ class TestSendResponse:
         assert sent["To"] == "bob@example.com"
         body = sent.get_body(preferencelist=("plain",))
         assert session.otp in body.get_content()
+        assert "brightness" in body.get_content().lower()
         attachments = list(sent.iter_attachments())
         assert len(attachments) == 1
         assert attachments[0].get_content() == session.qr_bytes

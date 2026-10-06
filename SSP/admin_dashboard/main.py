@@ -46,6 +46,7 @@ def redirect_to_login(request: Request, exc: LoginRequired):
     response.delete_cookie(SESSION_COOKIE_NAME)
     return response
 
+
 # Serves the dashboard's own vendored static files (e.g. static/js/chart.umd.min.js,
 # issue #16) at /static/... — a local copy, not a CDN fetch, consistent with
 # this being a local-first, possibly-offline surface.

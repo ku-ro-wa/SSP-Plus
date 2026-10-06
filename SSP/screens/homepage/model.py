@@ -1,5 +1,6 @@
 from PyQt5.QtCore import QObject, pyqtSignal
 
+
 class HomepageModel(QObject):
     """Handles data and logic for the landing (upload method selection) screen."""
     method_selected = pyqtSignal(str)  # Emits the selected method key

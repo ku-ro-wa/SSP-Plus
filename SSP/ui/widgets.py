@@ -162,6 +162,19 @@ class DangerButton(QPushButton):
         self.setStyleSheet(DANGER_BUTTON_QSS)
 
 
+READER_HINT = "Hold your QR code up to the reader, or type your code."
+
+
+class ReaderHint(QLabel):
+    """The kiosk QR reader's one-line hint, shown on idle, the homepage and both code screens."""
+
+    def __init__(self, parent=None):
+        super().__init__(READER_HINT, parent)
+        self.setAlignment(Qt.AlignCenter)
+        self.setWordWrap(True)
+        self.setStyleSheet(f"color: {COLORS['text_secondary']}; font-size: {FONT['size_md']}px; font-weight: 600;")
+
+
 class StatusBanner(QFrame):
     """Color-coded status message with an icon, replacing ad hoc status QLabels
     duplicated across screens. Hidden when there's no message to show."""

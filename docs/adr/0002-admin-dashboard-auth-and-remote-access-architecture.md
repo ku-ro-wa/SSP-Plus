@@ -37,7 +37,9 @@ of the app itself.
   (different threat model: physical possession of the kiosk vs. a network login), with its own:
   - Individual accounts (small `users` table, not a shared secret) — even at one or two users —
     with passwords hashed at rest (bcrypt/argon2), not compared in plaintext.
-  - Two roles: `dev` (full read/write) and `admin` (read-only). Only `dev` is needed to start;
+  - Two roles: `dev` (full read/write) and `admin` (read-only). **Amended 2026-10-06:** renamed
+    at the supervisor's request to `admin` (full read/write) and `operator` (read-only), with a
+    one-time DB migration. See CONTEXT.md's **Dashboard role**. Only `dev` is needed to start;
     the schema should leave room for more roles/granularity later without a rewrite.
   - Sliding session timeout on inactivity, roughly 8–12 hours.
   - A minimal login audit log: timestamp, username, success/failure, source IP.
@@ -52,6 +54,10 @@ of the app itself.
   extra work, just: don't add a side channel later.
 
 ## Deferred (not part of this local-first build)
+
+> **Taken up 2026-10-06** in ADR-0005, which also adds Kiosk Admin's functions to the
+> dashboard. The decisions below still hold. ADR-0005 adds that devices are tagged now, so
+> ACLs can switch on when a second site's operator joins the tailnet.
 
 These are already decided in the remote-access design; they're future work, not open questions:
 

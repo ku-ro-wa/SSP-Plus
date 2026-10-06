@@ -5,7 +5,7 @@
 # password" flow exists anywhere in the app, by design; see
 # docs/adr/0002-admin-dashboard-auth-and-remote-access-architecture.md).
 # Run by hand on the kiosk:
-#   python -m admin_dashboard.cli create-account --username alice --password ... --role dev
+#   python -m admin_dashboard.cli create-account --username alice --password ... --role admin
 #   python -m admin_dashboard.cli reset-password --username alice --password ...
 #
 # Uses the same DB file as the running dashboard (dependencies.open_db), so
@@ -17,7 +17,7 @@ import sys
 from admin_dashboard.auth import hash_password
 from admin_dashboard.dependencies import open_db
 
-VALID_ROLES = ("dev", "admin")
+VALID_ROLES = ("admin", "operator")
 
 
 def create_account(db, username, password, role):

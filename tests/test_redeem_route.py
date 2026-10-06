@@ -31,13 +31,13 @@ def _override_smtp_client(smtp):
 
 
 def _make_scan_session(tmp_path, db):
-    """Registers a source='scan' session the same way ScanAdapter does,
+    """Registers a source='scanner' session the same way ScanAdapter does,
     without going through the adapter itself."""
     pdf_path = tmp_path / "scan.pdf"
     pdf_path.write_bytes(PDF_BYTES)
     session_manager = SessionManager(db)
     return session_manager.create_session(
-        source="scan",
+        source="scanner",
         files=[{"path": str(pdf_path), "original_filename": "Scan_1.pdf"}],
     )
 

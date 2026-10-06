@@ -16,9 +16,9 @@ import os
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
 from PyQt5 import QtCore
-from PyQt5.QtWidgets import QApplication, QMainWindow, QStackedWidget
-from PyQt5.QtCore import QTimer
-from PyQt5.QtGui import QIcon
+from PyQt5.QtWidgets import QApplication, QMainWindow, QStackedWidget, QInputDialog, QShortcut
+from PyQt5.QtCore import QObject, QTimer, pyqtSignal
+from PyQt5.QtGui import QKeySequence
 from screens.idle import IdleController
 from screens.usb import USBController
 from screens.wifi import WifiController
@@ -40,31 +40,36 @@ from managers.db_threader import DatabaseThreadManager
 from managers.ink_analysis_threader import InkAnalysisThreadManager
 from managers.webapp_thread import WebAppThreadManager
 from managers.email_poller_thread import EmailPollerThreadManager
+from managers.qr_reader import (CONNECTED, DuplicateReadFilter, QrReaderManager, classify_payload, decide_redemption,
+                                describe_reader_status, should_log_status_change)
+from managers.session_manager import SessionManager
+from database.db_manager import DatabaseManager
 from managers.sms_manager import cleanup_sms
 from managers.persistent_gpio import cleanup_persistent_gpio
 from config import get_config
 from ui.theme import apply_theme, COLORS
 
-try:
-    from managers.usb_file_manager import USBFileManager
-except Exception as e:
-    print(f"❌ Failed to import USBFileManager: {e}")
+
+class _QrReadBridge(QObject):
+    """Carries reads from the QR reader's thread to the GUI thread (a signal
+    emitted off-thread is delivered queued on the receiver's thread)."""
+    read = pyqtSignal(str)
 
 
 class PrintingSystemApp(QMainWindow):
     """
     Main application window for the Self-Service Printing System.
-    
+
     Manages screen navigation, printer operations, and coordinates between
     various subsystems including payment processing, ink analysis, and database operations.
-    
+
     Attributes:
         stacked_widget: Container for all application screens
         printer_manager: Handles print job execution and monitoring
         db_threader: Manages database operations in background thread
         ink_analysis_threader: Manages ink usage analysis in background thread
     """
-    
+
     # Screen index mapping for stacked widget navigation
     SCREEN_MAP = {
         'idle': 0,
@@ -83,12 +88,12 @@ class PrintingSystemApp(QMainWindow):
         'scan_result': 13,
         'voucher': 14,
     }
-    
+
     def __init__(self):
         """Initialize the main application window and all subsystems."""
         super().__init__()
         self.setWindowTitle("Printing System GUI")
-        
+
         # Get screen dimensions and set appropriate window size
         self._setup_display()
 
@@ -139,7 +144,7 @@ class PrintingSystemApp(QMainWindow):
         self.printing_options_screen = PrintOptionsController(self)
         self.payment_screen = PaymentController(self)
         self.admin_screen = AdminController(self)
-        
+
         # Initialize thread managers for background operations
         self.db_threader = DatabaseThreadManager()
         self.ink_analysis_threader = InkAnalysisThreadManager()
@@ -156,13 +161,15 @@ class PrintingSystemApp(QMainWindow):
 
         # Connect thread managers for real-time data updates
         self._connect_thread_managers()
-        
+
+        self._setup_qr_reader()
+
         # Initialize printer manager (no dependencies)
         self.printer_manager = PrinterManager()
-        
+
         # Track low paper alert to prevent multiple SMS
         self.low_paper_alert_sent = False
-        
+
         # Initialize remaining screens that depend on other components
         try:
             print("🔄 Initializing data viewer screen...")
@@ -172,7 +179,7 @@ class PrintingSystemApp(QMainWindow):
             print(f"❌ ERROR: Failed to initialize data viewer screen: {e}")
             # Create a dummy data viewer to prevent crashes
             self.data_viewer_screen = None
-            
+
         self.thank_you_screen = ThankYouController(self)
         self.scan_destination_screen = ScanDestinationController(self)
         self.scan_result_screen = ScanResultController(self)
@@ -192,13 +199,13 @@ class PrintingSystemApp(QMainWindow):
         self.stacked_widget.addWidget(self.printing_options_screen)
         self.stacked_widget.addWidget(self.payment_screen)
         self.stacked_widget.addWidget(self.admin_screen)
-        
+
         # Only add data viewer if it was initialized successfully
         if self.data_viewer_screen is not None:
             self.stacked_widget.addWidget(self.data_viewer_screen)
         else:
             print("⚠️ Data viewer screen not available - skipping")
-            
+
         self.stacked_widget.addWidget(self.thank_you_screen)
         self.stacked_widget.addWidget(self.scan_destination_screen)
         self.stacked_widget.addWidget(self.scan_result_screen)
@@ -232,17 +239,17 @@ class PrintingSystemApp(QMainWindow):
                     print("🔄 GPIO connection cleaned up")
                 except Exception as cleanup_error:
                     print(f"⚠️ GPIO cleanup warning: {cleanup_error}")
-        
+
         # Show idle screen as initial screen
         self.show_screen('idle')
-        
+
         # Connect printer manager signals immediately after initialization
         print("DEBUG: Connecting printer manager signals after initialization")
         self.printer_manager.print_job_successful.connect(self.on_print_successful)
         self.printer_manager.print_job_failed.connect(self.on_print_failed)
         self.printer_manager.print_job_waiting.connect(self.on_print_waiting)
         print("DEBUG: Printer manager signals connected successfully with QueuedConnection")
-        
+
         # Signal connection established successfully
         print("DEBUG: Signal connection established successfully")
 
@@ -252,7 +259,89 @@ class PrintingSystemApp(QMainWindow):
                 background-color: transparent;
             }
         """)
-    
+
+    def _setup_qr_reader(self):
+        """Start the QR reader thread (if QR_READER_PORT is set) and, in SIM
+        mode only, the dev shortcut that injects a read from a text box."""
+        # Built on the GUI thread: SessionManager's DB connection is used here only.
+        self.qr_session_manager = SessionManager(DatabaseManager())
+        self._qr_duplicates = DuplicateReadFilter()
+        self._qr_bridge = _QrReadBridge()
+        self._qr_bridge.read.connect(self._on_qr_read)
+        self.qr_reader = QrReaderManager.from_config(self._qr_bridge.read.emit, self._on_qr_reader_status,
+                                                     self._on_qr_reader_config_error)
+        if self.qr_reader is not None:
+            self.qr_reader.start()
+            print("✅ QR reader started")
+        else:
+            print("ℹ️ QR reader off — typed codes only")
+            if get_config().qr_reader_port:
+                # Port is configured but the reader can't run (pyserial missing): a fault, not "off".
+                from utils.error_logger import log_error
+                log_error("QR Reader", "QR_READER_PORT is set but pyserial is not installed", "qr_reader")
+
+        if get_config().sim_mode:
+            self._qr_inject_shortcut = QShortcut(QKeySequence("Ctrl+Shift+Q"), self)
+            self._qr_inject_shortcut.activated.connect(self._inject_qr_read)
+
+    def _on_qr_reader_status(self, status, previous, detail):
+        """Runs on the reader thread. Loss and recovery each get one error_log entry."""
+        if should_log_status_change(status, previous):
+            from utils.error_logger import log_error
+            message = ("QR reader recovered" if status == CONNECTED
+                       else f"QR reader unavailable, typed codes only ({detail})")
+            log_error("QR Reader", message, "qr_reader")
+
+    def _on_qr_reader_config_error(self, detail):
+        """Runs on the reader thread, once per port open where a code was NAKed or unanswered."""
+        from utils.error_logger import log_error
+        log_error("QR Reader", f"Reader config not fully applied ({detail})", "qr_reader")
+
+    def qr_reader_status_text(self):
+        reader = getattr(self, 'qr_reader', None)
+        if reader is None and get_config().qr_reader_port:
+            return "Not connected (pyserial missing)"
+        return describe_reader_status(reader)
+
+    def _inject_qr_read(self):
+        text, ok = QInputDialog.getText(self, "SIM: inject QR read", "QR payload:")
+        if ok:
+            self._on_qr_read(text.strip())
+
+    def _current_screen_name(self):
+        index = self.stacked_widget.currentIndex()
+        return next((name for name, i in self.SCREEN_MAP.items() if i == index), None)
+
+    def _on_qr_read(self, text):
+        """One read from the reader (or the SIM injector): de-duplicate, classify, decide, act."""
+        if self._qr_duplicates.is_duplicate(text):
+            print("QR read ignored: identical read just now")
+            return
+        read = classify_payload(text)
+        screen = self._current_screen_name()
+        outcome = decide_redemption(read, screen, self.qr_session_manager)
+        print(f"QR read ({read.kind}) on '{screen}' -> {outcome.action}: {outcome.message}")
+        if outcome.action == "open_files":
+            if not self.open_session_files(outcome.source, outcome.files):
+                print("⚠️ QR read verified but the session's files could not be loaded")
+        elif outcome.action == "rejected":
+            # Only accepting screens get here, and each has a show_qr_message().
+            self.stacked_widget.currentWidget().show_qr_message(outcome.message)
+
+    def open_session_files(self, source, files):
+        """Load a redeemed wifi/email Session's files into file_browser — the one
+        path both a correct typed OTP and a read QR payload take. Returns False
+        if none of the files could be loaded."""
+        from managers.usb_file_manager import USBFileManager  # same import the wifi/email controllers used
+        source_paths = [f['path'] for f in files]
+        pdf_files = USBFileManager().scan_and_copy_pdf_files_by_paths(source_paths)
+        if not pdf_files:
+            return False
+        self.file_browser_screen.set_source(source)
+        self.file_browser_screen.load_pdf_files(pdf_files)
+        self.show_screen('file_browser')
+        return True
+
     def _setup_display(self):
         """
         Configure display settings using the real screen resolution, then go fullscreen.
@@ -273,11 +362,11 @@ class PrintingSystemApp(QMainWindow):
         # Go fullscreen on startup
         print(f"🖥️ Starting in fullscreen mode ({screen_geometry.width()}x{screen_geometry.height()})")
         self.showFullScreen()
-    
+
     def _connect_thread_managers(self):
         """
         Connect signals between thread managers and application components.
-        
+
         Sets up signal connections for:
         - Ink analysis completion and CMYK level updates
         - Payment completion to trigger printing
@@ -289,7 +378,7 @@ class PrintingSystemApp(QMainWindow):
     def _handle_analysis_result(self, result):
         """
         Handle ink analysis completion and forward CMYK level updates.
-        
+
         Args:
             result: Dictionary containing analysis results with keys:
                 - database_updated: Boolean indicating if DB was updated
@@ -302,10 +391,10 @@ class PrintingSystemApp(QMainWindow):
     def check_paper_count_and_redirect(self, allow_admin_access=False):
         """
         Check current paper count and redirect to error screen if needed.
-        
+
         Args:
             allow_admin_access: If True, allows navigation to admin screen even with low paper
-        
+
         Returns:
             bool: True if redirected to error screen, False if paper is available
         """
@@ -359,10 +448,10 @@ class PrintingSystemApp(QMainWindow):
     def show_screen(self, screen_name):
         """
         Navigate to a different screen by name.
-        
+
         Properly handles screen lifecycle by calling on_leave() on the current screen
         and on_enter() on the new screen if those methods exist.
-        
+
         Args:
             screen_name: String name of the screen to show (see SCREEN_MAP)
         """
@@ -383,7 +472,7 @@ class PrintingSystemApp(QMainWindow):
             if self.check_ink_levels_and_redirect():
                 print(f"Cannot navigate to {screen_name} - low ink")
                 return
-        
+
         # Switch to the new screen
         target_index = self.SCREEN_MAP[screen_name]
         self.stacked_widget.setCurrentIndex(target_index)
@@ -392,16 +481,16 @@ class PrintingSystemApp(QMainWindow):
             self.stop_global_countdown()
         else:
             self.start_global_countdown(60)
-        
+
         # Call on_enter lifecycle method for new screen
         new_widget = self.stacked_widget.currentWidget()
         print(f"DEBUG: show_screen - new_widget: {new_widget}")
         print(f"DEBUG: show_screen - hasattr(new_widget, 'on_enter'): {hasattr(new_widget, 'on_enter')}")
         if new_widget is not None and hasattr(new_widget, 'on_enter'):
-            print(f"DEBUG: show_screen - calling new_widget.on_enter()")
+            print("DEBUG: show_screen - calling new_widget.on_enter()")
             try:
                 new_widget.on_enter()
-                print(f"DEBUG: show_screen - new_widget.on_enter() completed")
+                print("DEBUG: show_screen - new_widget.on_enter() completed")
             except Exception as e:
                 print(f"ERROR: show_screen - new_widget.on_enter() failed with error: {e}")
                 import traceback
@@ -410,10 +499,10 @@ class PrintingSystemApp(QMainWindow):
     def on_payment_completed(self, payment_info):
         """
         Handle successful payment and initiate print job.
-        
+
         This is called after payment is processed and change is dispensed.
         The screen transition to thank_you is handled by the payment dialog.
-        
+
         Args:
             payment_info: Dictionary containing:
                 - pdf_data: Dict with 'path' and 'filename'
@@ -422,9 +511,9 @@ class PrintingSystemApp(QMainWindow):
                 - selected_pages: List of page numbers to print
         """
         print(f"Payment completed. Starting print job for {payment_info['pdf_data']['filename']}")
-        
+
         # Paper count check is now handled in show_screen method
-        
+
         self.printer_manager.print_file(
             file_path=payment_info['pdf_data']['path'],
             copies=payment_info['copies'],
@@ -435,32 +524,32 @@ class PrintingSystemApp(QMainWindow):
     def on_print_successful(self):
         """
         Handle successful print job completion.
-        
+
         Triggers ink analysis and updates the thank you screen to show completion status.
         If not currently on the thank you screen, navigates to it first.
         """
         print("✅ Print job successfully completed")
-        print(f"DEBUG: on_print_successful called, about to trigger ink analysis")
-        
+        print("DEBUG: on_print_successful called, about to trigger ink analysis")
+
         # Log transaction to database after successful printing
         if hasattr(self, 'payment_screen') and self.payment_screen and hasattr(self.payment_screen.model, 'log_transaction_after_print_success'):
             print("DEBUG: Logging transaction after successful print")
             self.payment_screen.model.log_transaction_after_print_success()
-        
+
         # Update database immediately after print success (don't wait for ink analysis)
-        print(f"DEBUG: Updating database immediately after print success")
+        print("DEBUG: Updating database immediately after print success")
         self._update_paper_count_after_print()
         self._update_coin_inventory_after_print()
-        
+
         # Clear the print job after successful completion to prevent re-printing
-        print(f"DEBUG: Clearing current_print_job after successful completion")
+        print("DEBUG: Clearing current_print_job after successful completion")
         self.current_print_job = None
-        
+
         # Trigger ink analysis for the printed job (if print job info available)
         self._trigger_ink_analysis()
-        
+
         current_screen = self.stacked_widget.currentWidget()
-        
+
         if current_screen == self.thank_you_screen:
             self.thank_you_screen.finish_printing()
         else:
@@ -468,29 +557,29 @@ class PrintingSystemApp(QMainWindow):
             print(f"⚠️ Print completed on wrong screen ({type(current_screen).__name__}), navigating to thank you screen")
             self.show_screen('thank_you')
             QTimer.singleShot(100, lambda: self.thank_you_screen.finish_printing())
-    
+
     def _trigger_ink_analysis(self):
         """
         Trigger ink usage analysis for the completed print job.
-        
+
         Uses the temporary PDF created by the printer (which contains only
         the selected pages that were actually printed). This ensures ink
         analysis works even if the USB drive is removed.
-        
+
         After analysis completes, the temporary PDF is cleaned up.
         """
-        print(f"DEBUG: _trigger_ink_analysis called")
+        print("DEBUG: _trigger_ink_analysis called")
         if not hasattr(self, 'current_print_job') or not self.current_print_job:
             print("⚠️ No print job info available for ink analysis")
             return
-        
+
         # Get the temp PDF path from printer manager
         if not hasattr(self.printer_manager, 'last_temp_pdf_path') or not self.printer_manager.last_temp_pdf_path:
             print("⚠️ No temp PDF available for ink analysis")
             return
-        
+
         temp_pdf_path = self.printer_manager.last_temp_pdf_path
-        
+
         try:
             # Use temp PDF (already has only selected pages!) instead of original file
             # This works even if USB drive is removed
@@ -506,16 +595,16 @@ class PrintingSystemApp(QMainWindow):
             print(f"⚠️ Error triggering ink analysis: {e}")
             # Clean up temp PDF even if analysis fails
             self.printer_manager.cleanup_last_temp_pdf()
-    
+
     def _on_ink_analysis_completed(self, operation):
         """
         Handle ink analysis completion and clean up temporary PDF.
-        
+
         Args:
             operation: InkAnalysisOperation object with result or error
         """
         print(f"DEBUG: _on_ink_analysis_completed called with operation: {operation}")
-        
+
         # Handle both dictionary and object formats
         if isinstance(operation, dict):
             # Direct dictionary result
@@ -529,51 +618,51 @@ class PrintingSystemApp(QMainWindow):
                 result = operation.result if hasattr(operation, 'result') else operation
                 if result.get('success', False) and result.get('database_updated', False):
                     print("✅ Ink levels updated in database")
-        
-        print(f"DEBUG: Ink analysis completed, database updates already done after print success")
-        
+
+        print("DEBUG: Ink analysis completed, database updates already done after print success")
+
         # Always clean up temp PDF after analysis completes
         self.printer_manager.cleanup_last_temp_pdf()
 
     def _update_paper_count_after_print(self):
         """
         Update paper count in database after successful printing.
-        
+
         This method is called after ink analysis completes, ensuring that
         paper count is only decremented after the print job actually succeeds.
         """
         if not hasattr(self, 'current_print_job') or not self.current_print_job:
             print("⚠️ No print job info available for paper count update")
             return
-        
+
         try:
             # Calculate total pages printed
             selected_pages = self.current_print_job.get('selected_pages', [])
             copies = self.current_print_job.get('copies', 1)
             total_pages = len(selected_pages) * copies
-            
+
             print(f"📄 Updating paper count: -{total_pages} pages (pages: {len(selected_pages)}, copies: {copies})")
             print(f"DEBUG: current_print_job details: {self.current_print_job}")
-            
+
             # Use direct database access instead of async threader
             if hasattr(self, 'admin_screen') and self.admin_screen:
                 # Get current paper count
                 current_count = self.admin_screen.get_paper_count()
                 if current_count is not None:
                     new_count = max(0, current_count - total_pages)
-                    
+
                     # Update paper count directly through admin screen
                     print(f"DEBUG: Calling decrement_paper_count with {total_pages} pages")
                     success = self.admin_screen.model.decrement_paper_count(total_pages)
                     print(f"DEBUG: decrement_paper_count returned: {success}")
-                    
+
                     if success:
                         print(f"✅ Paper count updated: {current_count} -> {new_count}")
-                        
+
                         # Verify the update by checking the database again
                         updated_count = self.admin_screen.get_paper_count()
                         print(f"DEBUG: Verified paper count in database: {updated_count}")
-                        
+
                         # Check for low paper alert (only send once)
                         if new_count <= 10 and not self.low_paper_alert_sent:
                             print(f"⚠️ Low paper alert: {new_count} sheets remaining")
@@ -587,108 +676,108 @@ class PrintingSystemApp(QMainWindow):
                     print("⚠️ Could not retrieve current paper count")
             else:
                 print("⚠️ No admin screen available for paper count update")
-                
+
         except Exception as e:
             print(f"❌ Error updating paper count: {e}")
 
     def _update_coin_inventory_after_print(self):
         """
         Update coin inventory after successful printing.
-        
+
         This method handles BOTH:
         1. Adding received coins (coins inserted during payment)
         2. Subtracting dispensed change (coins given as change)
-        
+
         This ensures the database reflects the actual coins in the system.
         """
         if not hasattr(self, 'current_print_job') or not self.current_print_job:
             print("⚠️ No print job info available for coin inventory update")
             return
-        
+
         try:
             print(f"DEBUG: Starting coin inventory update for print job: {self.current_print_job}")
-            
+
             # Get payment info from the payment model if available
             if hasattr(self, 'payment_screen') and self.payment_screen:
                 payment_model = self.payment_screen.model
-                
+
                 # Handle received coins (coins inserted during payment)
                 if hasattr(payment_model, 'cash_received') and payment_model.cash_received:
                     print(f"💰 Adding received coins to inventory: {payment_model.cash_received}")
                     self._update_coin_inventory_items(payment_model.cash_received, add=True)
-                
+
                 # Handle dispensed change (coins given as change)
                 if hasattr(payment_model, 'change_dispensed') and payment_model.change_dispensed:
                     print(f"💰 Subtracting dispensed change from inventory: {payment_model.change_dispensed}")
                     self._update_coin_inventory_items(payment_model.change_dispensed, add=False)
                 else:
                     print("DEBUG: No change dispensed data available")
-                    
+
             else:
                 print("⚠️ No payment screen available for coin inventory update")
-                
+
         except Exception as e:
             print(f"❌ Error updating coin inventory: {e}")
 
     def _update_coin_inventory_items(self, coin_data, add=True):
         """
         Update coin inventory with specific coin data.
-        
+
         Args:
-            coin_data: Dictionary of {denomination: count} 
+            coin_data: Dictionary of {denomination: count}
             add: True to add coins, False to subtract coins
         """
         if not hasattr(self, 'admin_screen') or not self.admin_screen:
             print("⚠️ No admin screen available for coin inventory update")
             return
-            
+
         try:
-            print(f"DEBUG: Admin screen available, updating coin inventory")
+            print("DEBUG: Admin screen available, updating coin inventory")
             for denomination, count in coin_data.items():
                 if count > 0:
                     is_bill = denomination >= 20
                     operation = "Adding" if add else "Subtracting"
                     print(f"DEBUG: {operation} {count} x {denomination} {'bill' if is_bill else 'coin'}")
-                    
+
                     # Get current count
                     current_inventory = self.admin_screen.model.db_manager.get_cash_inventory()
                     current_count = 0
-                    
+
                     for item in current_inventory:
-                        if (item.get('denomination') == denomination and 
-                            item.get('type') == ('bill' if is_bill else 'coin')):
+                        if (item.get('denomination') == denomination and
+                                item.get('type') == ('bill' if is_bill else 'coin')):
                             current_count = item.get('count', 0)
                             break
-                    
+
                     # Calculate new count
                     if add:
                         new_count = current_count + count
                     else:
                         new_count = max(0, current_count - count)  # Don't go below 0
-                    
+
                     # Update database
                     self.admin_screen.model.db_manager.update_cash_inventory(
                         denomination=denomination,
                         count=new_count,
                         type='bill' if is_bill else 'coin'
                     )
-                    
+
                     operation_symbol = "+" if add else "-"
                     print(f"✅ Updated {denomination} {'bill' if is_bill else 'coin'}: {current_count} {operation_symbol}{count} = {new_count}")
-                    
+
         except Exception as e:
             print(f"❌ Error updating coin inventory items: {e}")
 
     def on_print_waiting(self):
         """
         Handle print job waiting state.
-        
+
         Called when the print job has been sent to CUPS and we're waiting
         for the actual printing to complete. Updates the thank you screen
         to show "Printing in Progress" status.
         """
         print("⏳ Waiting for print job to complete")
-        
+
         if self.stacked_widget.currentWidget() == self.thank_you_screen:
             self.thank_you_screen.show_waiting_for_print()
         else:
@@ -697,30 +786,30 @@ class PrintingSystemApp(QMainWindow):
     def on_print_failed(self, error_message):
         """
         Handle print job failure.
-        
+
         Sends SMS notification for print failures, logs to database, and displays appropriate
         error message on the thank you screen. Distinguishes between paper
         jam errors and general printing errors.
-        
+
         Args:
             error_message: String describing the error that occurred
         """
         print(f"❌ Print job failed: {error_message}")
-        
+
         # Send SMS notification for all print failures
         try:
             from managers.sms_manager import send_printing_error_sms
             send_printing_error_sms(error_message)
         except Exception as sms_error:
             print(f"⚠️ Failed to send SMS notification: {sms_error}")
-        
+
         # Log error to database
         try:
             from utils.error_logger import log_error
             log_error("Print Job Failed", error_message, "main_app")
         except Exception as db_error:
             print(f"⚠️ Failed to log error to database: {db_error}")
-        
+
         # Display error on thank you screen
         if self.stacked_widget.currentWidget() == self.thank_you_screen:
             # Check if this is a paper jam error for specialized handling
@@ -753,13 +842,13 @@ class PrintingSystemApp(QMainWindow):
     def cleanup(self):
         """
         Clean up all application resources before shutdown.
-        
+
         Stops background threads, cleans up USB monitoring, and properly
         shuts down the SMS system. Called automatically on application close.
         """
         try:
             print("🧹 Starting application cleanup...")
-            
+
             # Stop database operations first to prevent SQLite thread errors
             if hasattr(self, 'db_threader'):
                 print("🔄 Stopping database threader...")
@@ -774,11 +863,15 @@ class PrintingSystemApp(QMainWindow):
                 print("🔄 Stopping email poller thread...")
                 self.email_poller_thread.stop()
 
+            if getattr(self, 'qr_reader', None):
+                print("🔄 Stopping QR reader...")
+                self.qr_reader.stop()
+
             # Stop USB monitoring thread
             if hasattr(self, 'usb_screen') and hasattr(self.usb_screen, 'model'):
                 print("🔄 Stopping USB monitoring...")
                 self.usb_screen.model.stop_usb_monitoring()
-            
+
             # Clean up database connections before other cleanup
             try:
                 from utils.error_logger import cleanup_db_connections
@@ -786,24 +879,24 @@ class PrintingSystemApp(QMainWindow):
                 cleanup_db_connections()
             except Exception as db_cleanup_error:
                 print(f"⚠️ Error cleaning up database connections: {db_cleanup_error}")
-            
+
             # Clean up SMS system
             print("🔄 Cleaning up SMS system...")
             cleanup_sms()
-            
+
             # Clean up persistent GPIO last
             print("🔄 Cleaning up persistent GPIO...")
             cleanup_persistent_gpio()
-            
+
             print("✅ Application cleanup completed")
-                
+
         except Exception as e:
             print(f"❌ Error during cleanup: {e}")
 
     def closeEvent(self, a0) -> None:
         """
         Qt event handler for window close.
-        
+
         Args:
             a0: QCloseEvent from Qt framework
         """
@@ -815,7 +908,7 @@ class PrintingSystemApp(QMainWindow):
 def main():
     """
     Application entry point.
-    
+
     Initializes the database, creates the Qt application, and starts the main event loop.
     Shows the window in fullscreen mode for kiosk deployment.
     """
@@ -823,9 +916,9 @@ def main():
         print("\n🔄 Initializing database...")
         init_db()
         print("✅ Database initialization successful\n")
-        
+
         # Create Qt application
-        app = QApplication(sys.argv) # Main thread init
+        app = QApplication(sys.argv)  # Main thread init
         app.setApplicationName("Printing System GUI")
         app.setApplicationVersion("1.0")
         apply_theme(app)
@@ -833,7 +926,7 @@ def main():
 
         # Show window (size and mode determined by _setup_display)
         window.show()
-        
+
         sys.exit(app.exec_())
     except Exception as e:
         print(f"❌ Error during initialization: {str(e)}")

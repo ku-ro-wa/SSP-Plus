@@ -1,15 +1,16 @@
 from PyQt5.QtWidgets import QWidget
 from PyQt5.QtCore import Qt, QSize, QPoint, QPointF
-from PyQt5.QtGui import QPainter, QPixmap, QColor, QTransform
+from PyQt5.QtGui import QPainter, QColor
+
 
 class PDFPreviewWidget(QWidget):
     """Widget for displaying PDF previews with zoom and pan functionality."""
-    
+
     def __init__(self, parent=None):
         super().__init__(parent)
         self._pixmap = None
         self._borderless = False
-        
+
         # Zoom and pan properties
         self._zoom_factor = 1.0
         self._min_zoom = 0.5
@@ -17,10 +18,10 @@ class PDFPreviewWidget(QWidget):
         self._pan_offset = QPointF(0, 0)
         self._last_pan_point = QPoint()
         self._is_panning = False
-        
+
         # Touch/mouse tracking
         self.setMouseTracking(True)
-        
+
         self.setStyleSheet("""
             PDFPreviewWidget {
                 background-color: #c4c4c4;
@@ -107,13 +108,13 @@ class PDFPreviewWidget(QWidget):
         """Paints the widget with the current pixmap."""
         painter = QPainter(self)
         painter.setRenderHint(QPainter.Antialiasing)
-        
+
         # Fill background with container tint so page edges are visible
         painter.fillRect(self.rect(), QColor(196, 196, 196))
-        
+
         if self._pixmap is None:
             return
-        
+
         # Zoom is relative to the "fit entire page to widget" size, so 100% always
         # means fit-to-widget and zooming in/out scales up/down from there.
         pixmap_size = self._pixmap.size()
@@ -126,12 +127,12 @@ class PDFPreviewWidget(QWidget):
             int(pixmap_size.width() * scale),
             int(pixmap_size.height() * scale)
         )
-        
+
         # Calculate position to center the pixmap
         # Center image without panning
         x = (widget_rect.width() - scaled_size.width()) // 2
         y = (widget_rect.height() - scaled_size.height()) // 2
-        
+
         # Draw the pixmap
         painter.drawPixmap(x, y, scaled_size.width(), scaled_size.height(), self._pixmap)
 

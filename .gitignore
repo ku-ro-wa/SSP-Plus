@@ -22,3 +22,6 @@ SSP/database/sim_usb_drive/
 # The kiosk's real SQLite DB and any SIM_MODE demo-data variant of it
 # (e.g. the Admin Dashboard's seeded fixture DB) — never committed.
 SSP/database/*.db
+
+# Local config with secrets — copy .env.example to .env and fill it in
+.env

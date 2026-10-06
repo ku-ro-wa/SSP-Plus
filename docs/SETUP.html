@@ -349,6 +349,57 @@ ADMIN_DASHBOARD_LOCKOUT_MINUTES=15</code></pre>
 <hr>
 </section>
 </section>
+<section id="qr-reader-kiosk" class="level2">
+<h2 class="anchored" data-anchor-id="qr-reader-kiosk">QR reader (kiosk)</h2>
+<p>The kiosk’s <strong>QR reader</strong> is a generic embedded 2D module. Its manual is the booklet titled <strong>“M300D, M800D, M900D, 9800D-V1.3”</strong> that ships with the reader (the vendor manual isn’t committed to the repo). Every settings barcode below is named exactly as that booklet labels it.</p>
+<p>The reader runs as a USB serial port, not a keyboard. The module can’t be stopped from reading settings barcodes, so anyone at the kiosk can switch it to keyboard mode with one; the kiosk OS therefore ignores the reader as an input device. See <code>docs/adr/0004-qr-reader-serial-mode-and-untrusted-payloads.md</code> for why.</p>
+<section id="ignore-the-reader-as-a-keyboard-udev" class="level3">
+<h3 class="anchored" data-anchor-id="ignore-the-reader-as-a-keyboard-udev">1. Ignore the reader as a keyboard (udev)</h3>
+<p>Plug the reader in and find its USB vendor and product ID. Don’t guess them:</p>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb29"><pre class="sourceCode bash code-with-copy"><code class="sourceCode bash"><span id="cb29-1"><a href="#cb29-1" aria-hidden="true" tabindex="-1"></a><span class="ex">lsusb</span></span>
+<span id="cb29-2"><a href="#cb29-2" aria-hidden="true" tabindex="-1"></a><span class="co"># Bus 001 Device 004: ID xxxx:yyyy ...   &lt;- the reader; unplug/replug to see which line changes</span></span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<p>Create <code>/etc/udev/rules.d/99-qr-reader.rules</code>, replacing <code>xxxx</code> / <code>yyyy</code> with the IDs from <code>lsusb</code>:</p>
+<pre><code># QR reader: never treat it as a keyboard, even if a settings barcode switches it to HID-KBW
+SUBSYSTEM=="input", ATTRS{idVendor}=="xxxx", ATTRS{idProduct}=="yyyy", ENV{ID_INPUT}="", ENV{ID_INPUT_KEYBOARD}="", ENV{LIBINPUT_IGNORE_DEVICE}="1"</code></pre>
+<p>Reload with <code>sudo udevadm control --reload &amp;&amp; sudo udevadm trigger</code>, then unplug and replug the reader. This rule only silences the keyboard side. The stable serial path comes from the stock udev serial rules, not from this file, and appears under <code>/dev/serial/by-id/</code>:</p>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb31"><pre class="sourceCode bash code-with-copy"><code class="sourceCode bash"><span id="cb31-1"><a href="#cb31-1" aria-hidden="true" tabindex="-1"></a><span class="fu">ls</span> <span class="at">-l</span> /dev/serial/by-id/</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<blockquote class="blockquote">
+<p>Not yet verified on the kiosk Pi; that’s the separate “verify on the kiosk Pi” ticket (GitHub issue #38). The rule assumes a libinput desktop session.</p>
+</blockquote>
+</section>
+<section id="point-the-app-at-it" class="level3">
+<h3 class="anchored" data-anchor-id="point-the-app-at-it">2. Point the app at it</h3>
+<p>In the kiosk’s <code>.env</code>, use the stable by-id path (the <code>usb-...</code> name from the listing above):</p>
+<pre><code>QR_READER_PORT=/dev/serial/by-id/usb-&lt;name shown by ls&gt;</code></pre>
+<p>Leave it blank for no reader (typed codes only). On a Mac, use <code>/dev/cu.usbmodem*</code> instead.</p>
+</section>
+<section id="configure-the-reader" class="level3">
+<h3 class="anchored" data-anchor-id="configure-the-reader">3. Configure the reader</h3>
+<p>Read these settings barcodes from the booklet, in this order:</p>
+<ol type="1">
+<li><strong>Restore Defaults</strong></li>
+<li><strong>USB COM</strong> (Interface setup)</li>
+<li><strong>Auto-Sensing Mode</strong> (Trigger Mode)</li>
+<li><strong>2D-ON</strong></li>
+<li><strong>1D-OFF</strong></li>
+<li><strong>End Mark CR</strong></li>
+<li><strong>No Swap</strong> (Capital &amp; Lowercase Setup)</li>
+<li><strong>Invoice Function-OFF</strong></li>
+<li><strong>Duplicate Detection-ON</strong></li>
+<li><strong>Duplicate Detection time setting</strong>, then Appendix 1 <strong>Parameter Code</strong> <code>3</code>, <code>0</code>, <code>0</code>, <code>0</code> (the time is in milliseconds, so 3000 ms = 3 s; the booklet allows 1–3600000 ms)</li>
+<li><strong>Save settings</strong></li>
+</ol>
+<p>Then unplug and replug the reader to confirm the settings persisted. The same sequence restores a reader a customer has reconfigured.</p>
+</section>
+<section id="check-it-from-a-terminal" class="level3">
+<h3 class="anchored" data-anchor-id="check-it-from-a-terminal">4. Check it from a terminal</h3>
+<p>pyserial’s miniterm shows what the reader sends. The <code>hexlify</code> encoding makes the line ending visible:</p>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb33"><pre class="sourceCode bash code-with-copy"><code class="sourceCode bash"><span id="cb33-1"><a href="#cb33-1" aria-hidden="true" tabindex="-1"></a><span class="ex">python</span> <span class="at">-m</span> serial.tools.miniterm <span class="at">--encoding</span> hexlify /dev/serial/by-id/usb-<span class="op">&lt;</span>name<span class="op">&gt;</span> 9600</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<p>Read a Session payload (its QR image, from a phone). The payload appears as hex ending in <code>0d</code> (CR only, no <code>0a</code>). Decode <code>session_id:otp</code> to compare: 16 lowercase hex characters, <code>:</code>, 6 digits.</p>
+<p>Phone screens need brightness up: reads fail at the lowest brightness.</p>
+<hr>
+</section>
+</section>
 <section id="workflow" class="level2">
 <h2 class="anchored" data-anchor-id="workflow">Workflow</h2>
 <pre><code>main ← PRs only (one review required before merge)

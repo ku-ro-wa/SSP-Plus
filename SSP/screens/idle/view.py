@@ -5,7 +5,7 @@ from PyQt5.QtCore import Qt, pyqtSignal
 
 from ui.icons import icon
 from ui.theme import COLORS, FONT
-from ui.widgets import Header, SecondaryButton
+from ui.widgets import Header, ReaderHint, SecondaryButton, StatusBanner
 
 
 class IdleScreenView(QWidget):
@@ -47,10 +47,16 @@ class IdleScreenView(QWidget):
             f"color: {COLORS['text_secondary']}; font-size: {FONT['size_md']}px;"
         )
 
+        self.reader_hint = ReaderHint()
+        self.status_banner = StatusBanner()
+
         # --- Layout Adjustments for Centering ---
         frame_layout.addStretch(2)
         frame_layout.addWidget(self.touch_to_start_label)
         frame_layout.addWidget(self.bottom_info)
+        frame_layout.addSpacing(16)
+        frame_layout.addWidget(self.reader_hint)
+        frame_layout.addWidget(self.status_banner)
         frame_layout.addStretch(2)
 
         # --- Admin Button ---
@@ -67,6 +73,9 @@ class IdleScreenView(QWidget):
     def mousePressEvent(self, event):
         """Handles mouse press events and emits signal."""
         self.screen_touched.emit(event)
+
+    def show_status(self, message, is_error=True):
+        self.status_banner.show_message(message, variant="error" if is_error else "success")
 
     def get_admin_button_geometry(self):
         """Returns the geometry of the admin button for touch validation."""
