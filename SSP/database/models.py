@@ -169,7 +169,6 @@ def init_db(db_path=None):
     ''')
     print("OK - Created sessions table")
 
-
     # Vouchers (see CONTEXT.md "Vouchers", docs/adr/0003). Values are whole pesos.
     # No status column: active = remaining_value > 0 AND expires_at > now.
     # payment_ref ties a voucher / its applications to the transactions row
@@ -204,7 +203,6 @@ def init_db(db_path=None):
     _add_column_if_missing(cursor, 'transactions', 'voucher_issued', 'REAL NOT NULL DEFAULT 0')
     _add_column_if_missing(cursor, 'transactions', 'voucher_applied', 'REAL NOT NULL DEFAULT 0')
     _add_column_if_missing(cursor, 'transactions', 'payment_ref', 'TEXT')
-    
 
     # Create Email Intake Log table (for tracking email intake processing outcomes)
     cursor.execute('''

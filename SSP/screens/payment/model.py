@@ -218,8 +218,6 @@ class PaymentModel(QObject):
         self.change_owed = 0
         self.change_dispensed = {}
 
-        
-
     def _issue_shortfall_voucher(self, result, change_owed):
         shortfall = measure_shortfall(result, change_owed)
         self.voucher_shortfall = shortfall
@@ -485,7 +483,7 @@ class PaymentModel(QObject):
     def get_payment_suggestions(self) -> List[Dict]:
         """Get payment suggestions for the current total cost."""
         return self.payment_algorithm.find_optimal_payment_amounts(self.total_cost)
-    
+
     def log_transaction_after_print_success(self):
         """Log the transaction to database after successful printing."""
         if hasattr(self, 'transaction_data') and self.transaction_data:
@@ -499,8 +497,8 @@ class PaymentModel(QObject):
 
     # Print job signals are now handled by the thank you screen
     # No need to connect them here since the thank you screen will manage the entire print lifecycle
-    
-    # calls voucher first 
+
+    # calls voucher first
 
     def _navigate_to_thank_you(self):
         """Every post-dispense path ends here. If change went short, show the voucher
@@ -543,7 +541,7 @@ class PaymentModel(QObject):
 
     # Print timeout handling is now done by the thank you screen
     # The thank you screen will handle all print job monitoring and timeouts
-    
+
     def continue_to_thank_you(self):
         """Navigate to thank you screen after all operations are complete."""
         print("DEBUG: _navigate_to_thank_you called")
@@ -594,7 +592,7 @@ class PaymentModel(QObject):
         self.voucher_failed = False
         self.change_owed = 0
         self.change_dispensed = {}
-        
+
         self.amount_received_updated.emit(0)
         self.change_updated.emit(0, "")
 
@@ -829,14 +827,14 @@ class PaymentModel(QObject):
             if not (isinstance(result, dict) and result.get('success', False)):
                 error_msg = result.get('error', 'Unknown error') if isinstance(result, dict) else 'No result received'
                 self.payment_status_updated.emit(f"Change dispensing failed: {error_msg}")
-                
+
         except Exception as e:
             print(f"ERROR: Error handling dispensing completion: {e}")
             self.payment_status_updated.emit(f"Error processing change: {str(e)}")
 
         # Whatever happened with the change, the customer paid: print.
         self._start_printing()
-    
+
     def _start_printing(self):
         """Start the printing process."""
         print("Starting printing process...")
