@@ -84,7 +84,7 @@ The PIN-gated `screens/admin` surface reached at the touchscreen, with full read
 control over paper, coin, and CMYK state. A physical-possession threat model — unrelated to
 the Admin Dashboard's login. Always say "Kiosk Admin" rather than bare "admin" when the web
 dashboard is anywhere nearby in the conversation, since the dashboard also has a role called
-`admin` (see **Dashboard admin role**) that is *less* privileged than Kiosk Admin, not more.
+`admin` (see **Dashboard role**) behind a separate login.
 _Avoid_: admin (unqualified).
 
 **Login session**:
@@ -94,11 +94,12 @@ happen to share the English word "session"; only Login session belongs to the Ad
 Dashboard.
 _Avoid_: session (unqualified), auth session.
 
-**Dashboard admin role**:
-One of the Admin Dashboard's two account roles (`dev`: full read/write; `admin`: read-only).
-A network-login threat model, distinct from and less privileged than Kiosk Admin despite the
-shared name. See `docs/adr/0002-admin-dashboard-auth-and-remote-access-architecture.md`.
-_Avoid_: admin (unqualified).
+**Dashboard role**:
+One of the Admin Dashboard's two account roles: `admin` (full read/write) and `operator`
+(read-only). A network-login threat model, separate from Kiosk Admin despite the shared word.
+Renamed on 2026-10-06 from `dev`/`admin` respectively. The old `admin` meant read-only, so read
+older notes with care. See `docs/adr/0002-admin-dashboard-auth-and-remote-access-architecture.md`.
+_Avoid_: admin (unqualified), dev (as a role name).
 
 **Photocopy**:
 An on-kiosk transaction whose Source is `scanner` and whose destination is the print path,

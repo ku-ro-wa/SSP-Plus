@@ -14,13 +14,22 @@
 
 from config import get_config
 from database.db_manager import DatabaseManager, SIM_DB_NAME
+from database.models import migrate_dashboard_roles
 
 
 def open_db() -> DatabaseManager:
     """The DatabaseManager for whichever file this process should use — the
     SIM_MODE demo file or the real DB. Shared with admin_dashboard/cli.py so
-    accounts it creates land in the same file the dashboard logs in against."""
-    return DatabaseManager(db_name=SIM_DB_NAME) if get_config().sim_mode else DatabaseManager()
+    accounts it creates land in the same file the dashboard logs in against.
+
+    Runs the one-time role rename itself rather than relying on the kiosk
+    app's init_db(): the dashboard and CLI can run against the DB before the
+    kiosk app restarts on new code, and must never read an old read-only
+    `admin` row as the new privileged `admin`."""
+    db = DatabaseManager(db_name=SIM_DB_NAME) if get_config().sim_mode else DatabaseManager()
+    if db.conn:
+        migrate_dashboard_roles(db.conn)
+    return db
 
 
 def get_db():

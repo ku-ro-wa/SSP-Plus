@@ -63,7 +63,7 @@ def login(credentials: LoginRequest, request: Request, response: Response, db=De
     register_successful_login(db, user["username"])
     db.record_login_attempt(credentials.username, True, source_ip)
 
-    token = create_session_token(user["username"], user["role"])
+    token = create_session_token(user["username"])
     response.set_cookie(key=SESSION_COOKIE_NAME, value=token, httponly=True, samesite="lax")
     return {"username": user["username"], "role": user["role"]}
 

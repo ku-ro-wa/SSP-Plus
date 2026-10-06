@@ -18,6 +18,35 @@ def _add_column_if_missing(cursor, table, column, column_def):
         cursor.execute(f"ALTER TABLE {table} ADD COLUMN {column} {column_def}")
 
 
+# Settings key marking that users.role holds the current role names. Its
+# absence means the rows (if any) still use the original names.
+DASHBOARD_ROLES_VERSION_KEY = 'dashboard_roles_version'
+
+
+def migrate_dashboard_roles(conn):
+    """One-time rename of Admin Dashboard roles: `dev` -> `admin` (full
+    read/write) and `admin` -> `operator` (read-only). Both are remapped in
+    one statement so an old read-only `admin` never briefly holds the new,
+    privileged meaning. Guarded by a settings marker because this runs on
+    every init_db() and every dashboard/CLI DB open — rerunning it would
+    demote every new `admin` to `operator`. A DB without the tables yet has
+    nothing to migrate; the next init_db() creates them and sets the marker."""
+    cursor = conn.cursor()
+    try:
+        cursor.execute("SELECT 1 FROM settings WHERE key = ?", (DASHBOARD_ROLES_VERSION_KEY,))
+        if cursor.fetchone():
+            return
+        cursor.execute(
+            "UPDATE users SET role = CASE role WHEN 'admin' THEN 'operator' WHEN 'dev' THEN 'admin' ELSE role END"
+        )
+        cursor.execute(
+            "INSERT INTO settings (key, value) VALUES (?, '2')", (DASHBOARD_ROLES_VERSION_KEY,)
+        )
+        conn.commit()
+    except sqlite3.OperationalError:
+        return
+
+
 def init_db(db_path=None):
     """Initialize the database and create tables if they don't exist"""
     if db_path is None:
@@ -156,7 +185,7 @@ def init_db(db_path=None):
     print("OK - Created email_intake_log table")
 
     # Create Users table (Admin Dashboard accounts — see CONTEXT.md's
-    # "Dashboard admin role" term and docs/adr/0002-admin-dashboard-auth-and-
+    # "Dashboard role" term and docs/adr/0002-admin-dashboard-auth-and-
     # remote-access-architecture.md. Unrelated to the touchscreen ADMIN_PIN.
     # `role` is free-form text rather than a CHECK/enum constraint so more
     # roles can be added later without a migration that touches existing
@@ -207,5 +236,6 @@ def init_db(db_path=None):
         print("OK - CMYK ink levels already exist")
 
     conn.commit()
+    migrate_dashboard_roles(conn)
     conn.close()
     print("OK - Database initialization complete")

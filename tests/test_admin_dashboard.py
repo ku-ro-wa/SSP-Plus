@@ -4,7 +4,7 @@ DatabaseManager, the CLI's account-creation/reset functions, /login + the
 protected /me endpoint on admin_dashboard.main:app (issue #13), session
 sliding-timeout, lockout, and the login audit log (issue #14), the
 accounting aggregate endpoint + summary table (issue #15), the vendored
-Chart.js asset (issue #16), the dev-only paper-count reset endpoint (issue
+Chart.js asset (issue #16), the admin-only paper-count reset endpoint (issue
 #17), and the SIM_MODE-gated demo/fixture seed script (issue #18).
 
 Follows the same TestClient + dependency-override pattern as
@@ -16,6 +16,7 @@ through real HTTP requests, not mocked. Sliding-timeout and lockout expiry
 are tested by backdating the relevant value directly (a mocked clock for
 sessions, a past `locked_until` write for lockout), not by bypassing checks.
 """
+import time
 from datetime import datetime, timedelta
 from pathlib import Path
 
@@ -26,6 +27,7 @@ from SSP.admin_dashboard.main import app
 from admin_dashboard.auth import (
     FAILED_ATTEMPTS_LOCKOUT_THRESHOLD,
     SESSION_COOKIE_NAME,
+    _serializer,
     create_session_token,
     hash_password,
     verify_password,
@@ -35,7 +37,7 @@ from admin_dashboard.dependencies import get_db, open_db
 from admin_dashboard.routers.accounting import PAPER_FULL_COUNT
 from admin_dashboard.seed_demo_data import FIXTURES, SIM_DB_PATH, seed, seed_transaction
 from database.db_manager import SIM_DB_NAME, DatabaseManager
-from database.models import init_db
+from database.models import DASHBOARD_ROLES_VERSION_KEY, init_db, migrate_dashboard_roles
 
 
 @pytest.fixture
@@ -102,20 +104,20 @@ class TestCLIAccountManagement:
                 SIM_DB_PATH.unlink()
 
     def test_create_account_stores_an_argon2_hash_not_plaintext(self, temp_db):
-        assert create_account(temp_db, "alice", "s3cret!", "dev") is True
+        assert create_account(temp_db, "alice", "s3cret!", "admin") is True
 
         row = temp_db.get_user_by_username("alice")
-        assert row["role"] == "dev"
+        assert row["role"] == "admin"
         assert row["password_hash"] != "s3cret!"
         assert row["password_hash"].startswith("$argon2id$")
 
     def test_create_account_rejects_a_duplicate_username(self, temp_db):
-        create_account(temp_db, "alice", "s3cret!", "dev")
+        create_account(temp_db, "alice", "s3cret!", "admin")
 
-        assert create_account(temp_db, "alice", "different", "admin") is False
+        assert create_account(temp_db, "alice", "different", "operator") is False
 
     def test_reset_password_updates_an_existing_account(self, temp_db):
-        create_account(temp_db, "alice", "old-password", "dev")
+        create_account(temp_db, "alice", "old-password", "admin")
 
         assert reset_password(temp_db, "alice", "new-password") is True
 
@@ -129,7 +131,7 @@ class TestCLIAccountManagement:
 
 class TestLogin:
     def test_correct_credentials_return_a_signed_session_cookie(self, client, temp_db):
-        create_account(temp_db, "alice", "s3cret!", "dev")
+        create_account(temp_db, "alice", "s3cret!", "admin")
 
         response = client.post("/login", json={"username": "alice", "password": "s3cret!"})
 
@@ -137,7 +139,7 @@ class TestLogin:
         assert SESSION_COOKIE_NAME in response.cookies
 
     def test_wrong_password_is_rejected(self, client, temp_db):
-        create_account(temp_db, "alice", "s3cret!", "dev")
+        create_account(temp_db, "alice", "s3cret!", "admin")
 
         response = client.post("/login", json={"username": "alice", "password": "wrong"})
 
@@ -164,27 +166,115 @@ class TestProtectedEndpoint:
         assert response.status_code == 401
 
     def test_reachable_with_a_valid_cookie_and_reflects_username_and_role(self, client, temp_db):
-        create_account(temp_db, "alice", "s3cret!", "dev")
+        create_account(temp_db, "alice", "s3cret!", "admin")
         login_response = client.post("/login", json={"username": "alice", "password": "s3cret!"})
 
         me_response = client.get("/me")
 
         assert login_response.status_code == 200
         assert me_response.status_code == 200
-        assert me_response.json() == {"username": "alice", "role": "dev"}
+        assert me_response.json() == {"username": "alice", "role": "admin"}
 
-    def test_reflects_the_admin_role_too(self, client, temp_db):
-        create_account(temp_db, "bob", "s3cret!", "admin")
+    def test_reflects_the_operator_role_too(self, client, temp_db):
+        create_account(temp_db, "bob", "s3cret!", "operator")
         client.post("/login", json={"username": "bob", "password": "s3cret!"})
 
         response = client.get("/me")
 
-        assert response.json() == {"username": "bob", "role": "admin"}
+        assert response.json() == {"username": "bob", "role": "operator"}
+
+
+class TestRolesComeFromTheDatabase:
+    """The session cookie carries only the username; every request reads the
+    role from the users table, so changes apply without waiting for the
+    cookie to expire."""
+
+    def test_role_change_applies_to_an_existing_session(self, client, temp_db):
+        create_account(temp_db, "alice", "s3cret!", "admin")
+        client.post("/login", json={"username": "alice", "password": "s3cret!"})
+
+        temp_db.conn.execute("UPDATE users SET role = 'operator' WHERE username = 'alice'")
+        temp_db.conn.commit()
+
+        assert client.get("/me").json() == {"username": "alice", "role": "operator"}
+        assert client.post("/paper-reset").status_code == 403
+
+    def test_deleted_account_loses_its_session(self, client, temp_db):
+        create_account(temp_db, "alice", "s3cret!", "admin")
+        client.post("/login", json={"username": "alice", "password": "s3cret!"})
+
+        temp_db.conn.execute("DELETE FROM users WHERE username = 'alice'")
+        temp_db.conn.commit()
+
+        assert client.get("/me").status_code == 401
+
+    def test_role_claimed_in_an_old_style_cookie_is_ignored(self, client, temp_db):
+        """A cookie issued before the rename carries a `role`; an old
+        read-only `admin` must not gain the new admin's write access."""
+        create_account(temp_db, "bob", "s3cret!", "operator")
+        client.cookies.set(
+            SESSION_COOKIE_NAME,
+            _serializer().dumps({"username": "bob", "role": "admin", "last_activity": time.time()}),
+        )
+
+        assert client.get("/me").json() == {"username": "bob", "role": "operator"}
+        assert client.post("/paper-reset").status_code == 403
+
+
+class TestDashboardRoleRename:
+    """The one-time `dev` -> `admin`, `admin` -> `operator` rename."""
+
+    def _pre_rename_db(self, tmp_path):
+        """A DB as it looked before the rename: old role names, no marker."""
+        db_path = str(tmp_path / "pre_rename.db")
+        init_db(db_path)
+        db = DatabaseManager(db_path=db_path)
+        db.conn.execute("DELETE FROM settings WHERE key = ?", (DASHBOARD_ROLES_VERSION_KEY,))
+        db.conn.commit()
+        create_account(db, "old_dev", "s3cret!", "dev")
+        create_account(db, "old_admin", "s3cret!", "admin")
+        return db, db_path
+
+    def _roles(self, db):
+        return {u: db.get_user_by_username(u)["role"] for u in ("old_dev", "old_admin")}
+
+    def test_old_roles_are_swapped_to_the_new_names(self, tmp_path):
+        db, _ = self._pre_rename_db(tmp_path)
+
+        migrate_dashboard_roles(db.conn)
+
+        assert self._roles(db) == {"old_dev": "admin", "old_admin": "operator"}
+        db.close()
+
+    def test_running_it_again_does_not_demote_the_new_admins(self, tmp_path):
+        db, db_path = self._pre_rename_db(tmp_path)
+
+        migrate_dashboard_roles(db.conn)
+        migrate_dashboard_roles(db.conn)
+        init_db(db_path)
+
+        assert self._roles(db) == {"old_dev": "admin", "old_admin": "operator"}
+        db.close()
+
+    def test_init_db_runs_it(self, tmp_path):
+        db, db_path = self._pre_rename_db(tmp_path)
+
+        init_db(db_path)
+
+        assert self._roles(db) == {"old_dev": "admin", "old_admin": "operator"}
+        db.close()
+
+    def test_a_fresh_db_is_marked_so_new_accounts_keep_their_role(self, temp_db):
+        create_account(temp_db, "alice", "s3cret!", "admin")
+
+        migrate_dashboard_roles(temp_db.conn)
+
+        assert temp_db.get_user_by_username("alice")["role"] == "admin"
 
 
 class TestAccountLockout:
     def test_five_consecutive_failures_lock_the_account(self, client, temp_db):
-        create_account(temp_db, "alice", "s3cret!", "dev")
+        create_account(temp_db, "alice", "s3cret!", "admin")
 
         for _ in range(FAILED_ATTEMPTS_LOCKOUT_THRESHOLD):
             response = client.post("/login", json={"username": "alice", "password": "wrong"})
@@ -194,7 +284,7 @@ class TestAccountLockout:
         assert row["locked_until"] is not None
 
     def test_locked_account_rejects_the_correct_password(self, client, temp_db):
-        create_account(temp_db, "alice", "s3cret!", "dev")
+        create_account(temp_db, "alice", "s3cret!", "admin")
         for _ in range(FAILED_ATTEMPTS_LOCKOUT_THRESHOLD):
             client.post("/login", json={"username": "alice", "password": "wrong"})
 
@@ -204,7 +294,7 @@ class TestAccountLockout:
         assert SESSION_COOKIE_NAME not in response.cookies
 
     def test_fewer_than_five_failures_do_not_lock_the_account(self, client, temp_db):
-        create_account(temp_db, "alice", "s3cret!", "dev")
+        create_account(temp_db, "alice", "s3cret!", "admin")
         for _ in range(FAILED_ATTEMPTS_LOCKOUT_THRESHOLD - 1):
             client.post("/login", json={"username": "alice", "password": "wrong"})
 
@@ -213,7 +303,7 @@ class TestAccountLockout:
         assert response.status_code == 200
 
     def test_successful_login_after_lockout_window_passes_resets_the_count(self, client, temp_db):
-        create_account(temp_db, "alice", "s3cret!", "dev")
+        create_account(temp_db, "alice", "s3cret!", "admin")
         for _ in range(FAILED_ATTEMPTS_LOCKOUT_THRESHOLD):
             client.post("/login", json={"username": "alice", "password": "wrong"})
         # Backdate the lock into the past, as if the 15-minute window elapsed.
@@ -230,7 +320,7 @@ class TestAccountLockout:
         # Only a *successful* login resets the failed-attempt count (AC3),
         # so a wrong password after the window lapses re-locks immediately
         # rather than requiring a fresh run of 5 failures.
-        create_account(temp_db, "alice", "s3cret!", "dev")
+        create_account(temp_db, "alice", "s3cret!", "admin")
         for _ in range(FAILED_ATTEMPTS_LOCKOUT_THRESHOLD):
             client.post("/login", json={"username": "alice", "password": "wrong"})
         temp_db.set_account_lock("alice", datetime.now() - timedelta(seconds=1))
@@ -243,8 +333,8 @@ class TestAccountLockout:
         assert datetime.fromisoformat(row["locked_until"]) > datetime.now()
 
     def test_unaffected_accounts_can_still_log_in(self, client, temp_db):
-        create_account(temp_db, "alice", "s3cret!", "dev")
-        create_account(temp_db, "bob", "hunter2", "dev")
+        create_account(temp_db, "alice", "s3cret!", "admin")
+        create_account(temp_db, "bob", "hunter2", "admin")
         for _ in range(FAILED_ATTEMPTS_LOCKOUT_THRESHOLD):
             client.post("/login", json={"username": "alice", "password": "wrong"})
 
@@ -255,7 +345,7 @@ class TestAccountLockout:
 
 class TestLoginAuditLog:
     def test_a_successful_login_is_logged(self, client, temp_db):
-        create_account(temp_db, "alice", "s3cret!", "dev")
+        create_account(temp_db, "alice", "s3cret!", "admin")
 
         client.post("/login", json={"username": "alice", "password": "s3cret!"})
 
@@ -267,7 +357,7 @@ class TestLoginAuditLog:
         assert rows[0]["source_ip"] is not None
 
     def test_a_failed_login_is_logged(self, client, temp_db):
-        create_account(temp_db, "alice", "s3cret!", "dev")
+        create_account(temp_db, "alice", "s3cret!", "admin")
 
         client.post("/login", json={"username": "alice", "password": "wrong"})
 
@@ -283,7 +373,7 @@ class TestLoginAuditLog:
         assert rows[0]["success"] == 0
 
     def test_every_attempt_creates_its_own_row(self, client, temp_db):
-        create_account(temp_db, "alice", "s3cret!", "dev")
+        create_account(temp_db, "alice", "s3cret!", "admin")
 
         client.post("/login", json={"username": "alice", "password": "wrong"})
         client.post("/login", json={"username": "alice", "password": "wrong"})
@@ -295,10 +385,10 @@ class TestLoginAuditLog:
 
 class TestSessionTimeout:
     def test_a_session_within_the_window_is_valid(self, client, temp_db):
-        create_account(temp_db, "alice", "s3cret!", "dev")
+        create_account(temp_db, "alice", "s3cret!", "admin")
         stale_activity = (datetime.now() - timedelta(hours=1)).timestamp()
         client.cookies.set(
-            SESSION_COOKIE_NAME, create_session_token("alice", "dev", last_activity=stale_activity)
+            SESSION_COOKIE_NAME, create_session_token("alice", last_activity=stale_activity)
         )
 
         response = client.get("/me")
@@ -306,10 +396,10 @@ class TestSessionTimeout:
         assert response.status_code == 200
 
     def test_a_session_idle_past_ten_hours_is_expired(self, client, temp_db):
-        create_account(temp_db, "alice", "s3cret!", "dev")
+        create_account(temp_db, "alice", "s3cret!", "admin")
         expired_activity = (datetime.now() - timedelta(hours=10, minutes=1)).timestamp()
         client.cookies.set(
-            SESSION_COOKIE_NAME, create_session_token("alice", "dev", last_activity=expired_activity)
+            SESSION_COOKIE_NAME, create_session_token("alice", last_activity=expired_activity)
         )
 
         response = client.get("/me")
@@ -319,10 +409,10 @@ class TestSessionTimeout:
     def test_activity_resets_the_countdown(self, client, temp_db):
         from admin_dashboard.auth import read_session_token
 
-        create_account(temp_db, "alice", "s3cret!", "dev")
+        create_account(temp_db, "alice", "s3cret!", "admin")
         stale_activity = (datetime.now() - timedelta(hours=9)).timestamp()
         client.cookies.set(
-            SESSION_COOKIE_NAME, create_session_token("alice", "dev", last_activity=stale_activity)
+            SESSION_COOKIE_NAME, create_session_token("alice", last_activity=stale_activity)
         )
 
         response = client.get("/me")
@@ -411,27 +501,13 @@ class TestAccountingEndpoints:
         assert response.headers["location"] == "/login"
 
     def test_page_redirects_to_the_login_form_with_an_expired_session(self, client):
-        expired = create_session_token("alice", "dev", last_activity=0)
+        expired = create_session_token("alice", last_activity=0)
         client.cookies.set(SESSION_COOKIE_NAME, expired)
 
         response = client.get("/accounting", follow_redirects=False)
 
         assert response.status_code == 303
         assert response.headers["location"] == "/login"
-
-    def test_dev_role_can_view_the_data_endpoint_and_page(self, client, temp_db):
-        create_account(temp_db, "dev1", "s3cret!", "dev")
-        _insert_transaction(temp_db, "usb", 10.0)
-        client.post("/login", json={"username": "dev1", "password": "s3cret!"})
-
-        data_response = client.get("/accounting/data?range=all")
-        page_response = client.get("/accounting")
-
-        assert data_response.status_code == 200
-        sources = {row["source"]: row for row in data_response.json()["sources"]}
-        assert sources["usb"]["revenue"] == 10.0
-        assert page_response.status_code == 200
-        assert "usb" in page_response.text
 
     def test_admin_role_can_view_the_data_endpoint_and_page(self, client, temp_db):
         create_account(temp_db, "admin1", "s3cret!", "admin")
@@ -442,14 +518,28 @@ class TestAccountingEndpoints:
         page_response = client.get("/accounting")
 
         assert data_response.status_code == 200
+        sources = {row["source"]: row for row in data_response.json()["sources"]}
+        assert sources["usb"]["revenue"] == 10.0
+        assert page_response.status_code == 200
+        assert "usb" in page_response.text
+
+    def test_operator_role_can_view_the_data_endpoint_and_page(self, client, temp_db):
+        create_account(temp_db, "operator1", "s3cret!", "operator")
+        _insert_transaction(temp_db, "usb", 10.0)
+        client.post("/login", json={"username": "operator1", "password": "s3cret!"})
+
+        data_response = client.get("/accounting/data?range=all")
+        page_response = client.get("/accounting")
+
+        assert data_response.status_code == 200
         assert page_response.status_code == 200
 
     def test_time_filter_scopes_the_data_endpoint(self, client, temp_db):
-        create_account(temp_db, "dev1", "s3cret!", "dev")
+        create_account(temp_db, "admin1", "s3cret!", "admin")
         old = datetime.now() - timedelta(days=40)
         _insert_transaction(temp_db, "usb", 10.0, timestamp=old)
         _insert_transaction(temp_db, "usb", 5.0)
-        client.post("/login", json={"username": "dev1", "password": "s3cret!"})
+        client.post("/login", json={"username": "admin1", "password": "s3cret!"})
 
         month_response = client.get("/accounting/data?range=month")
         all_response = client.get("/accounting/data?range=all")
@@ -460,10 +550,10 @@ class TestAccountingEndpoints:
         assert all_sources["usb"]["revenue"] == 15.0
 
     def test_today_filter_excludes_transactions_from_a_prior_day(self, client, temp_db):
-        create_account(temp_db, "dev1", "s3cret!", "dev")
+        create_account(temp_db, "admin1", "s3cret!", "admin")
         yesterday = datetime.now() - timedelta(days=1)
         _insert_transaction(temp_db, "usb", 10.0, timestamp=yesterday)
-        client.post("/login", json={"username": "dev1", "password": "s3cret!"})
+        client.post("/login", json={"username": "admin1", "password": "s3cret!"})
 
         response = client.get("/accounting/data?range=today")
 
@@ -481,8 +571,8 @@ class TestChartAsset:
         assert "Chart" in response.text
 
     def test_accounting_page_references_only_the_local_chart_asset(self, client, temp_db):
-        create_account(temp_db, "dev1", "s3cret!", "dev")
-        client.post("/login", json={"username": "dev1", "password": "s3cret!"})
+        create_account(temp_db, "admin1", "s3cret!", "admin")
+        client.post("/login", json={"username": "admin1", "password": "s3cret!"})
 
         response = client.get("/accounting")
 
@@ -494,9 +584,9 @@ class TestChartAsset:
         assert "https://" not in response.text
 
     def test_accounting_page_embeds_the_initial_chart_data(self, client, temp_db):
-        create_account(temp_db, "dev1", "s3cret!", "dev")
+        create_account(temp_db, "admin1", "s3cret!", "admin")
         _insert_transaction(temp_db, "usb", 10.0)
-        client.post("/login", json={"username": "dev1", "password": "s3cret!"})
+        client.post("/login", json={"username": "admin1", "password": "s3cret!"})
 
         response = client.get("/accounting")
 
@@ -521,8 +611,8 @@ class TestBrowserEntryPoints:
         assert 'type="password"' in response.text
 
     def test_root_lands_on_accounting_once_logged_in(self, client, temp_db):
-        create_account(temp_db, "dev1", "s3cret!", "dev")
-        client.post("/login", json={"username": "dev1", "password": "s3cret!"})
+        create_account(temp_db, "admin1", "s3cret!", "admin")
+        client.post("/login", json={"username": "admin1", "password": "s3cret!"})
 
         response = client.get("/")
 
@@ -531,12 +621,12 @@ class TestBrowserEntryPoints:
 
 
 class TestPaperReset:
-    """The dev-only paper-count reset endpoint (issue #17)."""
+    """The admin-only paper-count reset endpoint (issue #17)."""
 
-    def test_dev_role_can_reset_the_paper_count(self, client, temp_db):
-        create_account(temp_db, "dev1", "s3cret!", "dev")
+    def test_admin_role_can_reset_the_paper_count(self, client, temp_db):
+        create_account(temp_db, "admin1", "s3cret!", "admin")
         temp_db.update_paper_count(3)
-        client.post("/login", json={"username": "dev1", "password": "s3cret!"})
+        client.post("/login", json={"username": "admin1", "password": "s3cret!"})
 
         response = client.post("/paper-reset")
 
@@ -544,10 +634,10 @@ class TestPaperReset:
         assert response.json() == {"paper_count": PAPER_FULL_COUNT}
         assert temp_db.get_setting("paper_count", default=None) == PAPER_FULL_COUNT
 
-    def test_admin_role_is_forbidden_and_paper_count_is_unchanged(self, client, temp_db):
-        create_account(temp_db, "admin1", "s3cret!", "admin")
+    def test_operator_role_is_forbidden_and_paper_count_is_unchanged(self, client, temp_db):
+        create_account(temp_db, "operator1", "s3cret!", "operator")
         temp_db.update_paper_count(3)
-        client.post("/login", json={"username": "admin1", "password": "s3cret!"})
+        client.post("/login", json={"username": "operator1", "password": "s3cret!"})
 
         response = client.post("/paper-reset")
 
@@ -662,7 +752,7 @@ class TestDemoSeedScript:
         seed()
         seeded_db = DatabaseManager(db_path=str(SIM_DB_PATH))
         try:
-            create_account(seeded_db, "simdemo", "s3cret!", "dev")
+            create_account(seeded_db, "simdemo", "s3cret!", "admin")
         finally:
             seeded_db.close()
 

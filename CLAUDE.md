@@ -91,9 +91,11 @@ Start it with `make run-admin-dashboard`; it runs on its own port (`ADMIN_DASHBO
 default 8100, distinct from the Wi-Fi portal's 8000) so a bug or compromise in the low-trust,
 unauthenticated portal can never become a path into this DB-write-capable surface.
 
-Auth is individual accounts in a `users` table, Argon2id-hashed passwords, two roles: `dev`
-(full read/write) and `admin` (read-only — unrelated to, and less privileged than, the
-touchscreen's `Kiosk Admin`/`ADMIN_PIN`). Accounts are created and passwords reset only via
+Auth is individual accounts in a `users` table, Argon2id-hashed passwords, two roles: `admin`
+(full read/write) and `operator` (read-only), both unrelated to the touchscreen's
+`Kiosk Admin`/`ADMIN_PIN`. The session cookie carries only the username; the role is read from
+`users` on every request. `database/models.py`'s `migrate_dashboard_roles` renamed the original
+`dev`/`admin` roles once, guarded by a settings marker. Accounts are created and passwords reset only via
 `admin_dashboard/cli.py`, run by hand on the kiosk — no self-service signup or reset flow.
 Login issues a signed cookie session with a 10-hour sliding inactivity timeout
 (`ADMIN_DASHBOARD_SESSION_HOURS`); 5 consecutive failed attempts locks the account for
@@ -104,7 +106,7 @@ Login issues a signed cookie session with a 10-hour sliding inactivity timeout
 (`usb`/`wifi`/`email`/`scanner`) revenue and transaction-count aggregates via
 `DatabaseManager.get_accounting_summary()` — a `scanner`-sourced row only exists when the scan's
 destination was print (a Photocopy); scan-to-email/session-download never produce a
-transactions row. `/paper-reset` (the SMS fuzzy-match reset fallback) is `dev`-only.
+transactions row. `/paper-reset` (the SMS fuzzy-match reset fallback) is `admin`-only.
 Real transactions get their `source` value from `screens/print_options/controller.py`'s
 `self.source` (set per intake screen — usb/wifi/email/scanner controllers all call
 `set_pdf_data(..., source=...)`), carried through `payment/model.py`'s `transaction_data` dict

@@ -316,7 +316,7 @@ ADMIN_DASHBOARD_LOCKOUT_MINUTES=15
 There's no self-service signup — accounts are created by hand via the CLI:
 
 ```bash
-PYTHONPATH=SSP python -m admin_dashboard.cli create-account --username you --password yourpassword --role dev
+PYTHONPATH=SSP python -m admin_dashboard.cli create-account --username you --password yourpassword --role admin
 ```
 
 The CLI writes to the same DB file the dashboard reads: with `SIM_MODE=true` that's the
@@ -325,9 +325,9 @@ which one on every run). Create accounts with the same `SIM_MODE` you'll run the
 dashboard with.
 
 (From the repo root, same as `make run-admin-dashboard` — `PYTHONPATH=SSP` is what lets
-`admin_dashboard`/`database` resolve as importable packages.) Roles are `dev` (full
-read/write, including the dev-only `/paper-reset` endpoint) and `admin` (read-only) —
-unrelated to, and less privileged than, the touchscreen's own `Kiosk Admin`/`ADMIN_PIN`.
+`admin_dashboard`/`database` resolve as importable packages.) Roles are `admin` (full
+read/write, including the admin-only `/paper-reset` endpoint) and `operator` (read-only),
+both unrelated to the touchscreen's own `Kiosk Admin`/`ADMIN_PIN`.
 The password is Argon2id-hashed before it's stored in the `users` table. Reset a
 forgotten password the same way:
 

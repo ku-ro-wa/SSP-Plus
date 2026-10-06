@@ -3,7 +3,7 @@
 # Real auth for the Admin Dashboard, replacing the pattern of
 # webapp/auth.py's require_admin() stub for this surface. Deliberately
 # independent of the touchscreen ADMIN_PIN system (different threat model —
-# see CONTEXT.md's "Login session" / "Dashboard admin role" terms and
+# see CONTEXT.md's "Login session" / "Dashboard role" terms and
 # docs/adr/0002-admin-dashboard-auth-and-remote-access-architecture.md).
 #
 # Covers password hashing, a signed session cookie with a sliding inactivity
@@ -20,6 +20,7 @@ from fastapi import Cookie, Depends, HTTPException, Response, status
 from itsdangerous import BadSignature, URLSafeSerializer
 
 from config import get_config
+from admin_dashboard.dependencies import get_db
 
 SESSION_COOKIE_NAME = "dashboard_session"
 _SESSION_SALT = "admin-dashboard-session"
@@ -27,6 +28,9 @@ _SESSION_SALT = "admin-dashboard-session"
 # Fixed by issue #14's acceptance criteria (not configurable, unlike the
 # lockout duration itself).
 FAILED_ATTEMPTS_LOCKOUT_THRESHOLD = 5
+
+# The one role allowed to make write actions; `operator` is read-only.
+WRITE_ROLE = "admin"
 
 _hasher = PasswordHasher()
 
@@ -46,13 +50,16 @@ def _serializer() -> URLSafeSerializer:
     return URLSafeSerializer(get_config().admin_dashboard_secret_key, salt=_SESSION_SALT)
 
 
-def create_session_token(username: str, role: str, last_activity: Optional[float] = None) -> str:
+def create_session_token(username: str, last_activity: Optional[float] = None) -> str:
     """`last_activity` is a Unix timestamp; defaults to now. Callers only
     pass it explicitly to construct a backdated token (tests exercising
-    sliding-timeout expiry)."""
+    sliding-timeout expiry). The token deliberately carries no role: the
+    role is read from the users table on every request, so a role change or
+    deleted account takes effect immediately rather than when the cookie
+    expires."""
     if last_activity is None:
         last_activity = time.time()
-    return _serializer().dumps({"username": username, "role": role, "last_activity": last_activity})
+    return _serializer().dumps({"username": username, "last_activity": last_activity})
 
 
 def read_session_token(token: str) -> Optional[dict]:
@@ -73,24 +80,29 @@ def _session_expired(payload: dict) -> bool:
 def get_current_user(
     response: Response,
     session: Optional[str] = Cookie(default=None, alias=SESSION_COOKIE_NAME),
+    db=Depends(get_db),
 ) -> dict:
     """FastAPI dependency gating any protected route — raises 401 if there's
-    no cookie, its signature doesn't verify, or the sliding 10-hour
-    inactivity timeout has elapsed. Any successful call is itself "activity",
-    so it reissues the cookie with a refreshed last-activity time, sliding
-    the countdown forward."""
+    no cookie, its signature doesn't verify, the sliding 10-hour inactivity
+    timeout has elapsed, or the account no longer exists. The role comes
+    from the users table, never the cookie. Any successful call is itself
+    "activity", so it reissues the cookie with a refreshed last-activity
+    time, sliding the countdown forward."""
     payload = read_session_token(session) if session is not None else None
-    if payload is None or _session_expired(payload):
+    user = None
+    if payload is not None and not _session_expired(payload):
+        user = db.get_user_by_username(payload.get("username"))
+    if user is None:
         response.delete_cookie(SESSION_COOKIE_NAME)
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Not authenticated")
 
     response.set_cookie(
         key=SESSION_COOKIE_NAME,
-        value=create_session_token(payload["username"], payload["role"]),
+        value=create_session_token(user["username"]),
         httponly=True,
         samesite="lax",
     )
-    return {"username": payload["username"], "role": payload["role"]}
+    return {"username": user["username"], "role": user["role"]}
 
 
 class LoginRequired(Exception):
@@ -102,24 +114,26 @@ class LoginRequired(Exception):
 def get_current_user_page(
     response: Response,
     session: Optional[str] = Cookie(default=None, alias=SESSION_COOKIE_NAME),
+    db=Depends(get_db),
 ) -> dict:
     """get_current_user for HTML page routes — same checks and sliding
     refresh, but an unauthenticated request raises LoginRequired (a redirect
     to /login) instead of 401. JSON endpoints keep using get_current_user."""
     try:
-        return get_current_user(response, session)
+        return get_current_user(response, session, db)
     except HTTPException:
         raise LoginRequired()
 
 
-def require_dev(current_user: dict = Depends(get_current_user)) -> dict:
-    """Role-gating dependency for write actions the read-only `admin` role
-    must not reach (issue #17's paper-count reset). Layers on top of
+def require_write_role(current_user: dict = Depends(get_current_user)) -> dict:
+    """Role-gating dependency for write actions the read-only `operator`
+    role must not reach (issue #17's paper-count reset). Layers on top of
     get_current_user, so an unauthenticated request still gets 401 before
-    the role check ever runs — only an authenticated non-`dev` user gets
-    403."""
-    if current_user["role"] != "dev":
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Requires the dev role")
+    the role check ever runs — only an authenticated non-`admin` user gets
+    403. Named for what it checks rather than `require_admin`, which would
+    collide with webapp/auth.py's unrelated touchscreen-PIN stub."""
+    if current_user["role"] != WRITE_ROLE:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Requires the admin role")
     return current_user
 
 
