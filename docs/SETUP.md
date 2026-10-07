@@ -208,7 +208,7 @@ This is the real startup path: `WebAppThreadManager` boots Uvicorn on a backgrou
 ## Email + Wi-Fi end-to-end (on a laptop)
 
 Drives both intake workflows all the way through to a simulated print + a logged
-transaction, using `make run-sim` — no kiosk hardware, no RaspAP/Nodogsplash, no
+transaction, using `make run-sim` — no kiosk hardware, no hotspot, no
 4G modem. The Wi-Fi portal is served by the same in-process Uvicorn thread the
 kiosk already runs (see `docs/adr/0001-wifi-portal-in-process-uvicorn-self-signed-tls.md`).
 
@@ -403,6 +403,67 @@ ADR-0007). They are planned, not all created yet. Rules for whoever sets them up
 - **Handover:** when the project changes hands, transfer the project account's
   credentials (and the recovery email/phone on it) to the kiosk's owners or the next
   lead, and record the date here.
+
+---
+
+## Kiosk hotspot (hostapd + dnsmasq)
+
+The kiosk Pi runs its own open Wi-Fi network for the **Portal**: `hostapd` broadcasts it,
+`dnsmasq` hands out addresses and answers `PORTAL_HOSTNAME` with the Pi's hotspot address, and an
+nftables table on the hotspot interface allows only DHCP, DNS and `WIFI_PORTAL_PORT`. Nothing is
+forwarded to or from the router. There is no captive portal. See
+`docs/adr/0007-own-hotspot-replaces-raspap-captive-portal.md`.
+
+Everything comes from `.env` (`WIFI_HOTSPOT_*`, `PORTAL_HOSTNAME`, `WIFI_PORTAL_PORT`, `KIOSK_ID`;
+see `.env.example`). Nothing is configured by hand on the Pi.
+
+### On the Pi
+
+```bash
+sudo python3 scripts/setup_hotspot.py --dry-run   # print every file and command first
+sudo python3 scripts/setup_hotspot.py
+```
+
+`WIFI_HOTSPOT_ENABLED=true` installs `hostapd`/`dnsmasq`/`nftables`, writes their config, marks the
+interface unmanaged in NetworkManager and starts everything. `false` stops and disables them and
+removes the files the script wrote; the firewall stays on either way. Re-running is safe. Any
+file the script didn't write is moved to `/var/backups/ssp-hotspot/<timestamp>/` before being
+replaced. If RaspAP or Nodogsplash/openNDS are found, their services are disabled, the packages
+are purged, and RaspAP's `/etc/dnsmasq.d/090_*.conf` files are moved aside.
+
+What it writes:
+
+| File | Purpose |
+|------|---------|
+| `/etc/hostapd/hostapd.conf` | open network, `ap_isolate=1` |
+| `/etc/dnsmasq.d/ssp-hotspot.conf` | DHCP on the hotspot, `PORTAL_HOSTNAME` → hotspot address, no upstream DNS |
+| `/etc/ssp-hotspot/firewall.nft` + `ssp-hotspot-firewall.service` | its own `inet ssp_hotspot` table (doesn't touch Tailscale's rules) |
+| `ssp-hotspot-ip.service` | puts `WIFI_HOTSPOT_ADDRESS` on the interface, unblocks rfkill |
+| `hostapd.service.d/`, `dnsmasq.service.d/` drop-ins | start only after the address and firewall |
+| `/etc/NetworkManager/conf.d/ssp-hotspot-unmanaged.conf` | stops NetworkManager fighting hostapd |
+
+### Off the Pi
+
+- `make test`: `tests/test_setup_hotspot.py` checks the rendered files, the order of the plan,
+  the enable/disable paths and the RaspAP clean-up, all under a tmp root.
+- `make test-hotspot` (needs Docker): runs the real `nft` and `dnsmasq` from Debian Bookworm against
+  the generated files. A "phone" network namespace on a veth named `wlan0` gets a DHCP lease,
+  resolves `PORTAL_HOSTNAME`, reaches the Portal port, and can't reach SSH, port 8100, the
+  router side, or the internet. SSH over the uplink keeps working.
+
+Not covered off the Pi: hostapd on the real radio, `ap_isolate`, NetworkManager, the systemd
+units, and real phones.
+
+### Verified on the kiosk Pi (issue #29)
+
+> Not yet run on the Pi. Fill this in on the first run.
+
+- Raspberry Pi OS version (`cat /etc/os-release`, `uname -r`):
+- Package versions (`dpkg -l hostapd dnsmasq nftables`):
+- Interface names (`ip -br link`): hotspot `wlan0`? uplink `eth0`?
+- Was RaspAP installed, and did the clean-up leave anything behind?
+- Gotchas:
+- Phones (Android + iPhone, mobile data on and off): see the checklist in issue #29.
 
 ---
 

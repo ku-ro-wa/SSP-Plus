@@ -60,7 +60,7 @@ def _portal_url(path: str, host: Optional[str] = None, tls: Optional[bool] = Non
     if tls is None:
         tls = not _missing_tls_files()
     scheme = "https" if tls else "http"
-    return f"{scheme}://{host or _lan_ip()}:{DEFAULT_PORT}{path}"
+    return f"{scheme}://{host or _lan_ip()}:{get_config().wifi_portal_port}{path}"
 
 
 def wifi_portal_url(host: Optional[str] = None, tls: Optional[bool] = None) -> str:
@@ -101,6 +101,7 @@ class WebAppThreadManager:
         if not missing:
             print(f"🔒 Wi-Fi portal serving HTTPS (cert: {config.wifi_tls_certfile})")
             return cls(
+                port=config.wifi_portal_port,
                 ssl_certfile=config.wifi_tls_certfile,
                 ssl_keyfile=config.wifi_tls_keyfile,
             )
@@ -109,7 +110,7 @@ class WebAppThreadManager:
             f"⚠️ Wi-Fi portal serving plain HTTP — TLS cert/key not found "
             f"({', '.join(missing)}). Run scripts/generate_tls_cert.py to enable HTTPS."
         )
-        return cls()
+        return cls(port=config.wifi_portal_port)
 
     def start(self):
         self.thread = threading.Thread(target=self.server.run, daemon=True)

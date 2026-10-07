@@ -290,6 +290,16 @@ class Config:
             return 25
 
     @property
+    def wifi_portal_port(self) -> int:
+        """Port the Wi-Fi portal's Uvicorn instance listens on. The hotspot
+        firewall (scripts/setup_hotspot.py) opens exactly this port on the
+        hotspot interface, so both read it from here."""
+        try:
+            return self.get('WIFI_PORTAL_PORT', int)
+        except KeyError:
+            return 8000
+
+    @property
     def wifi_tls_certfile(self) -> str:
         """
         Path to the TLS cert for the Wi-Fi portal's Uvicorn instance
@@ -310,6 +320,76 @@ class Config:
             return self.get('WIFI_TLS_KEYFILE', str)
         except KeyError:
             return "certs/key.pem"
+
+    # Kiosk hotspot (scripts/setup_hotspot.py) — see
+    # docs/adr/0007-own-hotspot-replaces-raspap-captive-portal.md. Read at
+    # install time by the setup script; the app doesn't act on them yet.
+
+    @property
+    def kiosk_id(self) -> str:
+        """This kiosk's ID, the last part of print.<domain>/k/<KIOSK_ID>."""
+        try:
+            return self.get('KIOSK_ID', str).strip()
+        except KeyError:
+            return ""
+
+    @property
+    def wifi_hotspot_enabled(self) -> bool:
+        """Whether the setup script enables the hostapd/dnsmasq hotspot."""
+        try:
+            return self.get('WIFI_HOTSPOT_ENABLED', bool)
+        except KeyError:
+            return False
+
+    @property
+    def wifi_hotspot_interface(self) -> str:
+        """Wi-Fi interface the hotspot broadcasts on."""
+        try:
+            return self.get('WIFI_HOTSPOT_INTERFACE', str).strip()
+        except KeyError:
+            return "wlan0"
+
+    @property
+    def wifi_hotspot_ssid(self) -> str:
+        """Network name phones see (an open network, no password)."""
+        try:
+            return self.get('WIFI_HOTSPOT_SSID', str)
+        except KeyError:
+            return "AIO-SPARK"
+
+    @property
+    def wifi_hotspot_country(self) -> str:
+        """Two-letter Wi-Fi regulatory country code (hostapd country_code)."""
+        try:
+            return self.get('WIFI_HOTSPOT_COUNTRY', str).strip().upper()
+        except KeyError:
+            return "PH"
+
+    @property
+    def wifi_hotspot_channel(self) -> int:
+        """2.4 GHz channel the hotspot broadcasts on."""
+        try:
+            return self.get('WIFI_HOTSPOT_CHANNEL', int)
+        except KeyError:
+            return 6
+
+    @property
+    def wifi_hotspot_address(self) -> str:
+        """The Pi's own address on the hotspot, with prefix (e.g. 10.3.141.1/24).
+        Must be the first host of its subnet; the rest is handed out by DHCP."""
+        try:
+            return self.get('WIFI_HOTSPOT_ADDRESS', str).strip()
+        except KeyError:
+            return "10.3.141.1/24"
+
+    @property
+    def portal_hostname(self) -> str:
+        """The Portal's permanent name, print.<domain>. dnsmasq answers it
+        with the hotspot address."""
+        try:
+            return self.get('PORTAL_HOSTNAME', str).strip().lower()
+        except KeyError:
+            return "print.aio-spark.example"
 
     # Email intake (managers/adapters/email_adapter.py) — defaults below match
     # the greenmail dev server in managers/adapters/greenmail/docker-compose.yml.
