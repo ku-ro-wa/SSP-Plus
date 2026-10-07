@@ -291,11 +291,14 @@ class TestVoucherForShortfall:
         main_app, model = kiosk
         stock_hoppers(db, ones=20, fives=20)
         fail_hopper_after(model, monkeypatch, 5, 1)  # one ₱5, then the ₱5 hopper jams
+        statuses = []
+        model.payment_status_updated.connect(statuses.append)
 
         pay_with_change(main_app, model, 11)  # ₱5 + six ₱1 top-up => all ₱11 comes out
 
         assert voucher_rows(db.db_path) == []
         assert logged_row(db)['change_dispensed'] == 11
+        assert not any(s.startswith("Change dispensing failed") for s in statuses)  # all change came out
 
     def test_hopper_failure_shortfall_alerts_the_operator(self, kiosk, db, sms, monkeypatch):
         main_app, model = kiosk

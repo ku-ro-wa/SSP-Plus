@@ -864,7 +864,8 @@ class PaymentModel(QObject):
             elif self.voucher_shortfall and not self.issued_voucher:
                 print(f"WARNING: P{self.voucher_shortfall} change short and vouchers are disabled")
 
-            if not (isinstance(result, dict) and result.get('success', False)):
+            # A hopper that stopped early but was made up with ₱1 coins left no Shortfall.
+            if self.voucher_shortfall and not (isinstance(result, dict) and result.get('success', False)):
                 error_msg = result.get('error', 'Unknown error') if isinstance(result, dict) else 'No result received'
                 self.payment_status_updated.emit(f"Change dispensing failed: {error_msg}")
 
