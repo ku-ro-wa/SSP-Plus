@@ -1,8 +1,9 @@
 import os
 import time
 import threading
+from dataclasses import dataclass
 from enum import Enum
-from typing import Tuple, List, Dict
+from typing import Tuple, List, Dict, Optional
 from PyQt5.QtCore import QObject, QThread, pyqtSignal
 from managers.hopper_manager import ChangeDispenser, DispenseThread
 from managers.payment_algorithm_manager import PaymentAlgorithmManager
@@ -16,7 +17,7 @@ except ImportError:
 
 from managers.persistent_gpio import get_persistent_gpio, PIGPIO_AVAILABLE as PAYMENT_GPIO_AVAILABLE
 import uuid
-from managers.voucher_manager import VoucherManager
+from managers.voucher_manager import IssuedVoucher, VoucherManager
 from managers.sms_manager import send_operator_alert
 
 
@@ -36,6 +37,17 @@ class ShortfallCause(Enum):
     """Why change went short. Only HOPPER_FAILURE alerts the operator."""
     PREDICTED = 'predicted'            # the hoppers didn't hold enough coins
     HOPPER_FAILURE = 'hopper_failure'  # a hopper stopped early or couldn't be driven
+
+
+@dataclass
+class ShortfallOutcome:
+    """What one payment's change came to. PaymentModel is reused for every
+    customer, so it swaps in a fresh ShortfallOutcome() instead of resetting
+    each field by hand."""
+    shortfall: int = 0
+    cause: Optional[ShortfallCause] = None
+    voucher: Optional[IssuedVoucher] = None  # holds the raw code until the voucher screen takes it
+    voucher_failed: bool = False
 
 
 def shortfall_cause(result, shortfall):
@@ -229,26 +241,20 @@ class PaymentModel(QObject):
         self.change_dispenser = ChangeDispenser()
         self.best_payment_suggestion = None  # {'amount', 'change', 'reason'}
         self.payment_ref = None
-        self.voucher_shortfall = 0
-        self.issued_voucher = None
-        self.voucher_failed = False
-        self.shortfall_cause = None
+        self.outcome = ShortfallOutcome()
         self.change_owed = 0
         self.change_dispensed = {}
 
     def _issue_shortfall_voucher(self, result, change_owed):
         shortfall = measure_shortfall(result, change_owed)
-        self.voucher_shortfall = shortfall
-        self.shortfall_cause = shortfall_cause(result, shortfall)
-        self.issued_voucher = None
-        self.voucher_failed = False
+        outcome = self.outcome = ShortfallOutcome(shortfall, shortfall_cause(result, shortfall))
         if shortfall > 0 and self.db_manager.get_setting('vouchers_enabled', 1):
             try:
-                self.issued_voucher = VoucherManager(self.db_manager).issue(
+                outcome.voucher = VoucherManager(self.db_manager).issue(
                     shortfall, payment_ref=self.payment_ref)
             except Exception as e:
                 print(f"CRITICAL: could not issue voucher for P{shortfall}: {e}")
-                self.voucher_failed = True
+                outcome.voucher_failed = True
                 try:
                     log_error("Voucher Issue Failed",
                               f"Could not issue a P{shortfall} voucher (payment_ref={self.payment_ref}): {e}",
@@ -258,24 +264,25 @@ class PaymentModel(QObject):
         td = getattr(self, 'transaction_data', None)
         if td is not None:
             td['change_dispensed'] = change_owed - shortfall
-            td['voucher_issued'] = self.issued_voucher.value if self.issued_voucher else 0
+            td['voucher_issued'] = outcome.voucher.value if outcome.voucher else 0
         self._alert_operator_about_shortfall()
-        return self.issued_voucher
+        return outcome.voucher
 
     def _alert_operator_about_shortfall(self):
         """SMS the operator when a hopper failed or a Voucher couldn't be saved.
         A predicted Shortfall (hoppers simply low) needs no alert. Never
         includes the Voucher code."""
-        shortfall = self.voucher_shortfall
-        hopper = self.shortfall_cause is ShortfallCause.HOPPER_FAILURE
+        outcome = self.outcome
+        shortfall = outcome.shortfall
+        hopper = outcome.cause is ShortfallCause.HOPPER_FAILURE
         ref = (self.payment_ref or "")[:8]
-        if self.voucher_failed:
+        if outcome.voucher_failed:
             message = (f"Kiosk could not save a P{shortfall} change voucher"
                        f"{' after a hopper failure' if hopper else ''}. "
                        f"Customer was told to see the attendant. Ref {ref}")
         elif hopper:
-            outcome = "voucher issued" if self.issued_voucher else "no voucher issued (vouchers off)"
-            message = f"Hopper failure: P{shortfall} change not dispensed, {outcome}. Check the hoppers. Ref {ref}"
+            issued = "voucher issued" if outcome.voucher else "no voucher issued (vouchers off)"
+            message = f"Hopper failure: P{shortfall} change not dispensed, {issued}. Check the hoppers. Ref {ref}"
         else:
             return
         try:
@@ -550,11 +557,10 @@ class PaymentModel(QObject):
         self.continue_to_thank_you()
 
     def _show_voucher_screen_if_needed(self):
-        issued = getattr(self, 'issued_voucher', None)
-        failed = getattr(self, 'voucher_failed', False)
+        outcome = self.outcome
+        issued, failed, shortfall = outcome.voucher, outcome.voucher_failed, outcome.shortfall
         if not issued and not failed:
             return False
-        shortfall = getattr(self, 'voucher_shortfall', 0)
         try:
             screen = self.main_app.voucher_screen
             if issued:
@@ -571,10 +577,9 @@ class PaymentModel(QObject):
             except Exception:
                 pass
             return False
-        # Handed off: the raw code now lives only on the voucher screen.
-        self.issued_voucher = None
-        self.voucher_failed = False
-        self.voucher_shortfall = 0
+        # Handed off: the raw code now lives only on the voucher screen, and the
+        # screen must not be shown twice. Only the cause is kept.
+        self.outcome = ShortfallOutcome(cause=outcome.cause)
         return True
 
     # Print job success/failure handling is now done by the thank you screen
@@ -628,10 +633,7 @@ class PaymentModel(QObject):
         self.cash_received = {}
         self.payment_processing = False
         self.payment_ref = None
-        self.voucher_shortfall = 0
-        self.issued_voucher = None
-        self.voucher_failed = False
-        self.shortfall_cause = None
+        self.outcome = ShortfallOutcome()
         self.change_owed = 0
         self.change_dispensed = {}
 
@@ -756,10 +758,7 @@ class PaymentModel(QObject):
         self.payment_ref = uuid.uuid4().hex
 
         # so a stale voucher can never reach the next user's screen
-        self.issued_voucher = None
-        self.voucher_failed = False
-        self.voucher_shortfall = 0
-        self.shortfall_cause = None
+        self.outcome = ShortfallOutcome()
 
         try:
             # Validate payment data exists
@@ -863,14 +862,15 @@ class PaymentModel(QObject):
                 self.change_dispensed = {}
 
             self._issue_shortfall_voucher(result, self.change_owed)
-            if self.voucher_failed:
+            outcome = self.outcome
+            if outcome.voucher_failed:
                 self.payment_status_updated.emit(
-                    f"Could not issue a voucher for P{self.voucher_shortfall}. Please contact the attendant.")
-            elif self.voucher_shortfall and not self.issued_voucher:
-                print(f"WARNING: P{self.voucher_shortfall} change short and vouchers are disabled")
+                    f"Could not issue a voucher for P{outcome.shortfall}. Please contact the attendant.")
+            elif outcome.shortfall and not outcome.voucher:
+                print(f"WARNING: P{outcome.shortfall} change short and vouchers are disabled")
 
             # A hopper that stopped early but was made up with ₱1 coins left no Shortfall.
-            if self.voucher_shortfall and not (isinstance(result, dict) and result.get('success', False)):
+            if outcome.shortfall and not (isinstance(result, dict) and result.get('success', False)):
                 error_msg = result.get('error', 'Unknown error') if isinstance(result, dict) else 'No result received'
                 self.payment_status_updated.emit(f"Change dispensing failed: {error_msg}")
 

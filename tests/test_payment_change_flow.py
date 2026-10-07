@@ -211,7 +211,7 @@ class TestChangeActuallyDispensed:
 
         row = logged_row(db)
         assert (row['change_given'], row['change_dispensed'], row['voucher_issued']) == (13, 13, 0)
-        assert model.shortfall_cause is None
+        assert model.outcome.cause is None
         assert main_app.screens == ['thank_you']
 
     def test_hopper_failure_after_n_coins_records_what_came_out(self, kiosk, db, monkeypatch):
@@ -225,7 +225,7 @@ class TestChangeActuallyDispensed:
         assert row['change_given'] == 8
         assert row['change_dispensed'] == 6
         assert row['change_given'] - row['change_dispensed'] == 2
-        assert model.shortfall_cause is ShortfallCause.HOPPER_FAILURE
+        assert model.outcome.cause is ShortfallCause.HOPPER_FAILURE
 
     def test_low_inventory_is_a_predicted_shortfall(self, kiosk, db):
         main_app, model = kiosk
@@ -235,7 +235,7 @@ class TestChangeActuallyDispensed:
 
         row = logged_row(db)
         assert (row['change_given'], row['change_dispensed']) == (10, 3)
-        assert model.shortfall_cause is ShortfallCause.PREDICTED
+        assert model.outcome.cause is ShortfallCause.PREDICTED
 
     def test_revenue_is_still_the_job_price(self, kiosk, db):
         main_app, model = kiosk
