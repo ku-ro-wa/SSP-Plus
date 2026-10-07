@@ -1,6 +1,7 @@
 import os
 import time
 import threading
+from enum import Enum
 from typing import Tuple, List, Dict
 from PyQt5.QtCore import QObject, QThread, pyqtSignal
 from managers.hopper_manager import ChangeDispenser, DispenseThread
@@ -31,15 +32,19 @@ def measure_shortfall(result, change_owed):
     return max(0, int(round(expected - actual)))
 
 
+class ShortfallCause(Enum):
+    """Why change went short. Only HOPPER_FAILURE alerts the operator."""
+    PREDICTED = 'predicted'            # the hoppers didn't hold enough coins
+    HOPPER_FAILURE = 'hopper_failure'  # a hopper stopped early or couldn't be driven
+
+
 def shortfall_cause(result, shortfall):
-    """Why change went short: 'hopper_failure' when a hopper stopped early or
-    couldn't be driven at all, 'predicted' when the hoppers just didn't hold
-    enough coins (the dispense plan was capped by inventory), None if no Shortfall."""
+    """The ShortfallCause for a dispense result, or None if there was no Shortfall."""
     if shortfall <= 0:
         return None
     if isinstance(result, dict) and 'actual_change' in result and not result.get('stopped_early'):
-        return 'predicted'
-    return 'hopper_failure'
+        return ShortfallCause.PREDICTED
+    return ShortfallCause.HOPPER_FAILURE
 
 
 class GPIOPaymentThread(QThread):
@@ -262,7 +267,7 @@ class PaymentModel(QObject):
         A predicted Shortfall (hoppers simply low) needs no alert. Never
         includes the Voucher code."""
         shortfall = self.voucher_shortfall
-        hopper = self.shortfall_cause == 'hopper_failure'
+        hopper = self.shortfall_cause is ShortfallCause.HOPPER_FAILURE
         ref = (self.payment_ref or "")[:8]
         if self.voucher_failed:
             message = (f"Kiosk could not save a P{shortfall} change voucher"

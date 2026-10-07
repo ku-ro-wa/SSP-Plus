@@ -29,7 +29,7 @@ import screens.payment.model as payment_module  # noqa: E402
 from database.db_manager import DatabaseManager  # noqa: E402
 from database.models import init_db  # noqa: E402
 from managers.voucher_manager import VoucherManager  # noqa: E402
-from screens.payment.model import PaymentModel  # noqa: E402
+from screens.payment.model import PaymentModel, ShortfallCause  # noqa: E402
 from screens.print_options.model import PrintOptionsModel  # noqa: E402
 from screens.voucher.controller import VoucherController  # noqa: E402
 
@@ -225,7 +225,7 @@ class TestChangeActuallyDispensed:
         assert row['change_given'] == 8
         assert row['change_dispensed'] == 6
         assert row['change_given'] - row['change_dispensed'] == 2
-        assert model.shortfall_cause == 'hopper_failure'
+        assert model.shortfall_cause is ShortfallCause.HOPPER_FAILURE
 
     def test_low_inventory_is_a_predicted_shortfall(self, kiosk, db):
         main_app, model = kiosk
@@ -235,7 +235,7 @@ class TestChangeActuallyDispensed:
 
         row = logged_row(db)
         assert (row['change_given'], row['change_dispensed']) == (10, 3)
-        assert model.shortfall_cause == 'predicted'
+        assert model.shortfall_cause is ShortfallCause.PREDICTED
 
     def test_revenue_is_still_the_job_price(self, kiosk, db):
         main_app, model = kiosk

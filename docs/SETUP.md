@@ -504,6 +504,22 @@ feature/<module> ← your working branch
 
 ---
 
+## Coin hoppers (kiosk)
+
+**Keep Kiosk Admin's Coin Inventory counts accurate.** Change dispensing only attempts
+the coins the `cash_inventory` table says the hoppers hold: as many ₱5 coins as are
+owed and in stock, then ₱1 coins. Whatever it can't give becomes a Voucher (ADR 0003).
+If the counts read 0 (e.g. a fresh database), the kiosk dispenses **nothing** and
+issues a Voucher for the full change, even with coins physically in the hoppers.
+
+- After filling or emptying a hopper, set **₱1 Coins** / **₱5 Coins** under Kiosk Admin
+  → Coin Inventory to what is actually in it. **Refill All** sets 100 × ₱1 and 50 × ₱5,
+  so only use it when the hoppers really hold that many.
+- Counts too **high** are the safer mistake: the kiosk tries the coin, the hopper comes
+  up empty, and the Shortfall still becomes a Voucher. That counts as a hopper failure,
+  so the operator also gets an SMS.
+- The counts drop automatically after each successful print by the coins dispensed.
+
 ## Troubleshooting
 
 **`make test` — module not found**
