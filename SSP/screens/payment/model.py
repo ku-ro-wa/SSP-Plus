@@ -30,6 +30,17 @@ def measure_shortfall(result, change_owed):
     return max(0, int(round(expected - actual)))
 
 
+def shortfall_cause(result, shortfall):
+    """Why change went short: 'hopper_failure' when a hopper stopped early or
+    couldn't be driven at all, 'predicted' when the hoppers just didn't hold
+    enough coins (the dispense plan was capped by inventory), None if no Shortfall."""
+    if shortfall <= 0:
+        return None
+    if isinstance(result, dict) and 'actual_change' in result and not result.get('stopped_early'):
+        return 'predicted'
+    return 'hopper_failure'
+
+
 class GPIOPaymentThread(QThread):
     """Thread for handling GPIO payment input (coins and bills)."""
     coin_inserted = pyqtSignal(int)
@@ -215,12 +226,14 @@ class PaymentModel(QObject):
         self.voucher_shortfall = 0
         self.issued_voucher = None
         self.voucher_failed = False
+        self.shortfall_cause = None
         self.change_owed = 0
         self.change_dispensed = {}
 
     def _issue_shortfall_voucher(self, result, change_owed):
         shortfall = measure_shortfall(result, change_owed)
         self.voucher_shortfall = shortfall
+        self.shortfall_cause = shortfall_cause(result, shortfall)
         self.issued_voucher = None
         self.voucher_failed = False
         if shortfall > 0 and self.db_manager.get_setting('vouchers_enabled', 1):
@@ -590,6 +603,7 @@ class PaymentModel(QObject):
         self.voucher_shortfall = 0
         self.issued_voucher = None
         self.voucher_failed = False
+        self.shortfall_cause = None
         self.change_owed = 0
         self.change_dispensed = {}
 
@@ -717,6 +731,7 @@ class PaymentModel(QObject):
         self.issued_voucher = None
         self.voucher_failed = False
         self.voucher_shortfall = 0
+        self.shortfall_cause = None
 
         try:
             # Validate payment data exists
@@ -778,11 +793,13 @@ class PaymentModel(QObject):
             if change_amount > 0:
                 print(f"Starting change dispensing for P{change_amount:.2f}")
                 self.payment_status_updated.emit(f"Please wait... Dispensing change: P{change_amount:.2f}")
+                # Only attempt the coins the hoppers hold; the rest is a predicted Shortfall.
                 self.dispense_thread = DispenseThread(
                     dispenser=self.change_dispenser,
                     amount=change_amount,
                     admin_screen=main_app.admin_screen,
-                    db_threader=main_app.db_threader
+                    db_threader=main_app.db_threader,
+                    coin_limits=self.payment_algorithm.plan_dispensable_change(change_amount)
                 )
                 self.dispense_thread.status_update.connect(self.payment_status_updated.emit)
                 self.dispense_thread.dispensing_finished.connect(self._on_dispensing_finished)
@@ -821,7 +838,7 @@ class PaymentModel(QObject):
             if self.voucher_failed:
                 self.payment_status_updated.emit(
                     f"Could not issue a voucher for P{self.voucher_shortfall}. Please contact the attendant.")
-            elif self.voucher_shortfall:
+            elif self.voucher_shortfall and not self.issued_voucher:
                 print(f"WARNING: P{self.voucher_shortfall} change short and vouchers are disabled")
 
             if not (isinstance(result, dict) and result.get('success', False)):
