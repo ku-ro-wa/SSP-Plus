@@ -300,11 +300,16 @@ class PaymentModel(QObject):
         print(f"DEBUG: Persistent GPIO enabled: {getattr(self.persistent_gpio, 'enabled', 'N/A')}")
         print(f"DEBUG: Persistent GPIO available: {getattr(self.persistent_gpio, 'gpio_available', 'N/A')}")
 
-        print("DEBUG: About to connect signals")
-        self.persistent_gpio.coin_inserted.connect(self.on_coin_inserted)
-        self.persistent_gpio.bill_inserted.connect(self.on_bill_inserted)
-        self.persistent_gpio.payment_status.connect(self.payment_status_updated.emit)
-        print("DEBUG: Signals connected successfully")
+        # This model and the persistent GPIO both outlive a single payment, and
+        # on_enter runs for every customer: connect only once, or each coin is
+        # credited once per earlier visit to this screen.
+        if getattr(self, '_signals_connected_to', None) is not self.persistent_gpio:
+            print("DEBUG: About to connect signals")
+            self.persistent_gpio.coin_inserted.connect(self.on_coin_inserted)
+            self.persistent_gpio.bill_inserted.connect(self.on_bill_inserted)
+            self.persistent_gpio.payment_status.connect(self.payment_status_updated.emit)
+            self._signals_connected_to = self.persistent_gpio
+            print("DEBUG: Signals connected successfully")
 
         # Setup coin timeout timer for persistent GPIO
         from PyQt5.QtCore import QTimer
