@@ -8,7 +8,7 @@ _VENV_PY := $(firstword $(wildcard .venv/Scripts/python.exe) $(wildcard .venv/bi
 _WIN_PY := $(shell for p in $$(ls /mnt/c/Users/*/AppData/Local/Programs/Python/Python3*/python.exe 2>/dev/null | sort -V); do $$p -c "import pytest" 2>/dev/null && echo $$p && break; done)
 PYTHON ?= $(if $(_VENV_PY),$(_VENV_PY),$(if $(_WIN_PY),$(_WIN_PY),python3))
 
-.PHONY: run run-sim run-admin-dashboard seed-demo-data test lint
+.PHONY: run run-sim run-admin-dashboard seed-demo-data test test-hotspot lint
 
 # Run the app on the kiosk (requires hardware + CUPS + pigpiod)
 # Runs from repo root so config.py finds .env here (SSP/.env is gitignored)
@@ -40,6 +40,11 @@ seed-demo-data:
 test:
 	$(PYTHON) -m pytest tests/ -v
 
+# Check the hotspot's generated firewall + dnsmasq config against the real
+# tools in a Linux container (needs Docker). See tests/hotspot_container/.
+test-hotspot:
+	bash tests/hotspot_container/run.sh
+
 # Lint the source tree (max line length 120, ignoring cache dirs)
 lint:
-	$(PYTHON) -m flake8 SSP/
+	$(PYTHON) -m flake8 SSP/ scripts/

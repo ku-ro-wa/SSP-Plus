@@ -67,9 +67,15 @@ _Avoid_: claim, verification (verification is one step inside redemption), unloc
 
 **Portal**:
 The FastAPI-served web page a user reaches from their own device to upload PDFs over the
-kiosk's network. Reached directly by URL for now; a captive-portal front end is future work.
-_Avoid_: upload site, web app, captive portal (that names the future RaspAP/Nodogsplash
-layer specifically, not this page).
+kiosk's network. Reached by URL (QR image or sticker) over the kiosk's own **Hotspot**; there is
+no captive portal (ADR 0007).
+_Avoid_: upload site, web app, captive portal (the dropped RaspAP/Nodogsplash plan, not this page).
+
+**Hotspot**:
+The kiosk Pi's own open Wi-Fi network (hostapd + dnsmasq), set up from `.env` by
+`scripts/setup_hotspot.py`. It reaches only the **Portal**: no internet, no other phones, no SSH
+or dashboard.
+_Avoid_: access point, AP, captive portal, RaspAP.
 
 **Poll cycle**:
 One pass of the email poller: fetch unseen inbox messages, process each (subject check, PDF
