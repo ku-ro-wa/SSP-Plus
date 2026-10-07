@@ -256,6 +256,10 @@ def init_db(db_path=None):
     # Initialize default settings if they don't exist
     cursor.execute("INSERT OR IGNORE INTO settings (key, value) VALUES ('paper_count', '100')")
     print("OK - Initialized paper_count setting")
+    # Voucher defaults (ADR 0003); INSERT OR IGNORE keeps an operator's own values.
+    cursor.execute("INSERT OR IGNORE INTO settings (key, value) VALUES ('voucher_expiry_days', '30')")
+    cursor.execute("INSERT OR IGNORE INTO settings (key, value) VALUES ('low_change_warning_threshold', '20')")
+    print("OK - Initialized voucher settings")
 
     # Initialize default CMYK ink levels if none exist
     cursor.execute("SELECT COUNT(*) FROM cmyk_ink_levels")
