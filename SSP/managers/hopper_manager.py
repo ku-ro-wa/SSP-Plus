@@ -18,6 +18,7 @@ COIN_DELAY = 1.0         # Delay after a successful dispense before next one
 DISPENSING_TIMEOUT = 10  # Maximum time to wait for a single coin
 MAX_RETRY_ATTEMPTS = 5   # Maximum attempts per coin before giving up (increased from 3)
 RETRY_DELAY = 0.5        # Delay between retry attempts
+SIM_COIN_SECONDS = 1.5   # Simulated time per coin when pigpio isn't available
 
 # --- Centralized configuration for the two hoppers ---
 # Hopper A dispenses 1-peso coins
@@ -314,8 +315,12 @@ class ChangeDispenser:
             print(f"Error reinitializing hoppers: {e}")
             return False
 
-    def dispense_change(self, amount: float, status_callback=None, admin_screen=None, db_threader=None):
-        """Calculates and dispenses the correct change, one coin at a time. Returns actual coins dispensed."""
+    def dispense_change(self, amount: float, status_callback=None, admin_screen=None, db_threader=None,
+                        coin_limits=None):
+        """Dispenses up to `amount` in change, one coin at a time, and reports what
+        actually came out. `coin_limits` ({5: n, 1: m}: the coins in each hopper,
+        from PaymentAlgorithmManager.get_coin_inventory) caps how many coins of
+        each kind are attempted; without it the hoppers are assumed full."""
         if amount <= 0:
             return {'success': True, 'coins_1': 0, 'coins_5': 0}
 
@@ -327,8 +332,8 @@ class ChangeDispenser:
                 status_callback(error_msg)
             return {'success': False, 'coins_1': 0, 'coins_5': 0, 'error': 'pigpio_connection_failed'}
 
-        # Reinitialize hoppers if needed
-        if not self.hoppers:
+        # Reinitialize hoppers if needed (simulated mode has none by design)
+        if not self.simulated and not self.hoppers:
             print("Hoppers not properly initialized, reinitializing...")
             if not self.reinitialize_hoppers():
                 error_msg = "CRITICAL: Failed to reinitialize hoppers. Cannot dispense change."
@@ -337,81 +342,92 @@ class ChangeDispenser:
                     status_callback(error_msg)
                 return {'success': False, 'coins_1': 0, 'coins_5': 0, 'error': 'hopper_initialization_failed'}
 
-        num_fives = int(amount // 5)
-        num_ones = int(round(amount % 5))
+        owed = int(round(amount))
+        limits = coin_limits or {}
+        num_fives = int(owed // 5)
+        if 5 in limits:
+            num_fives = min(num_fives, max(0, int(limits[5])))
+        ones_limit = max(0, int(limits[1])) if 1 in limits else None
 
-        print(f"Dispensing ₱{amount:.2f}: {num_fives}x ₱5, {num_ones}x ₱1")
+        def ones_for(remaining):
+            return remaining if ones_limit is None else min(remaining, ones_limit)
+
+        planned_change = num_fives * 5 + ones_for(owed - num_fives * 5)
+
+        print(f"Dispensing ₱{amount:.2f}: up to {num_fives}x ₱5, rest in ₱1 (plan ₱{planned_change})")
         if status_callback:
             status_callback(f"Preparing to dispense ₱{amount:.2f}...")
 
-        # Track actual coins dispensed
-        actual_fives = 0
-        actual_ones = 0
+        stopped_early = False
 
         # Dispense 5-peso coins
+        actual_fives = 0
         for i in range(num_fives):
             msg = f"Dispensing ₱5 coin ({i + 1} of {num_fives})"
             if status_callback:
                 status_callback(msg)
             print(msg)
 
-            if self.simulated:
-                time.sleep(1.5)  # Simulate dispense time
-                success = True
-            else:
-                success = self.hoppers['B'].dispense_single_coin()
-
-            if success:
+            if self._dispense_coin(5):
                 actual_fives += 1
                 print(f"DEBUG: Successfully dispensed ₱5 coin {actual_fives}/{num_fives}")
             else:
+                stopped_early = True
                 error_msg = f"CRITICAL: Failed to dispense ₱5 coin {i + 1}. Dispensed {actual_fives}/{num_fives} so far."
                 if status_callback:
                     status_callback(error_msg)
                 print(error_msg)
-                # Continue with what we have instead of failing completely
+                # Make up the rest in ₱1 coins below instead of failing completely
                 break
 
-        # Dispense 1-peso coins
+        # Dispense 1-peso coins (also covers any ₱5 coins that didn't come out)
+        num_ones = ones_for(owed - actual_fives * 5)
+        actual_ones = 0
         for i in range(num_ones):
             msg = f"Dispensing ₱1 coin ({i + 1} of {num_ones})"
             if status_callback:
                 status_callback(msg)
             print(msg)
 
-            if self.simulated:
-                time.sleep(1.5)
-                success = True
-            else:
-                success = self.hoppers['A'].dispense_single_coin()
-
-            if success:
+            if self._dispense_coin(1):
                 actual_ones += 1
                 print(f"DEBUG: Successfully dispensed ₱1 coin {actual_ones}/{num_ones}")
             else:
+                stopped_early = True
                 error_msg = f"CRITICAL: Failed to dispense ₱1 coin {i + 1}. Dispensed {actual_ones}/{num_ones} so far."
                 if status_callback:
                     status_callback(error_msg)
                 print(error_msg)
-                # Continue with what we have instead of failing completely
                 break
 
-        # Calculate actual change dispensed
         actual_change = (actual_fives * 5) + (actual_ones * 1)
-        expected_change = (num_fives * 5) + (num_ones * 1)
 
-        final_msg = f"Change dispensing complete. Dispensed ₱{actual_change:.2f} (₱{actual_fives}x5 + ₱{actual_ones}x1) of ₱{expected_change:.2f} expected."
+        final_msg = f"Change dispensing complete. Dispensed ₱{actual_change:.2f} (₱{actual_fives}x5 + ₱{actual_ones}x1) of ₱{owed:.2f} owed."
         if status_callback:
             status_callback(final_msg)
         print(final_msg)
 
-        return {
-            'success': True,
+        # expected_change is the change OWED; planned_change is what the coin
+        # limits allowed. success is False only when a hopper stopped early.
+        result = {
+            'success': not stopped_early,
             'coins_1': actual_ones,
             'coins_5': actual_fives,
             'actual_change': actual_change,
-            'expected_change': expected_change
+            'expected_change': owed,
+            'planned_change': planned_change,
+            'stopped_early': stopped_early,
         }
+        if stopped_early:
+            result['error'] = 'hopper_stopped_early'
+        return result
+
+    def _dispense_coin(self, denomination):
+        """Dispense one ₱5 (hopper B) or ₱1 (hopper A) coin. True if it came out."""
+        if self.simulated:
+            time.sleep(SIM_COIN_SECONDS)
+            return True
+        return self.hoppers['B' if denomination == 5 else 'A'].dispense_single_coin()
 
     def cleanup_all_hoppers(self):
         """Clean up all hopper controllers."""
@@ -447,10 +463,12 @@ class DispenseThread(QThread):
     status_update = pyqtSignal(str)
     dispensing_finished = pyqtSignal(dict)  # Changed to emit the full result dict
 
-    def __init__(self, dispenser: ChangeDispenser, amount: float, admin_screen=None, db_threader=None):
+    def __init__(self, dispenser: ChangeDispenser, amount: float, admin_screen=None, db_threader=None,
+                 coin_limits=None):
         super().__init__()
         self.dispenser = dispenser
         self.amount = amount
+        self.coin_limits = coin_limits
         self.admin_screen = admin_screen
         self.db_threader = db_threader
 
@@ -471,6 +489,7 @@ class DispenseThread(QThread):
             self.amount,
             self.status_update.emit,
             self.admin_screen,
-            self.db_threader
+            self.db_threader,
+            coin_limits=self.coin_limits
         )
         self.dispensing_finished.emit(result)

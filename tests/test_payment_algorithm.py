@@ -108,3 +108,4 @@ class TestFindBestPaymentAmount:
         pam = PaymentAlgorithmManager(_make_db(coins_1=5, coins_5=4))
         result = pam.find_best_payment_amount(9.0)
         assert abs(result['amount'] - 9.0 - result['change']) < 0.01
+
