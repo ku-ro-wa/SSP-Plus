@@ -14,8 +14,9 @@ from PyQt5.QtCore import QTimer
 from .model import VoucherModel
 from .view import VoucherScreenView
 
-# Longer than the usual 60s screens: this is the only time the code is shown.
-TIMEOUT_MS = 90000
+# Longer than the usual 60s screens: this is the only time the code is shown,
+# and the customer needs time to photograph it.
+TIMEOUT_MS = 180000
 
 
 class VoucherController(QWidget):
@@ -53,9 +54,9 @@ class VoucherController(QWidget):
 
     def on_enter(self):
         print("Voucher screen entered")
-        # show_screen() just started the 60s global countdown; it doesn't apply
-        # here (the customer must be able to read the code) so hide it.
-        self.main_app.stop_global_countdown()
+        # show_screen() just started the usual 60s countdown; show this screen's
+        # longer one instead, so the customer can see how long they have.
+        self.main_app.start_global_countdown(TIMEOUT_MS // 1000)
         self.timeout_timer.start(TIMEOUT_MS)
 
     def on_leave(self):

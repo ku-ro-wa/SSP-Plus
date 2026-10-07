@@ -1,4 +1,5 @@
 """Tests for the voucher-issued screen's model (pure Python, no PyQt needed)."""
+import locale
 from datetime import datetime
 
 import pytest
@@ -79,3 +80,18 @@ class TestClear:
         assert model.qr_bytes is None
         assert model.expires_at is None
         assert not model.has_code
+
+
+def test_expiry_month_is_english_whatever_the_locale():
+    saved = locale.setlocale(locale.LC_TIME)
+    try:
+        try:
+            locale.setlocale(locale.LC_TIME, "ja_JP.UTF-8")
+        except locale.Error:
+            pytest.skip("ja_JP locale not installed")
+        model = VoucherModel()
+        model.set_voucher(IssuedVoucher(voucher_id="v", code="ABCD1234", display_code="ABCD-1234",
+                                        value=5, qr_bytes=None, expires_at=datetime(2026, 11, 1)))
+        assert "November 1, 2026" in model.footnote()
+    finally:
+        locale.setlocale(locale.LC_TIME, saved)

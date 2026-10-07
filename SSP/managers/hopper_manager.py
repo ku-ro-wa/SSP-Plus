@@ -318,8 +318,8 @@ class ChangeDispenser:
     def dispense_change(self, amount: float, status_callback=None, admin_screen=None, db_threader=None,
                         coin_limits=None):
         """Dispenses up to `amount` in change, one coin at a time, and reports what
-        actually came out. `coin_limits` ({5: n, 1: m}, e.g. from
-        PaymentAlgorithmManager.plan_dispensable_change) caps how many coins of
+        actually came out. `coin_limits` ({5: n, 1: m}: the coins in each hopper,
+        from PaymentAlgorithmManager.get_coin_inventory) caps how many coins of
         each kind are attempted; without it the hoppers are assumed full."""
         if amount <= 0:
             return {'success': True, 'coins_1': 0, 'coins_5': 0}

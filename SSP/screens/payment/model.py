@@ -16,6 +16,7 @@ except ImportError:
 from managers.persistent_gpio import get_persistent_gpio, PIGPIO_AVAILABLE as PAYMENT_GPIO_AVAILABLE
 import uuid
 from managers.voucher_manager import VoucherManager
+from managers.sms_manager import send_operator_alert
 
 
 def measure_shortfall(result, change_owed):
@@ -253,7 +254,29 @@ class PaymentModel(QObject):
         if td is not None:
             td['change_dispensed'] = change_owed - shortfall
             td['voucher_issued'] = self.issued_voucher.value if self.issued_voucher else 0
+        self._alert_operator_about_shortfall()
         return self.issued_voucher
+
+    def _alert_operator_about_shortfall(self):
+        """SMS the operator when a hopper failed or a Voucher couldn't be saved.
+        A predicted Shortfall (hoppers simply low) needs no alert. Never
+        includes the Voucher code."""
+        shortfall = self.voucher_shortfall
+        hopper = self.shortfall_cause == 'hopper_failure'
+        ref = (self.payment_ref or "")[:8]
+        if self.voucher_failed:
+            message = (f"Kiosk could not save a P{shortfall} change voucher"
+                       f"{' after a hopper failure' if hopper else ''}. "
+                       f"Customer was told to see the attendant. Ref {ref}")
+        elif hopper:
+            outcome = "voucher issued" if self.issued_voucher else "no voucher issued (vouchers off)"
+            message = f"Hopper failure: P{shortfall} change not dispensed, {outcome}. Check the hoppers. Ref {ref}"
+        else:
+            return
+        try:
+            send_operator_alert(message)
+        except Exception as e:
+            print(f"WARNING: could not send operator alert: {e}")
 
     def set_payment_data(self, payment_data):
         """Sets the payment data and initializes payment state."""
@@ -799,7 +822,7 @@ class PaymentModel(QObject):
                     amount=change_amount,
                     admin_screen=main_app.admin_screen,
                     db_threader=main_app.db_threader,
-                    coin_limits=self.payment_algorithm.plan_dispensable_change(change_amount)
+                    coin_limits=self.payment_algorithm.get_coin_inventory()
                 )
                 self.dispense_thread.status_update.connect(self.payment_status_updated.emit)
                 self.dispense_thread.dispensing_finished.connect(self._on_dispensing_finished)

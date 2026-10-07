@@ -109,26 +109,3 @@ class TestFindBestPaymentAmount:
         result = pam.find_best_payment_amount(9.0)
         assert abs(result['amount'] - 9.0 - result['change']) < 0.01
 
-
-class TestPlanDispensableChange:
-    def test_full_change_when_inventory_allows(self):
-        pam = PaymentAlgorithmManager(_make_db(coins_1=10, coins_5=5))
-        assert pam.plan_dispensable_change(13) == {1: 3, 5: 2}
-
-    def test_ones_make_up_for_missing_fives(self):
-        pam = PaymentAlgorithmManager(_make_db(coins_1=10, coins_5=0))
-        assert pam.plan_dispensable_change(10) == {1: 10, 5: 0}
-
-    def test_capped_by_what_is_in_the_hoppers(self):
-        pam = PaymentAlgorithmManager(_make_db(coins_1=2, coins_5=1))
-        assert pam.plan_dispensable_change(13) == {1: 2, 5: 1}
-
-    def test_ignores_reserve_thresholds(self):
-        # A Shortfall becomes a Voucher, so every coin in the hoppers is fair game.
-        db = _make_db(coins_1=3, coins_5=1,
-                      settings={'min_coin_threshold_1': 5, 'min_coin_threshold_5': 5})
-        assert PaymentAlgorithmManager(db).plan_dispensable_change(8) == {1: 3, 5: 1}
-
-    def test_no_change(self):
-        pam = PaymentAlgorithmManager(_make_db())
-        assert pam.plan_dispensable_change(0) == {1: 0, 5: 0}

@@ -9,6 +9,8 @@
 # raw code lives only as long as the screen is showing it.
 
 PESO = "\u20b1"  # ₱ (print_options already renders this glyph)
+MONTHS = ("January", "February", "March", "April", "May", "June", "July",
+          "August", "September", "October", "November", "December")
 
 
 class VoucherModel:
@@ -84,4 +86,5 @@ class VoucherModel:
 
     def _expiry_text(self) -> str:
         d = self.expires_at
-        return f"{d:%B} {d.day}, {d.year}" if d else "the date shown by the attendant"
+        # Not %B: QApplication applies the system locale, and this copy is English.
+        return f"{MONTHS[d.month - 1]} {d.day}, {d.year}" if d else "the date shown by the attendant"

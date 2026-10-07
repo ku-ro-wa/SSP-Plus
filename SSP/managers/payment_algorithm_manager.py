@@ -80,21 +80,6 @@ class PaymentAlgorithmManager:
 
         return {1: coins_1, 5: coins_5}
 
-    def plan_dispensable_change(self, change_amount: float) -> Dict[int, int]:
-        """
-        The most change the hoppers can actually give toward `change_amount`:
-        as many ₱5 coins as are owed and in stock, the rest in ₱1 coins. Reserve
-        thresholds are ignored on purpose: whatever can't be given becomes a
-        Voucher (ADR 0003), so every coin in the hoppers should go out first.
-        """
-        if change_amount <= 0:
-            return {1: 0, 5: 0}
-        change_amount = round(change_amount)
-        inventory = self.get_coin_inventory()
-        coins_5 = min(int(change_amount // 5), max(0, inventory.get(5, 0)))
-        coins_1 = min(int(change_amount - coins_5 * 5), max(0, inventory.get(1, 0)))
-        return {1: coins_1, 5: coins_5}
-
     def can_dispense_change(self, change_amount: float) -> Tuple[bool, str, Dict[int, int]]:
         """
         Check if the system can dispense the required change.

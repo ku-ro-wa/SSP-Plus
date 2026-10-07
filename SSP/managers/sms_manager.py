@@ -1,5 +1,6 @@
 # sms_manager.py
 import os
+import threading
 import time
 from PyQt5.QtCore import QObject, pyqtSignal
 
@@ -258,6 +259,18 @@ def send_no_paper_sms():
     """Send no paper / media empty SMS alert."""
     manager = get_sms_manager()
     return manager.send_sms_and_close("Printer is out of paper. Please refill.")
+
+
+_operator_alert_lock = threading.Lock()
+
+
+def send_operator_alert(message):
+    """Send an operator SMS without blocking the caller (the modem round trip
+    takes ~20 s); alerts are sent one at a time so they don't share the port."""
+    def send():
+        with _operator_alert_lock:
+            get_sms_manager().send_sms_and_close(message)
+    threading.Thread(target=send, name="operator-sms", daemon=True).start()
 
 
 def cleanup_sms():
