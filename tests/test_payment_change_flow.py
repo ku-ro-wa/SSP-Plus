@@ -644,3 +644,54 @@ class TestVoucherEntryOnScreen:
             assert screen.model.amount_owed == job_cost() - 2
         finally:
             screen.on_leave()
+
+
+class TestDashboardReflectsVouchers:
+    """Issue #28 / #21's parent acceptance test: a Voucher issued for a real
+    Shortfall, then Applied on a later payment, shows up on the Admin
+    Dashboard's /accounting/data at each step."""
+
+    @pytest.fixture
+    def dashboard(self, db):
+        from fastapi.testclient import TestClient
+        from SSP.admin_dashboard.main import app
+        from admin_dashboard.cli import create_account
+        from admin_dashboard.dependencies import get_db
+
+        create_account(db, "operator1", "s3cret!", "operator")
+        app.dependency_overrides[get_db] = lambda: db
+        try:
+            client = TestClient(app)
+            client.post("/login", json={"username": "operator1", "password": "s3cret!"})
+            yield lambda: client.get("/accounting/data?range=today").json()
+        finally:
+            app.dependency_overrides.pop(get_db, None)
+
+    def test_issue_then_apply_end_to_end(self, kiosk, db, dashboard):
+        main_app, model = kiosk
+        cost = job_cost()
+
+        # Overpay by ₱10 with only ₱3 in the hoppers: ₱7 Shortfall -> Voucher.
+        stock_hoppers(db, ones=3, fives=0)
+        _, shown = pay_with_change(main_app, model, 10)
+        row = logged_row(db)
+        assert (row['change_dispensed'], row['voucher_issued']) == (3, 7)
+        assert dashboard()["vouchers"] == {
+            "change_dispensed": 3, "voucher_issued": 7, "voucher_applied": 0, "liability": 7}
+
+        # A later payment Applies it; any cost left is paid in cash.
+        main_app.screens.clear()
+        start_payment(model)
+        assert model.apply_voucher(shown.code)
+        applied = min(7, cost)
+        stock_hoppers(db, ones=20, fives=20)
+        finish_with_cash(main_app, model, cost - applied)
+
+        assert row_for(db, model.payment_ref)['voucher_applied'] == applied
+        after = dashboard()
+        assert after["vouchers"] == {
+            "change_dispensed": 3, "voucher_issued": 7, "voucher_applied": applied,
+            "liability": 7 - applied}
+        assert [a['amount'] for a in applications(db.db_path)] == [applied]
+        usb = {r["source"]: r for r in after["sources"]}["usb"]
+        assert (usb["revenue"], usb["transaction_count"]) == (2 * cost, 2)

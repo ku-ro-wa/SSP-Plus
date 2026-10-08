@@ -671,6 +671,32 @@ class DatabaseManager(VoucherDBMixin):
             print(f"Error getting accounting summary: {e}")
             return []
 
+    def get_change_and_voucher_totals(self, since=None):
+        """Change actually dispensed, Voucher value issued and Voucher value
+        Applied (issue #28), summed over the same completed transactions as
+        get_accounting_summary, optionally scoped to timestamp >= `since`.
+        Rows logged before #23 have a NULL change_dispensed and count as 0."""
+        empty = {"change_dispensed": 0, "voucher_issued": 0, "voucher_applied": 0}
+        if not self.conn:
+            return empty
+        try:
+            cursor = self.conn.cursor()
+            query = (
+                "SELECT COALESCE(SUM(change_dispensed), 0) AS change_dispensed, "
+                "COALESCE(SUM(voucher_issued), 0) AS voucher_issued, "
+                "COALESCE(SUM(voucher_applied), 0) AS voucher_applied "
+                "FROM transactions WHERE status = 'completed'"
+            )
+            params = []
+            if since is not None:
+                query += " AND timestamp >= ?"
+                params.append(since)
+            cursor.execute(query, params)
+            return dict(cursor.fetchone())
+        except sqlite3.Error as e:
+            print(f"Error getting change and voucher totals: {e}")
+            return empty
+
     def get_supplies_status_with_cmyk(self):
         """Get current supplies status including CMYK ink levels."""
         if not self.conn:
