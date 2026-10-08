@@ -23,6 +23,7 @@ class IdleController(QWidget):
 
         self.model = IdleModel()
         self.view = IdleScreenView()
+        self._change_low = False
 
         layout = QGridLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -47,7 +48,10 @@ class IdleController(QWidget):
             self._start_printing()
 
     def _start_printing(self):
-        """Starts the printing process by navigating to USB screen."""
+        """Starts the printing process by navigating to the homepage, after a
+        confirmation if the kiosk is low on change."""
+        if self._change_low and not self.view.confirm_low_change():
+            return
         self.main_app.show_screen('homepage')
 
     def _go_to_admin(self):
@@ -119,6 +123,8 @@ class IdleController(QWidget):
         """Called by main_app when this screen becomes active."""
         print("Idle screen entered.")
         self.view.show_status("")
+        self._change_low = self.model.is_change_low()
+        self.view.set_change_low(self._change_low)
 
         # Manually disable acceptors to ensure they are turned off
         self._disable_acceptors()

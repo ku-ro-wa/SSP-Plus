@@ -26,6 +26,7 @@ MONTHS = ("January", "February", "March", "April", "May", "June", "July",
           "August", "September", "October", "November", "December")
 
 MSG_MALFORMED = "That doesn't look like a voucher code"
+MSG_UNGIVEN_CHANGE = "Any change the kiosk can't give back will be issued as a Voucher."
 MSG_UNKNOWN = "We couldn't find a voucher with that code. Please check it and try again"
 MSG_FULLY_USED = "This voucher has already been fully used"
 

@@ -6,7 +6,7 @@ from PyQt5.QtWidgets import (
 from PyQt5.QtCore import Qt, pyqtSignal
 
 from ui.theme import COLORS, FONT
-from ui.widgets import Card, Header, ReaderHint, SecondaryButton, StatusBanner
+from ui.widgets import Card, Header, LowChangeBanner, ReaderHint, SecondaryButton, StatusBanner
 
 
 class HomepageScreenView(QWidget):
@@ -48,6 +48,7 @@ class HomepageScreenView(QWidget):
 
         self.reader_hint = ReaderHint()
         self.status_banner = StatusBanner()
+        self.low_change_banner = LowChangeBanner()
 
         fg_layout.addStretch(1)
         fg_layout.addWidget(title)
@@ -57,6 +58,7 @@ class HomepageScreenView(QWidget):
         fg_layout.addSpacing(8)
         fg_layout.addWidget(self.reader_hint)
         fg_layout.addWidget(self.status_banner)
+        fg_layout.addWidget(self.low_change_banner)
         fg_layout.addStretch(1)
 
         # Cards: 2x2 grid.
@@ -94,6 +96,9 @@ class HomepageScreenView(QWidget):
         fg_layout.addSpacing(12)
         fg_layout.addLayout(voucher_row)
         fg_layout.addStretch(2)
+
+    def set_change_low(self, low):
+        self.low_change_banner.set_low(low)
 
     def show_status(self, message, is_error=True):
         self.status_banner.show_message(message, variant="error" if is_error else "success")

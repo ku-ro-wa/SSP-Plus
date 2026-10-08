@@ -3,6 +3,8 @@
 from typing import Dict, List, Tuple
 from database.db_manager import DatabaseManager
 
+DEFAULT_LOW_CHANGE_THRESHOLD = 20  # ₱, fallback if 'low_change_warning_threshold' is unset
+
 
 class PaymentAlgorithmManager:
     """
@@ -63,6 +65,26 @@ class PaymentAlgorithmManager:
             print(f"Error getting coin inventory: {e}")
             return {1: 0, 5: 0}
 
+    def get_max_dispensable_change(self) -> float:
+        """Most change the hoppers can give right now: coins above the reserve thresholds,
+        capped at MAX_CHANGE_LIMIT."""
+        coin_inventory = self.get_coin_inventory()
+        th5 = self.MIN_COIN_THRESHOLDS.get(5, 0)
+        th1 = self.MIN_COIN_THRESHOLDS.get(1, 0)
+        max_change_5 = max(0, coin_inventory.get(5, 0) - (th5 if th5 > 0 else 0))
+        max_change_1 = max(0, coin_inventory.get(1, 0) - (th1 if th1 > 0 else 0))
+        return min((max_change_5 * 5) + max_change_1, self.MAX_CHANGE_LIMIT)
+
+    def is_change_low(self) -> bool:
+        """True when max dispensable change is below 'low_change_warning_threshold'
+        (read on every call, so a settings change applies without a restart)."""
+        threshold = self.db_manager.get_setting('low_change_warning_threshold', DEFAULT_LOW_CHANGE_THRESHOLD)
+        try:
+            threshold = float(threshold)
+        except (TypeError, ValueError):
+            threshold = DEFAULT_LOW_CHANGE_THRESHOLD
+        return self.get_max_dispensable_change() < threshold
+
     def calculate_change_breakdown(self, change_amount: float) -> Dict[int, int]:
         """
         Calculate how many coins of each denomination are needed for change.
@@ -119,17 +141,7 @@ class PaymentAlgorithmManager:
         Returns list of suggested payment amounts with reasons.
         """
         suggestions = []
-        coin_inventory = self.get_coin_inventory()
-
-        # Calculate maximum change we can dispense (respect thresholds if configured)
-        th5 = self.MIN_COIN_THRESHOLDS.get(5, 0)
-        th1 = self.MIN_COIN_THRESHOLDS.get(1, 0)
-        max_change_5 = max(0, coin_inventory.get(5, 0) - (th5 if th5 > 0 else 0))
-        max_change_1 = max(0, coin_inventory.get(1, 0) - (th1 if th1 > 0 else 0))
-        max_change_amount = min(
-            (max_change_5 * 5) + max_change_1,
-            self.MAX_CHANGE_LIMIT
-        )
+        max_change_amount = self.get_max_dispensable_change()
 
         # If we can't dispense any change, suggest exact payment
         if max_change_amount <= 0:
@@ -292,17 +304,7 @@ class PaymentAlgorithmManager:
         """
         Get a status message about payment capabilities.
         """
-        coin_inventory = self.get_coin_inventory()
-
-        # Calculate available change capacity
-        th5 = self.MIN_COIN_THRESHOLDS.get(5, 0)
-        th1 = self.MIN_COIN_THRESHOLDS.get(1, 0)
-        max_change_5 = max(0, coin_inventory.get(5, 0) - (th5 if th5 > 0 else 0))
-        max_change_1 = max(0, coin_inventory.get(1, 0) - (th1 if th1 > 0 else 0))
-        max_change_amount = min(
-            (max_change_5 * 5) + max_change_1,
-            self.MAX_CHANGE_LIMIT
-        )
+        max_change_amount = self.get_max_dispensable_change()
 
         if max_change_amount <= 0:
             return "⚠️ No change available. Exact payment required."

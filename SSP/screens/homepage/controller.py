@@ -72,6 +72,7 @@ class HomepageController(QWidget):
         """Called by main_app when this screen becomes active."""
         print("Homepage screen entered")
         self.view.show_status("")
+        self.view.set_change_low(self.model.is_change_low())
         self.timeout_timer.start(60000)
         print("Homepage screen timeout started (1 minute)")
 

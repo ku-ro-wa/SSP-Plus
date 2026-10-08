@@ -1,11 +1,12 @@
 # screens/idle/view.py
 
-from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel, QFrame)
+from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel, QFrame, QMessageBox)
 from PyQt5.QtCore import Qt, pyqtSignal
 
+from managers.voucher_manager import MSG_UNGIVEN_CHANGE
 from ui.icons import icon
 from ui.theme import COLORS, FONT
-from ui.widgets import Header, ReaderHint, SecondaryButton, StatusBanner
+from ui.widgets import Header, LowChangeBanner, ReaderHint, SecondaryButton, StatusBanner
 
 
 class IdleScreenView(QWidget):
@@ -49,6 +50,7 @@ class IdleScreenView(QWidget):
 
         self.reader_hint = ReaderHint()
         self.status_banner = StatusBanner()
+        self.low_change_banner = LowChangeBanner()
 
         # --- Layout Adjustments for Centering ---
         frame_layout.addStretch(2)
@@ -57,6 +59,7 @@ class IdleScreenView(QWidget):
         frame_layout.addSpacing(16)
         frame_layout.addWidget(self.reader_hint)
         frame_layout.addWidget(self.status_banner)
+        frame_layout.addWidget(self.low_change_banner)
         frame_layout.addStretch(2)
 
         # --- Admin Button ---
@@ -76,6 +79,20 @@ class IdleScreenView(QWidget):
 
     def show_status(self, message, is_error=True):
         self.status_banner.show_message(message, variant="error" if is_error else "success")
+
+    def set_change_low(self, low):
+        self.low_change_banner.set_low(low)
+
+    def confirm_low_change(self):
+        """Modal "Continue anyway / Cancel" prompt. Returns True to continue."""
+        dialog = QMessageBox(self)
+        dialog.setIcon(QMessageBox.Warning)
+        dialog.setWindowTitle("Low on change")
+        dialog.setText(f"This kiosk is low on change right now. {MSG_UNGIVEN_CHANGE}")
+        continue_button = dialog.addButton("Continue anyway", QMessageBox.AcceptRole)
+        dialog.addButton("Cancel", QMessageBox.RejectRole)
+        dialog.exec_()
+        return dialog.clickedButton() is continue_button
 
     def get_admin_button_geometry(self):
         """Returns the geometry of the admin button for touch validation."""
