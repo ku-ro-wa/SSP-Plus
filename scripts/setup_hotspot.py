@@ -218,6 +218,9 @@ def render_firewall(s: HotspotSettings) -> str:
     # Our own table, so loading it never touches anyone else's rules (Tailscale
     # keeps its own). "table ...; delete table ..." makes reloads idempotent.
     # Every other base chain on these hooks still runs; a drop here is final.
+    # Phones' internet traffic is rejected, not dropped, so it fails at once:
+    # a silent drop made each page wait ~10 s on anything it tried to fetch
+    # from the internet. Input stays a silent drop.
     return f"""#!/usr/sbin/nft -f
 {_header()}
 table inet ssp_hotspot
@@ -236,7 +239,8 @@ table inet ssp_hotspot {{
 
 \tchain forward {{
 \t\ttype filter hook forward priority filter - 10; policy accept;
-\t\tiifname "{s.interface}" counter drop comment "no forwarding from the hotspot"
+\t\tiifname "{s.interface}" meta l4proto tcp counter reject with tcp reset comment "no forwarding from the hotspot"
+\t\tiifname "{s.interface}" counter reject with icmpx admin-prohibited comment "no forwarding from the hotspot"
 \t\toifname "{s.interface}" counter drop comment "no forwarding into the hotspot"
 \t}}
 }}

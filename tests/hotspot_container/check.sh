@@ -102,6 +102,8 @@ refuse "phone can't reach SSH (tcp/22)" in_phone nc -z -w2 $PI 22
 refuse "phone can't reach the dashboard (tcp/8100)" in_phone nc -z -w2 $PI 8100
 refuse "phone can't ping the kiosk" in_phone ping -c1 -W1 $PI
 refuse "phone can't reach the uplink side through the kiosk" in_phone nc -z -w2 192.168.50.2 80
+check  "phone's internet traffic is refused at once, not left to time out" bash -c \
+    's=$(date +%s%N); ! ip netns exec phone nc -z -w5 192.168.50.2 80; [ $(( ($(date +%s%N) - s) / 1000000 )) -lt 1000 ]'
 refuse "phone can't reach the kiosk's uplink address" in_phone nc -z -w2 192.168.50.1 22
 refuse "uplink can't reach into the hotspot" in_uplink nc -z -w2 "$LEASE" 80
 check  "SSH over the uplink still works" in_uplink nc -z -w2 192.168.50.1 22

@@ -172,7 +172,11 @@ class TestFirewall:
 
     def test_no_forwarding_in_either_direction(self):
         lines = _lines(hs.render_firewall(_settings()))
-        assert any(line.startswith('iifname "wlan0" counter drop') for line in lines)
+        assert any(line.startswith('iifname "wlan0" meta l4proto tcp counter reject with tcp reset')
+                   for line in lines)
+        assert any(line.startswith('iifname "wlan0" counter reject with icmpx admin-prohibited')
+                   for line in lines)
+        assert not any(line.startswith('iifname "wlan0" counter drop') for line in lines)
         assert any(line.startswith('oifname "wlan0" counter drop') for line in lines)
 
     def test_only_touches_its_own_table(self):

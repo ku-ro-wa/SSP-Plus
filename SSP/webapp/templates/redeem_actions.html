@@ -4,7 +4,6 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>AIO SPARK | Your Scan</title>
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body { font-family: Arial, sans-serif; background: #fff; }
@@ -144,7 +143,7 @@
 
                 <ul class="file-list">
                     {% for f in files %}
-                    <li><i class="fa-solid fa-file-pdf"></i> {{ f.original_filename or f.path.split('/')[-1] }}</li>
+                    <li>{% include "icons/file-pdf.svg" %} {{ f.original_filename or f.path.split('/')[-1] }}</li>
                     {% endfor %}
                 </ul>
 
@@ -152,7 +151,7 @@
                     <input type="hidden" name="session_id" value="{{ session_id }}">
                     <input type="hidden" name="otp" value="{{ otp }}">
                     <button type="submit" class="download">
-                        Download PDF <i class="fa-solid fa-download"></i>
+                        Download PDF {% include "icons/download.svg" %}
                     </button>
                 </form>
 
@@ -161,7 +160,7 @@
                     <input type="hidden" name="otp" value="{{ otp }}">
                     <input type="email" name="recipient" placeholder="your@email.com" required>
                     <button type="submit">
-                        Email Me This PDF <i class="fa-solid fa-envelope"></i>
+                        Email Me This PDF {% include "icons/envelope.svg" %}
                     </button>
                 </form>
             </main>

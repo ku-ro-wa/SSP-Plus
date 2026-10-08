@@ -3,6 +3,9 @@ Tests for the FastAPI skeleton (webapp/main.py) — TestClient drives the app
 in-process (no real Uvicorn socket needed), so this runs offline like the
 rest of the suite.
 """
+import re
+from pathlib import Path
+
 from fastapi.testclient import TestClient
 
 from SSP.webapp.main import app
@@ -25,3 +28,27 @@ def test_docs_availability_matches_config():
 
     expected_status = 200 if get_config().docs_enabled else 404
     assert client.get("/docs").status_code == expected_status
+
+
+# The hotspot gives phones no internet (ADR 0007), so a portal page that
+# loads anything from outside stalls until the request fails.
+TEMPLATES = Path(__file__).resolve().parent.parent / "SSP" / "webapp" / "templates"
+EXTERNAL_REF = re.compile(r"""(?:src|href|action)\s*=\s*["']?(?:https?:)?//|url\(\s*["']?(?:https?:)?//|@import""")
+
+
+def test_portal_pages_load_nothing_from_the_internet():
+    for page in TEMPLATES.glob("*.html"):
+        assert not EXTERNAL_REF.search(page.read_text()), page.name
+
+
+def test_every_included_icon_exists():
+    for page in TEMPLATES.glob("*.html"):
+        for name in re.findall(r'{%\s*include\s+"(icons/[^"]+)"\s*%}', page.read_text()):
+            assert (TEMPLATES / name).is_file(), f"{page.name}: {name}"
+
+
+def test_upload_page_renders_icons_inline():
+    response = client.get("/upload")
+    assert response.status_code == 200
+    assert '<svg xmlns="http://www.w3.org/2000/svg"' in response.text
+    assert "font-awesome" not in response.text
