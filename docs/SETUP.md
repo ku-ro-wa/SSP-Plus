@@ -459,12 +459,13 @@ units, and real phones.
 
 ### Verified on the kiosk Pi (issue #29)
 
-First run: 2026-10-08. Blanks are still to be filled in.
+First run: 2026-10-08.
 
-- Raspberry Pi OS version: Debian 13 "trixie" (arm64), Python 3.13. Kernel (`uname -r`): _TBD_.
+- Raspberry Pi OS version: Debian 13 "trixie" (arm64), Python 3.13. Kernel `6.18.50+rpt-rpi-v8`.
   Note `make test-hotspot` runs on Bookworm, not trixie.
 - Package versions: hostapd `2:2.10-24+rpt3`, dnsmasq `2.91-1+deb13u2`, nftables `1.1.3-1`.
-- Interface names (`ip -br link`): hotspot `wlan0`; uplink _TBD_.
+- Interface names (`ip -br link`): hotspot `wlan0`, uplink `eth0`. There is also a `usb0`
+  (USB gadget Ethernet, down when no host is plugged into the USB-C port).
 - RaspAP was installed. The clean-up disabled `raspapd` and `lighttpd` and moved aside
   `/etc/dnsmasq.d/090_uap0.conf` and `/etc/hostapd/hostapd.conf`. RaspAP's `restapi` (crash-looping)
   and `raspap-network-activity@wlan0` were still running and had to be disabled by hand; the script
@@ -475,8 +476,8 @@ First run: 2026-10-08. Blanks are still to be filled in.
     updates were running. Wait for them (`pgrep -a apt`) and re-run; don't kill apt.
   - Run it over Ethernet: it takes `wlan0` away from NetworkManager.
   - The repo had been copied onto the Pi without `.git`, so `git pull` didn't work. Clone it.
-- Phones: iPhone with mobile data off and on both reached the upload page, but slowly. Android not
-  yet tested.
+- Phones: iPhone with mobile data off and on both reached the upload page, but each took over 10 s
+  (cause not yet known). Android not yet tested.
 
 ---
 
