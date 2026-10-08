@@ -1,6 +1,7 @@
 from PyQt5.QtWidgets import QWidget
 from PyQt5.QtCore import pyqtSignal, QTimer
 from .model import PaymentModel
+from managers.voucher_manager import CODE_ALPHABET
 from .view import PaymentScreenView
 
 
@@ -16,7 +17,7 @@ class PaymentController(QWidget):
         self.main_app = main_app
 
         self.model = PaymentModel(main_app)
-        self.view = PaymentScreenView()
+        self.view = PaymentScreenView(voucher_keys=CODE_ALPHABET)
 
         # Setup timeout timer (1 minute = 60000ms)
         self.timeout_timer = QTimer()
@@ -37,11 +38,13 @@ class PaymentController(QWidget):
         # popup removed
         self.view.simulation_coin_clicked.connect(self.model.simulate_coin)
         self.view.simulation_bill_clicked.connect(self.model.simulate_bill)
+        self.view.voucher_code_entered.connect(self.apply_voucher_code)
 
         # Reset timeout on user interaction
         self.view.back_button_clicked.connect(self._reset_timeout)
         self.view.simulation_coin_clicked.connect(self._reset_timeout)
         self.view.simulation_bill_clicked.connect(self._reset_timeout)
+        self.view.voucher_entry_activity.connect(self._reset_timeout)
 
         # --- Model -> Controller -> View ---
         self.model.payment_data_updated.connect(self.view.update_payment_data)
@@ -49,8 +52,16 @@ class PaymentController(QWidget):
         self.model.amount_received_updated.connect(self.view.update_amount_received)
         self.model.change_updated.connect(self.view.update_change_display)
         self.model.suggestion_updated.connect(self.view.update_inline_suggestion)
+        self.model.vouchers_updated.connect(self.view.update_vouchers)
+        self.model.voucher_message.connect(self.view.show_voucher_message)
         self.model.payment_completed.connect(self._handle_payment_completed)
         self.model.go_back_requested.connect(self._go_back)
+
+    def apply_voucher_code(self, raw_code):
+        """Apply a Voucher from the "Use a voucher" entry. Takes a typed code
+        or a 'V1:<code>' payload, so a QR read can be passed straight in."""
+        self._reset_timeout()
+        return self.model.apply_voucher(raw_code)
 
     def _handle_payment_completed(self, payment_info):
         """Handles payment completion signal from model."""
@@ -86,6 +97,7 @@ class PaymentController(QWidget):
         self.timeout_timer.start(60000)
         print("TIMEOUT: Payment screen timeout started (1 minute)")
 
+        self.view.reset_voucher_entry()
         print("DEBUG: About to call model.on_enter()")
         try:
             self.model.on_enter()

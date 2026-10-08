@@ -8,7 +8,8 @@ view layer, just factored out of per-screen duplication.
 from PyQt5.QtCore import Qt, pyqtSignal
 from PyQt5.QtGui import QColor
 from PyQt5.QtWidgets import (
-    QFrame, QGraphicsDropShadowEffect, QHBoxLayout, QLabel, QPushButton, QVBoxLayout,
+    QFrame, QGraphicsDropShadowEffect, QGridLayout, QHBoxLayout, QLabel, QPushButton, QVBoxLayout,
+    QWidget,
 )
 
 from ui.icons import icon, icon_path, svg_widget
@@ -207,3 +208,37 @@ class StatusBanner(QFrame):
         self._icon.load(icon_path(self._ICON_BY_VARIANT.get(variant, "alert-triangle")))
         self._label.setText(message)
         self.setVisible(True)
+
+
+BACKSPACE_KEY = "\u232b"  # ⌫
+
+
+class CodeKeypad(QWidget):
+    """On-screen keypad that types into a QLineEdit, for kiosk code entry
+    (the touchscreen has no physical or OS keyboard). `keys` is the set of
+    characters offered, laid out `columns` per row with a backspace key last.
+    Emits `pressed` on every key so the screen can reset its timeout."""
+
+    pressed = pyqtSignal()
+
+    def __init__(self, target, keys: str, columns: int = 11, parent=None):
+        super().__init__(parent)
+        self._target = target
+        layout = QGridLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(6)
+        self.key_buttons = {}
+        for i, value in enumerate(list(keys) + [BACKSPACE_KEY]):
+            button = SecondaryButton(value)
+            button.setMinimumSize(48, 48)
+            button.setFocusPolicy(Qt.NoFocus)  # keep the cursor in the target entry
+            button.clicked.connect(lambda _, v=value: self._press(v))
+            layout.addWidget(button, i // columns, i % columns)
+            self.key_buttons[value] = button
+
+    def _press(self, value):
+        if value == BACKSPACE_KEY:
+            self._target.backspace()
+        else:
+            self._target.insert(value)
+        self.pressed.emit()

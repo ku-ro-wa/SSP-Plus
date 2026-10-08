@@ -363,3 +363,284 @@ class TestVoucherScreenTiming:
 
         assert main_app.voucher_screen.view.code_label.text() == ""  # code wiped on leave
         assert VoucherManager(db).balance(code).remaining == 4
+
+
+# ---- Applying Vouchers at payment ------------------------------------------
+
+def job(source='usb'):
+    """payment_data for a 1-page B&W job, as PrintOptionsController builds it."""
+    options = PrintOptionsModel()
+    options.set_color_mode("Black and White")
+    options.set_pdf_data({'path': PDF}, [1])
+    payment_data = options.get_payment_data()
+    payment_data['source'] = source
+    return payment_data
+
+
+def job_cost():
+    return int(job()['total_cost'])
+
+
+def start_payment(model, source='usb'):
+    model.set_payment_data(job(source))
+    model.on_enter()
+
+
+def issue_voucher(main_app, model, db, value):
+    """A real Voucher worth `value`, issued by overpaying with empty hoppers.
+    Leaves the kiosk ready for the next customer; returns the shown code."""
+    stock_hoppers(db, ones=0, fives=0)
+    _, shown = pay_with_change(main_app, model, value)
+    assert shown.code_visible
+    main_app.screens.clear()
+    return shown.code
+
+
+def finish_with_cash(main_app, model, amount):
+    if amount:
+        main_app.acceptors.bill_inserted.emit(amount)
+    wait_for(lambda: {'voucher', 'thank_you'} & set(main_app.screens), "payment to finish")
+    finish(main_app, model)
+
+
+def row_for(db, payment_ref):
+    [row] = [r for r in db.get_transaction_history() if r['payment_ref'] == payment_ref]
+    return row
+
+
+def applications(db_path):
+    import sqlite3
+    conn = sqlite3.connect(db_path)
+    conn.row_factory = sqlite3.Row
+    try:
+        return [dict(r) for r in conn.execute("SELECT * FROM voucher_applications ORDER BY id")]
+    finally:
+        conn.close()
+
+
+@pytest.fixture
+def messages(kiosk):
+    _, model = kiosk
+    seen = []
+    model.voucher_message.connect(lambda message, is_error: seen.append((message, is_error)))
+    return seen
+
+
+class TestApplyVoucherAtPayment:
+    @pytest.mark.parametrize('source', ['usb', 'wifi', 'email', 'scanner'])
+    def test_issued_voucher_plus_cash_end_to_end(self, kiosk, db, source):
+        main_app, model = kiosk
+        cost = job_cost()
+        assert cost > 2
+        code = issue_voucher(main_app, model, db, 2)
+
+        start_payment(model, source)
+        assert model.apply_voucher(code)
+        assert model.amount_owed == cost - 2
+        stock_hoppers(db, ones=20, fives=20)
+        finish_with_cash(main_app, model, cost - 2)
+
+        assert main_app.screens == ['thank_you']  # exact payment: no change, no new voucher
+        ref = model.payment_ref
+        row = row_for(db, ref)
+        assert (row['voucher_applied'], row['amount_paid'], row['change_given']) == (2, cost - 2, 0)
+        assert row['source'] == source
+        [link] = applications(db.db_path)
+        assert (link['amount'], link['payment_ref']) == (2, ref)
+        assert voucher_rows(db.db_path)[0]['remaining_value'] == 0
+        assert VoucherManager(db).balance(code).status == vm.LookupStatus.USED
+
+    def test_vouchers_covering_the_cost_need_no_cash(self, kiosk, db):
+        main_app, model = kiosk
+        cost = job_cost()
+        code = issue_voucher(main_app, model, db, cost + 2)
+
+        start_payment(model)
+        assert model.apply_voucher("V1:" + code.replace("-", ""))  # the QR payload form
+        assert [(v.amount, v.remaining) for v in model.applied_vouchers] == [(cost, 2)]
+        finish_with_cash(main_app, model, 0)
+
+        row = row_for(db, model.payment_ref)
+        assert (row['voucher_applied'], row['amount_paid'], row['change_given']) == (cost, 0, 0)
+        assert VoucherManager(db).balance(code).remaining == 2
+
+    def test_several_vouchers_are_used_in_order_and_only_the_last_is_partial(self, kiosk, db):
+        main_app, model = kiosk
+        cost = job_cost()
+        first = issue_voucher(main_app, model, db, cost - 1)
+        second = issue_voucher(main_app, model, db, 5)
+
+        start_payment(model)
+        assert model.apply_voucher(first)
+        assert model.apply_voucher(second)
+        assert [(v.amount, v.remaining) for v in model.applied_vouchers] == [(cost - 1, 0), (1, 4)]
+        finish_with_cash(main_app, model, 0)
+
+        assert [a['amount'] for a in applications(db.db_path)] == [cost - 1, 1]
+        assert row_for(db, model.payment_ref)['voucher_applied'] == cost
+        assert VoucherManager(db).balance(first).status == vm.LookupStatus.USED
+        assert VoucherManager(db).balance(second).remaining == 4
+
+    def test_overpaying_with_voucher_and_cash_gives_change_and_vouchers_the_shortfall(self, kiosk, db):
+        main_app, model = kiosk
+        cost = job_cost()
+        code = issue_voucher(main_app, model, db, 2)
+
+        start_payment(model)
+        model.apply_voucher(code)
+        stock_hoppers(db, ones=2, fives=0)  # can give ₱2 of the ₱7 change
+        main_app.acceptors.bill_inserted.emit(cost - 2 + 7)
+        wait_for(lambda: 'voucher' in main_app.screens, "the new voucher")
+        new_code = displayed(main_app).code
+        finish(main_app, model)
+
+        row = row_for(db, model.payment_ref)
+        assert (row['voucher_applied'], row['change_given'], row['change_dispensed'], row['voucher_issued']) \
+            == (2, 7, 2, 5)
+        assert VoucherManager(db).balance(new_code).remaining == 5
+
+    def test_cancelling_leaves_the_voucher_untouched(self, kiosk, db):
+        main_app, model = kiosk
+        code = issue_voucher(main_app, model, db, 2)
+
+        start_payment(model)
+        model.apply_voucher(code)
+        model.go_back()
+
+        assert model.applied_vouchers == []
+        assert applications(db.db_path) == []
+        assert VoucherManager(db).balance(code).remaining == 2
+
+    def test_same_voucher_twice_is_applied_once(self, kiosk, db, messages):
+        main_app, model = kiosk
+        code = issue_voucher(main_app, model, db, 2)
+
+        start_payment(model)
+        assert model.apply_voucher(code)
+        assert not model.apply_voucher(code.lower())
+        assert model.voucher_total == 2
+        assert "already applied" in messages[-1][0]
+
+    def test_failed_apply_takes_nothing_and_lets_the_customer_pay_cash(self, kiosk, db, messages, monkeypatch):
+        main_app, model = kiosk
+        cost = job_cost()
+        code = issue_voucher(main_app, model, db, 2)
+        stock_hoppers(db, ones=20, fives=20)
+
+        start_payment(model)
+        model.apply_voucher(code)
+        monkeypatch.setattr(db, 'apply_vouchers', lambda *a: False)
+        main_app.acceptors.bill_inserted.emit(cost - 2)
+        wait_for(lambda: messages[-1][1], "the apply failure")
+
+        assert main_app.screens == []
+        assert model.payment_ready and model.applied_vouchers == []
+        assert "pay the rest in cash" in messages[-1][0]
+        assert VoucherManager(db).balance(code).remaining == 2
+        finish_with_cash(main_app, model, 2)
+        row = row_for(db, model.payment_ref)
+        assert (row['voucher_applied'], row['amount_paid']) == (0, cost)
+
+
+class TestVoucherEntryMessages:
+    def test_expired_used_and_unknown_codes_get_distinct_messages(self, kiosk, db, messages):
+        import sqlite3
+        main_app, model = kiosk
+        expired = issue_voucher(main_app, model, db, 2)
+        conn = sqlite3.connect(db.db_path)
+        conn.execute("UPDATE vouchers SET expires_at = ?", (datetime.now() - timedelta(days=1),))
+        conn.commit()
+        conn.close()
+        used = issue_voucher(main_app, model, db, job_cost())
+        start_payment(model)
+        model.apply_voucher(used)
+        finish_with_cash(main_app, model, 0)
+        main_app.screens.clear()
+
+        start_payment(model)
+        messages.clear()
+        for code in (expired, used, "ZZZZ-ZZZZ"):
+            assert not model.apply_voucher(code)
+        texts = [m for m, _ in messages]
+        assert all(is_error for _, is_error in messages)
+        assert "expired" in texts[0]
+        assert "fully used" in texts[1]
+        assert "recognise" in texts[2]
+        assert len(set(texts)) == 3
+        assert not any("redeem" in t.lower() for t in texts)
+
+    def test_wrong_codes_lock_entry_and_show_the_cooldown(self, kiosk, db, messages):
+        main_app, model = kiosk
+        code = issue_voucher(main_app, model, db, 2)
+        start_payment(model)
+
+        for _ in range(vm.MAX_FAILED_ATTEMPTS):
+            model.apply_voucher("ZZZZ-ZZZZ")
+        assert "locked for 5 more minute" in messages[-1][0]
+        assert not model.apply_voucher(code)  # even the right code, until the cooldown ends
+        assert "locked" in messages[-1][0]
+        assert model.applied_vouchers == []
+
+    def test_malformed_entry_does_not_count_toward_the_lockout(self, kiosk, db, messages):
+        main_app, model = kiosk
+        start_payment(model)
+        for _ in range(vm.MAX_FAILED_ATTEMPTS + 1):
+            model.apply_voucher("hello")
+        assert all("locked" not in m for m, _ in messages)
+
+
+class TestVoucherEntryOnScreen:
+    def test_typed_code_is_applied_and_listed_with_what_is_left(self, kiosk, db):
+        from screens.payment.controller import PaymentController
+        main_app, model = kiosk
+        code = issue_voucher(main_app, model, db, 2)
+        screen = PaymentController(main_app)
+        main_app.stacked_widget = SimpleNamespace(currentWidget=lambda: screen)
+        screen.set_payment_data(job())
+        screen.on_enter()
+        view = screen.view
+        try:
+            assert view.voucher_input.isHidden()
+            view.use_voucher_btn.click()
+            assert not view.voucher_input.isHidden()
+            view.voucher_input.setText(code.lower())
+            view.apply_voucher_btn.click()
+
+            assert view.voucher_input.text() == ""  # the code isn't left on screen
+            assert view.vouchers_label.text() == f"Voucher ••••-{code[-4:]}: P2 applied, P0 left"
+            assert code not in view.vouchers_label.text()
+            assert screen.model.amount_owed == job_cost() - 2
+            assert "Use a voucher" == view.use_voucher_btn.text()
+        finally:
+            screen.on_leave()
+
+    def test_code_typed_on_the_keypad_is_applied(self, kiosk, db):
+        from screens.payment.controller import PaymentController
+        from ui.widgets import BACKSPACE_KEY
+        main_app, model = kiosk
+        code = issue_voucher(main_app, model, db, 2)
+        screen = PaymentController(main_app)
+        main_app.stacked_widget = SimpleNamespace(currentWidget=lambda: screen)
+        screen.set_payment_data(job())
+        screen.on_enter()
+        view = screen.view
+        try:
+            assert view.voucher_keypad.isHidden()
+            view.use_voucher_btn.click()
+            assert not view.voucher_keypad.isHidden()
+            # Every code character has a key; a slip is fixed with backspace.
+            assert set(view.voucher_keypad.key_buttons) == set(vm.CODE_ALPHABET) | {BACKSPACE_KEY}
+            keys = view.voucher_keypad.key_buttons
+            chars = code.replace("-", "")  # no hyphen key: it's optional when typing
+            keys[chars[0]].click()
+            keys["Z" if chars[1] != "Z" else "Y"].click()
+            keys[BACKSPACE_KEY].click()
+            for ch in chars[1:]:
+                keys[ch].click()
+            assert view.voucher_input.text() == chars
+            view.apply_voucher_btn.click()
+
+            assert view.vouchers_label.text() == f"Voucher ••••-{code[-4:]}: P2 applied, P0 left"
+            assert screen.model.amount_owed == job_cost() - 2
+        finally:
+            screen.on_leave()
