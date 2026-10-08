@@ -465,14 +465,25 @@ units, and real phones.
 
 ### Verified on the kiosk Pi (issue #29)
 
-> Not yet run on the Pi. Fill this in on the first run.
+First run: 2026-10-08.
 
-- Raspberry Pi OS version (`cat /etc/os-release`, `uname -r`):
-- Package versions (`dpkg -l hostapd dnsmasq nftables`):
-- Interface names (`ip -br link`): hotspot `wlan0`? uplink `eth0`?
-- Was RaspAP installed, and did the clean-up leave anything behind?
+- Raspberry Pi OS version: Debian 13 "trixie" (arm64), Python 3.13. Kernel `6.18.50+rpt-rpi-v8`.
+  Note `make test-hotspot` runs on Bookworm, not trixie.
+- Package versions: hostapd `2:2.10-24+rpt3`, dnsmasq `2.91-1+deb13u2`, nftables `1.1.3-1`.
+- Interface names (`ip -br link`): hotspot `wlan0`, uplink `eth0`. There is also a `usb0`
+  (USB gadget Ethernet, down when no host is plugged into the USB-C port).
+- RaspAP was installed. The clean-up disabled `raspapd` and `lighttpd` and moved aside
+  `/etc/dnsmasq.d/090_uap0.conf` and `/etc/hostapd/hostapd.conf`. RaspAP's `restapi` (crash-looping)
+  and `raspap-network-activity@wlan0` were still running and had to be disabled by hand; the script
+  now handles them. Nodogsplash had been built from source (`~/nodogsplash`), so its binaries in
+  `/usr/bin` remain.
 - Gotchas:
-- Phones (Android + iPhone, mobile data on and off): see the checklist in issue #29.
+  - The first run failed with `Could not get lock /var/lib/dpkg/lock-frontend` because automatic
+    updates were running. Wait for them (`pgrep -a apt`) and re-run; don't kill apt.
+  - Run it over Ethernet: it takes `wlan0` away from NetworkManager.
+  - The repo had been copied onto the Pi without `.git`, so `git pull` didn't work. Clone it.
+- Phones: iPhone with mobile data off and on both reached the upload page, but each took over 10 s
+  (cause not yet known). Android not yet tested.
 
 ---
 
@@ -606,6 +617,19 @@ The Makefile already passes `-X utf8` to Python which fixes this. If you're runn
 
 **Windows: `make` says "Permission denied" for a Python command**
 The Makefile auto-detects the first Windows Python that has `pytest` installed. If you installed Python 3.13 but only have `pytest` in 3.11, make sure you ran `pip install` for the right version (`py -3.11 -m pip install -r requirements.txt`).
+
+**Linux/Pi: `Could not load the Qt platform plugin "xcb" in ".../cv2/qt/plugins"`**
+The GUI build of OpenCV (`opencv-python`) is installed. It ships its own Qt plugins, which break
+PyQt5. Replace it with the headless build that `requirements.txt` now lists. Uninstall first: both
+install into the same `cv2` folder.
+```bash
+.venv/bin/pip uninstall -y opencv-python
+.venv/bin/pip install "opencv-python-headless>=4.8"
+```
+
+**Pi over SSH: `make run-sim` aborts with no display**
+An SSH session has no screen. To run the kiosk headless (enough for the Wi-Fi portal and phone
+tests), use `QT_QPA_PLATFORM=offscreen make run-sim`.
 
 **Mac: `PyQt5` install fails on Apple Silicon**
 Try: `pip3 install --upgrade pip && pip3 install PyQt5`. The wheels include Qt bundled and support arm64.
