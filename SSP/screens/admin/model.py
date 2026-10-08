@@ -190,6 +190,13 @@ class AdminModel(QObject):
         self.load_coin_counts()
         print("Coin counts reset to defaults: ₱1=100, ₱5=50")
 
+    def empty_coin_counts(self):
+        """Sets both coin counts to 0 (SIM_MODE testing: forces a Shortfall)."""
+        self.db_manager.update_cash_inventory(1, 0, 'coin')
+        self.db_manager.update_cash_inventory(5, 0, 'coin')
+        self.load_coin_counts()
+        print("Coin counts emptied: ₱1=0, ₱5=0")
+
     def increase_coin_1_count(self):
         """Increases the ₱1 coin count by 1."""
         try:
