@@ -43,6 +43,7 @@ class AdminScreenView(QWidget):
     update_coin_1_clicked = pyqtSignal(str)
     update_coin_5_clicked = pyqtSignal(str)
     reset_coins_clicked = pyqtSignal()
+    empty_coins_clicked = pyqtSignal()  # SIM_MODE only
     update_cmyk_clicked = pyqtSignal(float, float, float, float)
     reset_cmyk_clicked = pyqtSignal()
     refresh_cmyk_clicked = pyqtSignal()
@@ -55,8 +56,9 @@ class AdminScreenView(QWidget):
     coin_5_decreased = pyqtSignal()
     coin_5_increased = pyqtSignal()
 
-    def __init__(self, parent=None):
+    def __init__(self, sim_mode=False, parent=None):
         super().__init__(parent)
+        self._sim_mode = sim_mode
         self.setup_ui()
 
     # ------------------------------------------------------------------ layout
@@ -171,6 +173,14 @@ class AdminScreenView(QWidget):
         reset_coins_btn.setMinimumHeight(44)
         reset_coins_btn.clicked.connect(self.reset_coins_clicked.emit)
         p5_row.addWidget(reset_coins_btn)
+        # SIM_MODE only: empty hoppers make any change a Shortfall, so a sim
+        # payment shows the Voucher screen. Hidden on the kiosk, where a stray
+        # tap would turn every customer's change into a Voucher.
+        if self._sim_mode:
+            empty_coins_btn = SecondaryButton("Empty All (SIM)")
+            empty_coins_btn.setMinimumHeight(44)
+            empty_coins_btn.clicked.connect(self.empty_coins_clicked.emit)
+            p5_row.addWidget(empty_coins_btn)
         layout.addLayout(p5_row)
         return group
 

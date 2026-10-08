@@ -2,6 +2,8 @@
 
 from PyQt5.QtWidgets import QWidget, QGridLayout
 
+from config import get_config
+
 from .model import AdminModel
 from .view import AdminScreenView
 
@@ -14,7 +16,7 @@ class AdminController(QWidget):
         self.main_app = main_app
 
         self.model = AdminModel()
-        self.view = AdminScreenView()
+        self.view = AdminScreenView(sim_mode=get_config().sim_mode)
 
         # Connect to database thread manager if available
         if hasattr(main_app, 'db_threader'):
@@ -46,6 +48,7 @@ class AdminController(QWidget):
         self.view.coin_5_decreased.connect(self.model.decrease_coin_5_count)
         self.view.coin_5_increased.connect(self.model.increase_coin_5_count)
         self.view.reset_coins_clicked.connect(self.model.reset_coin_counts)
+        self.view.empty_coins_clicked.connect(self.model.empty_coin_counts)
         self.view.update_cmyk_clicked.connect(self.model.update_cmyk_levels)
         self.view.reset_cmyk_clicked.connect(self.model.reset_cmyk_levels)
         self.view.refresh_cmyk_clicked.connect(self.model.refresh_cmyk_levels)
