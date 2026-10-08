@@ -613,3 +613,34 @@ class TestVoucherEntryOnScreen:
             assert "Use a voucher" == view.use_voucher_btn.text()
         finally:
             screen.on_leave()
+
+    def test_code_typed_on_the_keypad_is_applied(self, kiosk, db):
+        from screens.payment.controller import PaymentController
+        from ui.widgets import BACKSPACE_KEY
+        main_app, model = kiosk
+        code = issue_voucher(main_app, model, db, 2)
+        screen = PaymentController(main_app)
+        main_app.stacked_widget = SimpleNamespace(currentWidget=lambda: screen)
+        screen.set_payment_data(job())
+        screen.on_enter()
+        view = screen.view
+        try:
+            assert view.voucher_keypad.isHidden()
+            view.use_voucher_btn.click()
+            assert not view.voucher_keypad.isHidden()
+            # Every code character has a key; a slip is fixed with backspace.
+            assert set(view.voucher_keypad.key_buttons) == set(vm.CODE_ALPHABET) | {BACKSPACE_KEY}
+            keys = view.voucher_keypad.key_buttons
+            chars = code.replace("-", "")  # no hyphen key: it's optional when typing
+            keys[chars[0]].click()
+            keys["Z" if chars[1] != "Z" else "Y"].click()
+            keys[BACKSPACE_KEY].click()
+            for ch in chars[1:]:
+                keys[ch].click()
+            assert view.voucher_input.text() == chars
+            view.apply_voucher_btn.click()
+
+            assert view.vouchers_label.text() == f"Voucher ••••-{code[-4:]}: P2 applied, P0 left"
+            assert screen.model.amount_owed == job_cost() - 2
+        finally:
+            screen.on_leave()

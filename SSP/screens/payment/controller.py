@@ -1,6 +1,7 @@
 from PyQt5.QtWidgets import QWidget
 from PyQt5.QtCore import pyqtSignal, QTimer
 from .model import PaymentModel
+from managers.voucher_manager import CODE_ALPHABET
 from .view import PaymentScreenView
 
 
@@ -16,7 +17,7 @@ class PaymentController(QWidget):
         self.main_app = main_app
 
         self.model = PaymentModel(main_app)
-        self.view = PaymentScreenView()
+        self.view = PaymentScreenView(voucher_keys=CODE_ALPHABET)
 
         # Setup timeout timer (1 minute = 60000ms)
         self.timeout_timer = QTimer()

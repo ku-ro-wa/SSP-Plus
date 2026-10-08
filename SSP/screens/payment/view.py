@@ -4,7 +4,7 @@ from PyQt5.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit
 from PyQt5.QtCore import Qt, pyqtSignal
 
 from ui.theme import COLORS, FONT
-from ui.widgets import Header, BackButton, PrimaryButton, SecondaryButton, StatusBanner
+from ui.widgets import Header, BackButton, CodeKeypad, PrimaryButton, SecondaryButton, StatusBanner
 
 try:
     import pigpio  # noqa: F401
@@ -32,8 +32,9 @@ class PaymentScreenView(QWidget):
     voucher_code_entered = pyqtSignal(str)     # raw text from the "Use a voucher" entry
     voucher_entry_activity = pyqtSignal()      # typing in the entry (keeps the screen awake)
 
-    def __init__(self, parent=None):
+    def __init__(self, voucher_keys, parent=None):
         super().__init__(parent)
+        self._voucher_keys = voucher_keys  # characters the on-screen keypad offers
         self.setup_ui()
 
     def setup_ui(self):
@@ -141,6 +142,11 @@ class PaymentScreenView(QWidget):
         row.addWidget(self.apply_voucher_btn)
         layout.addLayout(row)
 
+        # The touchscreen has no keyboard, so the code is typed on this keypad.
+        self.voucher_keypad = CodeKeypad(self.voucher_input, self._voucher_keys)
+        self.voucher_keypad.pressed.connect(self.voucher_entry_activity.emit)
+        layout.addWidget(self.voucher_keypad)
+
         self.voucher_banner = StatusBanner()
         layout.addWidget(self.voucher_banner)
 
@@ -156,6 +162,7 @@ class PaymentScreenView(QWidget):
     def _set_voucher_input_visible(self, visible):
         self.voucher_input.setVisible(visible)
         self.apply_voucher_btn.setVisible(visible)
+        self.voucher_keypad.setVisible(visible)
 
     def _show_voucher_input(self):
         self._set_voucher_input_visible(True)
@@ -239,6 +246,7 @@ class PaymentScreenView(QWidget):
         self.back_btn.setEnabled(back_enabled)
         self.use_voucher_btn.setEnabled(back_enabled)
         self.apply_voucher_btn.setEnabled(back_enabled)
+        self.voucher_keypad.setEnabled(back_enabled)
 
     def update_inline_suggestion(self, text: str):
         self.suggestion_banner.show_message(text or "", "info")
