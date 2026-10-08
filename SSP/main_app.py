@@ -13,6 +13,7 @@ Key Components:
 
 import sys
 import os
+import signal
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
 from PyQt5 import QtCore
@@ -926,6 +927,24 @@ def main():
 
         # Show window (size and mode determined by _setup_display)
         window.show()
+
+        # Qt's event loop runs in C++, so Python never sees Ctrl+C (SIGINT) or
+        # a systemd stop (SIGTERM) while it waits. Close the window on either,
+        # which runs cleanup(), and wake Python every 200 ms so the handler
+        # gets a chance to run. A second signal quits without cleanup.
+        def _shut_down(signum, frame):
+            if getattr(_shut_down, "called", False):
+                print("\n🛑 Second signal, quitting without cleanup")
+                os._exit(1)
+            _shut_down.called = True
+            print(f"\n🛑 {signal.Signals(signum).name} received, shutting down (again to force)...")
+            window.close()
+
+        signal.signal(signal.SIGINT, _shut_down)
+        signal.signal(signal.SIGTERM, _shut_down)
+        signal_wake = QTimer()
+        signal_wake.timeout.connect(lambda: None)
+        signal_wake.start(200)
 
         sys.exit(app.exec_())
     except Exception as e:
