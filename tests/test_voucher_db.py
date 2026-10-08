@@ -171,6 +171,7 @@ class TestRealDbVouchers:
         issued = manager.issue(5)
         manager.apply([issued.code], 5)
         assert manager.balance(issued.code).status == vm.LookupStatus.USED
+        assert manager.balance(issued.code).message == vm.MSG_FULLY_USED
         assert not manager.apply([issued.code], 1).success
 
     def test_expired_voucher_is_rejected(self, db, clock):
@@ -178,6 +179,8 @@ class TestRealDbVouchers:
         issued = manager.issue(5)
         clock.advance(days=30, seconds=1)
         assert manager.balance(issued.code).status == vm.LookupStatus.EXPIRED
+        result = manager.balance(issued.code)
+        assert result.message == "This voucher expired on October 31, 2026"
         assert not manager.apply([issued.code], 1).success
         assert int(db.get_setting('voucher_failed_attempts', 0)) == 0  # a real code isn't a guess
 
