@@ -22,6 +22,21 @@ DEFAULT_EXPIRY_DAYS = 30     # fallback if 'voucher_expiry_days' is unset
 # Crockford decoding: commonly mistyped characters map to their look-alikes.
 _CROCKFORD_FIXES = str.maketrans({"O": "0", "I": "1", "L": "1"})
 
+MONTHS = ("January", "February", "March", "April", "May", "June", "July",
+          "August", "September", "October", "November", "December")
+
+
+class LookupStatus:
+    """Why a lookup succeeded or failed, so screens can react without parsing
+    the message. Only UNKNOWN counts toward the shared lockout: EXPIRED and
+    USED codes are real codes, and MALFORMED input can't be a guess at one."""
+    FOUND = "found"
+    UNKNOWN = "unknown"
+    EXPIRED = "expired"
+    USED = "used"
+    MALFORMED = "malformed"
+    LOCKED = "locked"
+
 
 def normalize_code(raw) -> Optional[str]:
     """Canonical 8-char code from whatever the customer typed or scanned
@@ -40,6 +55,12 @@ def normalize_code(raw) -> Optional[str]:
 def format_code(code: str) -> str:
     """'ABCD1234' -> 'ABCD-1234' (the typeable on-screen form)."""
     return f"{code[:4]}-{code[4:]}"
+
+
+def format_expiry(d: datetime) -> str:
+    """'October 8, 2026'. Not %B: QApplication applies the system locale, and
+    the kiosk's copy is English."""
+    return f"{MONTHS[d.month - 1]} {d.day}, {d.year}"
 
 
 def _hash_code(voucher_id: str, code: str) -> str:
@@ -64,6 +85,7 @@ class VoucherLookup:
     remaining: int = 0
     expires_at: Optional[datetime] = None
     locked: bool = False
+    status: str = LookupStatus.FOUND
 
 
 @dataclass
@@ -74,6 +96,7 @@ class ApplyResult:
     # [{"voucher_id": ..., "amount": ..., "remaining": ...}], in the order used
     applications: list = field(default_factory=list)
     locked: bool = False
+    status: str = LookupStatus.FOUND  # on failure, the failing code's LookupStatus
 
 
 class VoucherManager:
@@ -155,10 +178,11 @@ class VoucherManager:
 
     def _resolve(self, code: str):
         """Active voucher row matching a canonical code, or None. Read-only."""
-        for row in self.db_manager.get_active_vouchers(self._now()):
-            if hmac.compare_digest(_hash_code(row['voucher_id'], code), row['code_hash']):
-                return row
-        return None
+        return _match(self.db_manager.get_active_vouchers(self._now()), code)
+
+    def _resolve_inactive(self, code: str):
+        """Fully-used or expired voucher row matching a canonical code, or None."""
+        return _match(self.db_manager.get_inactive_vouchers(self._now()), code)
 
     def _lockout_remaining(self) -> Optional[timedelta]:
         raw = self.db_manager.get_setting('voucher_locked_until', '')
@@ -200,21 +224,36 @@ class VoucherManager:
         """
         remaining = self._lockout_remaining()
         if remaining:
-            return None, VoucherLookup(False, self._locked_message(remaining), locked=True)
+            return None, VoucherLookup(False, self._locked_message(remaining), locked=True,
+                                       status=LookupStatus.LOCKED)
 
         code = normalize_code(raw_code)
         if code is None:
-            return None, VoucherLookup(False, "That doesn't look like a voucher code")
+            return None, VoucherLookup(False, "That doesn't look like a voucher code",
+                                       status=LookupStatus.MALFORMED)
 
         row = self._resolve(code)
-        if row is None:
-            if self._register_failure():
-                remaining = self._lockout_remaining()
-                msg = self._locked_message(remaining) if remaining else "Too many incorrect codes"
-                return None, VoucherLookup(False, msg, locked=True)
-            # Wrong, expired and fully-used codes are deliberately indistinguishable.
-            return None, VoucherLookup(False, "Voucher code not recognised, expired, or already used")
-        return row, None
+        if row is not None:
+            return row, None
+
+        # A real code that's spent or expired isn't a guess, so it gets its own
+        # message and doesn't count toward the lockout.
+        spent = self._resolve_inactive(code)
+        if spent is not None:
+            if int(spent['remaining_value']) <= 0:
+                return None, VoucherLookup(False, "This voucher has already been fully used",
+                                           status=LookupStatus.USED)
+            expired = format_expiry(_as_datetime(spent['expires_at']))
+            return None, VoucherLookup(False, f"This voucher expired on {expired}",
+                                       expires_at=_as_datetime(spent['expires_at']),
+                                       status=LookupStatus.EXPIRED)
+
+        if self._register_failure():
+            remaining = self._lockout_remaining()
+            msg = self._locked_message(remaining) if remaining else "Too many incorrect codes"
+            return None, VoucherLookup(False, msg, locked=True, status=LookupStatus.LOCKED)
+        return None, VoucherLookup(False, "We don't recognise that voucher code. Please check it and try again",
+                                   status=LookupStatus.UNKNOWN)
 
     # ---- public lookups -------------------------------------------------
 
@@ -248,7 +287,8 @@ class VoucherManager:
         for raw in raw_codes:
             row, failure = self._lookup(raw)
             if failure:
-                return ApplyResult(False, failure.message, locked=failure.locked)
+                return ApplyResult(False, failure.message, locked=failure.locked,
+                                   status=failure.status)
             if row['voucher_id'] in seen:
                 continue  # same voucher entered twice
             seen.add(row['voucher_id'])
@@ -276,6 +316,13 @@ class VoucherManager:
                 for vid, take, left in plan
             ],
         )
+
+
+def _match(rows, code):
+    for row in rows:
+        if hmac.compare_digest(_hash_code(row['voucher_id'], code), row['code_hash']):
+            return row
+    return None
 
 
 def _as_datetime(value):

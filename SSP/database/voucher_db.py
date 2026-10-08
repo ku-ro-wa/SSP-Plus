@@ -45,6 +45,22 @@ class VoucherDBMixin:
             print(f"Error getting active vouchers: {e}")
             return []
 
+    def get_inactive_vouchers(self, now):
+        """Vouchers that are fully used or expired. Only consulted after a code
+        misses every active voucher, to tell the customer which it was."""
+        if not self.conn:
+            return []
+        try:
+            cursor = self.conn.cursor()
+            cursor.execute(
+                "SELECT * FROM vouchers WHERE remaining_value <= 0 OR expires_at <= ? "
+                "ORDER BY created_at", (now,)
+            )
+            return cursor.fetchall()
+        except sqlite3.Error as e:
+            print(f"Error getting inactive vouchers: {e}")
+            return []
+
     def apply_vouchers(self, plan, payment_ref, applied_at):
         """
         Decrement each voucher in `plan` ([(voucher_id, amount), ...]) and

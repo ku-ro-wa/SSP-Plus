@@ -170,15 +170,16 @@ class TestRealDbVouchers:
         manager = VoucherManager(db, now_fn=clock)
         issued = manager.issue(5)
         manager.apply([issued.code], 5)
-        assert not manager.balance(issued.code).success
+        assert manager.balance(issued.code).status == vm.LookupStatus.USED
         assert not manager.apply([issued.code], 1).success
 
     def test_expired_voucher_is_rejected(self, db, clock):
         manager = VoucherManager(db, now_fn=clock)
         issued = manager.issue(5)
         clock.advance(days=30, seconds=1)
-        assert not manager.balance(issued.code).success
+        assert manager.balance(issued.code).status == vm.LookupStatus.EXPIRED
         assert not manager.apply([issued.code], 1).success
+        assert int(db.get_setting('voucher_failed_attempts', 0)) == 0  # a real code isn't a guess
 
     def test_lockout_is_kiosk_wide_across_restarts(self, db_path, clock):
         first = DatabaseManager(db_path=db_path)
