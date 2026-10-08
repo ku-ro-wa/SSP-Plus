@@ -17,7 +17,7 @@ except ImportError:
 
 from managers.persistent_gpio import get_persistent_gpio, PIGPIO_AVAILABLE as PAYMENT_GPIO_AVAILABLE
 import uuid
-from managers.voucher_manager import IssuedVoucher, LookupStatus, VoucherManager, normalize_code
+from managers.voucher_manager import MSG_UNGIVEN_CHANGE, IssuedVoucher, LookupStatus, VoucherManager, normalize_code
 from managers.sms_manager import send_operator_alert
 
 
@@ -535,8 +535,10 @@ class PaymentModel(QObject):
         amt = self.best_payment_suggestion.get('amount', self.total_cost)
         chg = self.best_payment_suggestion.get('change', 0)
         if chg == 0:
-            return f"Max payment we can receive: P{amt:.2f} (exact)"
-        return f"Max payment we can receive: P{amt:.2f} (available P{chg:.2f})"
+            per_job = f"Max payment we can receive: P{amt:.2f} (exact)"
+        else:
+            per_job = f"Max payment we can receive: P{amt:.2f} (available P{chg:.2f})"
+        return f"{per_job}\n{MSG_UNGIVEN_CHANGE}"
 
     def _auto_complete_payment(self):
         """Automatically complete payment when sufficient amount is received."""

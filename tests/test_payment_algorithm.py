@@ -109,3 +109,37 @@ class TestFindBestPaymentAmount:
         result = pam.find_best_payment_amount(9.0)
         assert abs(result['amount'] - 9.0 - result['change']) < 0.01
 
+
+class TestMaxDispensableChange:
+    def test_sums_coins(self):
+        pam = PaymentAlgorithmManager(_make_db(coins_1=3, coins_5=2))
+        assert pam.get_max_dispensable_change() == 13
+
+    def test_respects_reserve_thresholds(self):
+        settings = {'min_coin_threshold_1': 2, 'min_coin_threshold_5': 1}
+        pam = PaymentAlgorithmManager(_make_db(coins_1=3, coins_5=2, settings=settings))
+        assert pam.get_max_dispensable_change() == 6
+
+    def test_capped_by_max_change_limit(self):
+        pam = PaymentAlgorithmManager(_make_db(coins_1=100, coins_5=100, settings={'max_change_limit': 50}))
+        assert pam.get_max_dispensable_change() == 50
+
+
+class TestIsChangeLow:
+    def test_below_default_threshold(self):
+        pam = PaymentAlgorithmManager(_make_db(coins_1=4, coins_5=3))  # ₱19
+        assert pam.is_change_low() is True
+
+    def test_at_default_threshold_is_not_low(self):
+        pam = PaymentAlgorithmManager(_make_db(coins_1=5, coins_5=3))  # ₱20
+        assert pam.is_change_low() is False
+
+    def test_threshold_read_from_settings(self):
+        settings = {'low_change_warning_threshold': 50}
+        pam = PaymentAlgorithmManager(_make_db(coins_1=10, coins_5=5, settings=settings))  # ₱35
+        assert pam.is_change_low() is True
+
+    def test_unparseable_threshold_falls_back_to_default(self):
+        settings = {'low_change_warning_threshold': 'lots'}
+        pam = PaymentAlgorithmManager(_make_db(coins_1=4, coins_5=3, settings=settings))  # ₱19
+        assert pam.is_change_low() is True

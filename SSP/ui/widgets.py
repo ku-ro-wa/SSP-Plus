@@ -12,6 +12,7 @@ from PyQt5.QtWidgets import (
     QWidget,
 )
 
+from managers.voucher_manager import MSG_UNGIVEN_CHANGE
 from ui.icons import icon, icon_path, svg_widget
 from ui.theme import (
     CARD_QSS, COLORS, DANGER_BUTTON_QSS, FONT, HEADER_QSS, PRIMARY_BUTTON_QSS, RADIUS,
@@ -208,6 +209,17 @@ class StatusBanner(QFrame):
         self._icon.load(icon_path(self._ICON_BY_VARIANT.get(variant, "alert-triangle")))
         self._label.setText(message)
         self.setVisible(True)
+
+
+LOW_CHANGE_MESSAGE = f"This kiosk is low on change. Please pay the exact amount if you can. {MSG_UNGIVEN_CHANGE}"
+
+
+class LowChangeBanner(StatusBanner):
+    """Warning shown on idle and the homepage while the kiosk's max dispensable change is
+    below the 'low_change_warning_threshold' setting."""
+
+    def set_low(self, low: bool):
+        self.show_message(LOW_CHANGE_MESSAGE if low else "", variant="warning")
 
 
 BACKSPACE_KEY = "\u232b"  # ⌫
