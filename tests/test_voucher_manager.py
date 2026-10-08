@@ -13,6 +13,7 @@ import managers.voucher_manager as vm
 from managers.voucher_manager import (
     CODE_ALPHABET,
     MAX_FAILED_ATTEMPTS,
+    LookupStatus,
     MSG_FULLY_USED,
     MSG_UNKNOWN,
     VoucherManager,
@@ -62,7 +63,7 @@ class FakeVoucherDB:
 
     def get_inactive_vouchers(self, now):
         return [
-            dict(v) for v in sorted(self.vouchers.values(), key=lambda v: v['created_at'], reverse=True)
+            dict(v) for v in self.vouchers.values()
             if v['remaining_value'] <= 0 or v['expires_at'] <= now
         ]
 
@@ -214,7 +215,7 @@ class TestBalance:
             "unknown": manager.balance("ZZZZ-ZZZZ").message,
         }
         assert messages["used"] == MSG_FULLY_USED
-        assert messages["expired"] == "This voucher expired on October 31, 2026."
+        assert messages["expired"] == "This voucher expired on October 31, 2026"
         assert messages["unknown"] == MSG_UNKNOWN
         assert len(set(messages.values())) == 3
 
@@ -231,6 +232,47 @@ class TestBalance:
     def test_qr_payload_form_is_accepted(self, manager):
         v = manager.issue(9)
         assert manager.balance(f"V1:{v.code}").success
+
+
+class TestDistinctOutcomes:
+    def test_unknown_code(self, manager):
+        r = manager.balance("ZZZZ-ZZZZ")
+        assert r.status == LookupStatus.UNKNOWN
+        assert r.message == MSG_UNKNOWN
+
+    def test_expired_code_names_its_expiry_and_is_not_a_wrong_guess(self, manager, clock, db):
+        v = manager.issue(9)
+        clock.advance(days=31)
+        r = manager.balance(v.code)
+        assert (r.success, r.status) == (False, LookupStatus.EXPIRED)
+        assert "expired" in r.message and str(v.expires_at.year) in r.message
+        assert int(db.get_setting('voucher_failed_attempts', 0)) == 0
+
+    def test_fully_used_code_is_not_a_wrong_guess(self, manager, db):
+        v = manager.issue(5)
+        manager.apply([v.code], 5)
+        r = manager.balance(v.code)
+        assert (r.success, r.status) == (False, LookupStatus.USED)
+        assert "fully used" in r.message
+        assert int(db.get_setting('voucher_failed_attempts', 0)) == 0
+
+    def test_messages_are_all_different(self, manager, clock):
+        used, expired = manager.issue(5), manager.issue(5)
+        manager.apply([used.code], 5)
+        clock.advance(days=31)
+        messages = {manager.balance(c).message for c in (used.code, expired.code, "ZZZZZZZZ", "nope")}
+        assert len(messages) == 4
+
+    def test_apply_reports_the_failing_status(self, manager):
+        v = manager.issue(5)
+        manager.apply([v.code], 5)
+        assert manager.apply([v.code], 5).status == LookupStatus.USED
+
+    def test_locked_status(self, manager):
+        for _ in range(MAX_FAILED_ATTEMPTS):
+            r = manager.balance("ZZZZZZZZ")
+        assert r.status == LookupStatus.LOCKED
+        assert "minute" in r.message
 
 
 class TestLockout:

@@ -46,15 +46,15 @@ class VoucherDBMixin:
             return []
 
     def get_inactive_vouchers(self, now):
-        """Expired or fully used vouchers, newest first, so a lookup can say why
-        a real code no longer works instead of calling it unknown."""
+        """Vouchers that are fully used or expired. Only consulted after a code
+        misses every active voucher, to tell the customer which it was."""
         if not self.conn:
             return []
         try:
             cursor = self.conn.cursor()
             cursor.execute(
                 "SELECT * FROM vouchers WHERE remaining_value <= 0 OR expires_at <= ? "
-                "ORDER BY created_at DESC", (now,)
+                "ORDER BY created_at", (now,)
             )
             return cursor.fetchall()
         except sqlite3.Error as e:

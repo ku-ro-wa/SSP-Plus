@@ -1,10 +1,10 @@
 # screens/payment/view.py
 
-from PyQt5.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QLabel
+from PyQt5.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit
 from PyQt5.QtCore import Qt, pyqtSignal
 
 from ui.theme import COLORS, FONT
-from ui.widgets import Header, BackButton, SecondaryButton, StatusBanner
+from ui.widgets import Header, BackButton, CodeKeypad, PrimaryButton, SecondaryButton, StatusBanner
 
 try:
     import pigpio  # noqa: F401
@@ -29,9 +29,12 @@ class PaymentScreenView(QWidget):
     back_button_clicked = pyqtSignal()
     simulation_coin_clicked = pyqtSignal(int)  # coin_value
     simulation_bill_clicked = pyqtSignal(int)  # bill_value
+    voucher_code_entered = pyqtSignal(str)     # raw text from the "Use a voucher" entry
+    voucher_entry_activity = pyqtSignal()      # typing in the entry (keeps the screen awake)
 
-    def __init__(self, parent=None):
+    def __init__(self, voucher_keys, parent=None):
         super().__init__(parent)
+        self._voucher_keys = voucher_keys  # characters the on-screen keypad offers
         self.setup_ui()
 
     def setup_ui(self):
@@ -100,6 +103,8 @@ class PaymentScreenView(QWidget):
         )
         body_layout.addWidget(self.change_label)
 
+        self._add_voucher_entry(body_layout)
+
         # Add simulation buttons if GPIO not available
         if not PAYMENT_GPIO_AVAILABLE:
             self._add_simulation_buttons(body_layout)
@@ -108,6 +113,80 @@ class PaymentScreenView(QWidget):
 
         # Don't set layout here - let the controller handle it
         self.main_layout = main_layout
+
+    def _add_voucher_entry(self, layout):
+        """"Use a voucher": a button that reveals a code entry, plus the list
+        of Vouchers Applied so far with what each will have left."""
+        row = QHBoxLayout()
+        row.setSpacing(6)
+        self.use_voucher_btn = SecondaryButton("Use a voucher")
+        self.use_voucher_btn.setMinimumHeight(44)
+        self.use_voucher_btn.clicked.connect(self._show_voucher_input)
+        row.addWidget(self.use_voucher_btn)
+
+        self.voucher_input = QLineEdit()
+        self.voucher_input.setPlaceholderText("Voucher code (XXXX-XXXX)")
+        self.voucher_input.setMaxLength(16)  # room for 'V1:' and a hyphen
+        self.voucher_input.setAlignment(Qt.AlignCenter)
+        self.voucher_input.setStyleSheet(
+            f"QLineEdit {{ border: 1px solid {COLORS['border_strong']}; border-radius: 6px; padding: 6px; "
+            f"font-size: {FONT['size_md']}px; color: {COLORS['text']}; }}"
+            f"QLineEdit:focus {{ border: 1px solid {COLORS['primary']}; }}"
+        )
+        self.voucher_input.textEdited.connect(lambda _: self.voucher_entry_activity.emit())
+        self.voucher_input.returnPressed.connect(self._submit_voucher)
+        self.apply_voucher_btn = PrimaryButton("Apply")
+        self.apply_voucher_btn.setMinimumHeight(44)
+        self.apply_voucher_btn.clicked.connect(self._submit_voucher)
+        row.addWidget(self.voucher_input, 1)
+        row.addWidget(self.apply_voucher_btn)
+        layout.addLayout(row)
+
+        # The touchscreen has no keyboard, so the code is typed on this keypad.
+        self.voucher_keypad = CodeKeypad(self.voucher_input, self._voucher_keys)
+        self.voucher_keypad.pressed.connect(self.voucher_entry_activity.emit)
+        layout.addWidget(self.voucher_keypad)
+
+        self.voucher_banner = StatusBanner()
+        layout.addWidget(self.voucher_banner)
+
+        self.vouchers_label = QLabel("")
+        self.vouchers_label.setAlignment(Qt.AlignCenter)
+        self.vouchers_label.setWordWrap(True)
+        self.vouchers_label.setStyleSheet(
+            f"color: {COLORS['text']}; font-size: {FONT['size_md']}px; padding: 4px;"
+        )
+        layout.addWidget(self.vouchers_label)
+        self._set_voucher_input_visible(False)
+
+    def _set_voucher_input_visible(self, visible):
+        self.voucher_input.setVisible(visible)
+        self.apply_voucher_btn.setVisible(visible)
+        self.voucher_keypad.setVisible(visible)
+
+    def _show_voucher_input(self):
+        self._set_voucher_input_visible(True)
+        self.voucher_input.setFocus()
+        self.voucher_entry_activity.emit()
+
+    def _submit_voucher(self):
+        text = self.voucher_input.text()
+        self.voucher_input.clear()  # don't leave a code sitting on screen
+        if text.strip():
+            self.voucher_code_entered.emit(text)
+
+    def show_voucher_message(self, message, is_error):
+        self.voucher_banner.show_message(message, "error" if is_error else "success")
+
+    def update_vouchers(self, vouchers):
+        """vouchers: [AppliedVoucher] in the order Applied."""
+        lines = [f"{v.label}: P{v.amount} applied, P{v.remaining} left" for v in vouchers]
+        self.vouchers_label.setText("<br>".join(lines))
+
+    def reset_voucher_entry(self):
+        self.voucher_input.clear()
+        self._set_voucher_input_visible(False)
+        self.voucher_banner.show_message("", "info")
 
     def _add_simulation_buttons(self, layout):
         """Adds simulation buttons for testing when GPIO is not available."""
@@ -165,6 +244,9 @@ class PaymentScreenView(QWidget):
     def set_buttons_enabled(self, back_enabled):
         """Sets the enabled state of all buttons."""
         self.back_btn.setEnabled(back_enabled)
+        self.use_voucher_btn.setEnabled(back_enabled)
+        self.apply_voucher_btn.setEnabled(back_enabled)
+        self.voucher_keypad.setEnabled(back_enabled)
 
     def update_inline_suggestion(self, text: str):
         self.suggestion_banner.show_message(text or "", "info")

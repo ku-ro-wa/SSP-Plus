@@ -7,7 +7,7 @@ from PyQt5.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit
 from PyQt5.QtCore import Qt, pyqtSignal
 
 from ui.theme import COLORS, FONT
-from ui.widgets import BackButton, Header, PrimaryButton, StatusBanner
+from ui.widgets import BackButton, CodeKeypad, Header, PrimaryButton, StatusBanner
 
 
 class VoucherBalanceScreenView(QWidget):
@@ -15,8 +15,9 @@ class VoucherBalanceScreenView(QWidget):
     back_button_clicked = pyqtSignal()
     input_edited = pyqtSignal()
 
-    def __init__(self, parent=None):
+    def __init__(self, code_keys, parent=None):
         super().__init__(parent)
+        self._code_keys = code_keys  # characters the on-screen keypad offers
         self.setup_ui()
 
     def setup_ui(self):
@@ -67,6 +68,10 @@ class VoucherBalanceScreenView(QWidget):
         entry_row.addWidget(self.check_button)
         entry_row.addStretch()
 
+        # The touchscreen has no keyboard, so the code is typed on this keypad.
+        self.keypad = CodeKeypad(self.code_input, self._code_keys)
+        self.keypad.pressed.connect(self.input_edited.emit)
+
         # Remaining value and expiry; hidden until a code is found.
         self.result_panel = QWidget()
         result = QVBoxLayout(self.result_panel)
@@ -103,6 +108,8 @@ class VoucherBalanceScreenView(QWidget):
         body.addWidget(subtitle)
         body.addSpacing(12)
         body.addLayout(entry_row)
+        body.addSpacing(8)
+        body.addWidget(self.keypad, 0, Qt.AlignHCenter)
         body.addSpacing(12)
         body.addWidget(self.result_panel)
         body.addWidget(self.status_banner)

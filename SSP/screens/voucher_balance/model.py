@@ -10,7 +10,7 @@
 # clear() wipes them when the screen is left.
 
 from database.db_manager import DatabaseManager
-from managers.voucher_manager import VoucherManager, format_date
+from managers.voucher_manager import VoucherManager, format_expiry
 
 PESO = "₱"  # ₱
 MSG_EMPTY = "Please enter your voucher code."
@@ -62,4 +62,4 @@ class VoucherBalanceModel:
     def expiry_text(self) -> str:
         if not self.found or self.expires_at is None:
             return ""
-        return f"Valid until {format_date(self.expires_at)}"
+        return f"Valid until {format_expiry(self.expires_at)}"

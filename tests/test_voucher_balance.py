@@ -207,6 +207,22 @@ class TestBalance:
         check(screen, v.display_code)
         assert screen.view.code_input.text() == ""
 
+    def test_code_typed_on_the_keypad_is_checked(self, kiosk, issue):
+        from ui.widgets import BACKSPACE_KEY
+        v = issue(7)
+        screen = open_balance_check(kiosk)
+        keys = screen.view.keypad.key_buttons
+        assert set(keys) == set(vm.CODE_ALPHABET) | {BACKSPACE_KEY}
+        kiosk.countdown = 5
+        keys["Z"].click()
+        keys[BACKSPACE_KEY].click()
+        for ch in v.code:
+            keys[ch].click()
+        assert kiosk.countdown == 60  # each key press keeps the screen awake
+        screen.view.check_button.click()
+        assert not screen.view.result_panel.isHidden()
+        assert screen.view.amount_label.text() == f"{PESO}7"
+
     def test_accepts_the_qr_payload_form(self, kiosk, issue):
         v = issue(7)
         assert check(open_balance_check(kiosk), f"V1:{v.code}")['found']
@@ -224,7 +240,7 @@ class TestBalance:
         }
         assert not any(s['found'] for s in shown.values())
         assert shown['used']['error'] == MSG_FULLY_USED
-        assert shown['expired']['error'] == "This voucher expired on October 31, 2026."
+        assert shown['expired']['error'] == "This voucher expired on October 31, 2026"
         assert shown['unknown']['error'] == MSG_UNKNOWN
 
     def test_blank_input_asks_for_a_code_without_counting(self, kiosk, db):
@@ -249,7 +265,7 @@ class TestSharedLockout:
         for _ in range(3):
             assert check(screen, "ZZZZ-ZZZZ")['error'] == MSG_UNKNOWN
 
-        # What the payment screen does with a typed code (#26 Applies through this).
+        # The payment screen Applies typed codes through VoucherManager.apply (#26).
         at_payment = VoucherManager(db, now_fn=clock)
         assert not at_payment.apply(["ZZZZ-ZZZZ"], 10).locked
         assert at_payment.apply(["ZZZZ-ZZZZ"], 10).locked

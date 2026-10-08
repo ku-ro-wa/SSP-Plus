@@ -17,7 +17,7 @@ except ImportError:
 
 from managers.persistent_gpio import get_persistent_gpio, PIGPIO_AVAILABLE as PAYMENT_GPIO_AVAILABLE
 import uuid
-from managers.voucher_manager import IssuedVoucher, VoucherManager
+from managers.voucher_manager import IssuedVoucher, LookupStatus, VoucherManager, normalize_code
 from managers.sms_manager import send_operator_alert
 
 
@@ -48,6 +48,21 @@ class ShortfallOutcome:
     cause: Optional[ShortfallCause] = None
     voucher: Optional[IssuedVoucher] = None  # holds the raw code until the voucher screen takes it
     voucher_failed: bool = False
+
+
+@dataclass
+class AppliedVoucher:
+    """A Voucher the customer has Applied on the payment screen. Its value is
+    only taken off the Voucher when the payment completes (complete_payment),
+    so cancelling or timing out leaves every Voucher untouched."""
+    code: str        # canonical code: needed to Apply it, cleared with the payment
+    amount: int      # pesos this Voucher pays toward the job
+    remaining: int   # what will be left on it afterwards
+
+    @property
+    def label(self) -> str:
+        # Only the last 4 characters, so the full code isn't left on screen.
+        return f"Voucher \u2022\u2022\u2022\u2022-{self.code[-4:]}"
 
 
 def shortfall_cause(result, shortfall):
@@ -224,6 +239,8 @@ class PaymentModel(QObject):
     go_back_requested = pyqtSignal()  # request to go back
     payment_button_enabled = pyqtSignal(bool)  # enable/disable payment button
     payment_mode_changed = pyqtSignal(bool)  # payment mode enabled/disabled
+    vouchers_updated = pyqtSignal(list)       # [AppliedVoucher], in the order Applied
+    voucher_message = pyqtSignal(str, bool)   # message, is_error
 
     def __init__(self, main_app=None):
         super().__init__()
@@ -244,6 +261,50 @@ class PaymentModel(QObject):
         self.outcome = ShortfallOutcome()
         self.change_owed = 0
         self.change_dispensed = {}
+        self.applied_vouchers = []
+
+    @property
+    def voucher_total(self):
+        return sum(v.amount for v in self.applied_vouchers)
+
+    @property
+    def amount_owed(self):
+        """What's still to pay after cash and Applied Vouchers."""
+        return max(0, self.total_cost - self.amount_received - self.voucher_total)
+
+    def apply_voucher(self, raw_code):
+        """The customer entered a Voucher code (typed, or a 'V1:<code>' payload).
+        Checks it now so they see its value straight away, but only takes the
+        value off the Voucher in complete_payment. Vouchers count in the order
+        they're entered, so at most the last one used is partly used."""
+        if not self.payment_ready or getattr(self, '_payment_completing', False):
+            return False
+        owed = self.amount_owed
+        if owed <= 0:
+            return False
+
+        code = normalize_code(raw_code)
+        if code and any(v.code == code for v in self.applied_vouchers):
+            self.voucher_message.emit("You've already applied that voucher", True)
+            return False
+
+        lookup = VoucherManager(self.db_manager).balance(raw_code)
+        if not lookup.success:
+            self.voucher_message.emit(lookup.message, True)
+            return False
+
+        take = min(lookup.remaining, int(owed))
+        voucher = AppliedVoucher(code=code, amount=take, remaining=lookup.remaining - take)
+        self.applied_vouchers.append(voucher)
+        self.vouchers_updated.emit(list(self.applied_vouchers))
+        self.voucher_message.emit(
+            f"Voucher applied: P{take} off. P{voucher.remaining} left on this voucher.", False)
+        self._update_payment_status()
+        return True
+
+    def _clear_vouchers(self):
+        self.applied_vouchers = []
+        self.vouchers_updated.emit([])
 
     def _issue_shortfall_voucher(self, result, change_owed):
         shortfall = measure_shortfall(result, change_owed)
@@ -297,6 +358,7 @@ class PaymentModel(QObject):
         self.amount_received = 0
         self.cash_received = {}
         self.payment_ready = False
+        self._clear_vouchers()
 
         # Extract print-related attributes for later use
         if 'pdf_data' in payment_data and 'path' in payment_data['pdf_data']:
@@ -437,8 +499,9 @@ class PaymentModel(QObject):
                 print("WARNING: Payment already completing, ignoring duplicate trigger")
                 return
 
-            if self.amount_received >= self.total_cost and self.total_cost > 0:
-                change = self.amount_received - self.total_cost
+            paid = self.amount_received + self.voucher_total
+            if paid >= self.total_cost and self.total_cost > 0:
+                change = paid - self.total_cost
                 change_text = f"Payment Complete. Change: P{change:.2f}" if change > 0 else "Payment Complete"
                 self.change_updated.emit(change, change_text)
                 self.payment_button_enabled.emit(True)  # Enable payment button when sufficient payment
@@ -450,8 +513,7 @@ class PaymentModel(QObject):
                     # Automatically proceed to payment completion
                     self._auto_complete_payment()
             else:
-                remaining = self.total_cost - self.amount_received
-                change_text = f"Remaining: P{remaining:.2f}"
+                change_text = f"Remaining: P{self.amount_owed:.2f}"
                 self.change_updated.emit(0, change_text)
                 self.payment_button_enabled.emit(False)  # Disable payment button when insufficient payment
 
@@ -632,10 +694,14 @@ class PaymentModel(QObject):
         self.amount_received = 0
         self.cash_received = {}
         self.payment_processing = False
+        # Only the change path cleared this, so an exact payment (no change,
+        # e.g. Vouchers covering the cost) left the next customer unable to complete.
+        self._payment_completing = False
         self.payment_ref = None
         self.outcome = ShortfallOutcome()
         self.change_owed = 0
         self.change_dispensed = {}
+        self._clear_vouchers()
 
         self.amount_received_updated.emit(0)
         self.change_updated.emit(0, "")
@@ -771,7 +837,7 @@ class PaymentModel(QObject):
                 print("ERROR: No main app reference")
                 return False, "No main app reference"
 
-            if self.amount_received < self.total_cost:
+            if self.amount_received + self.voucher_total < self.total_cost:
                 return False, "Payment is not sufficient."
 
             # Paper check (no decrement; main_app does that after a successful print).
@@ -780,10 +846,16 @@ class PaymentModel(QObject):
                 return False, (f"Not enough paper to complete print job.\n"
                                f"Required: {total_pages} sheets. Please contact administrator to refill paper.")
 
+            # Take the Applied Vouchers' value now, all or nothing, before any
+            # change comes out.
+            voucher_applied = self._commit_vouchers()
+            if voucher_applied is None:
+                return False, "Could not apply your voucher. Please pay the rest in cash."
+
             # NOTE: payment_algorithm.validate_payment() is deliberately NOT
             # called here. With vouchers (ADR 0003) a sale must never be
             # blocked just because the hoppers can't make change.
-            change_amount = self.amount_received - self.total_cost
+            change_amount = self.amount_received + voucher_applied - self.total_cost
             self.change_owed = change_amount
             self.change_dispensed = {}
             print(f"Change to dispense: P{change_amount:.2f}")
@@ -802,7 +874,7 @@ class PaymentModel(QObject):
                 'source': self.payment_data.get('source'),
                 'change_dispensed': 0 if change_amount <= 0 else None,
                 'voucher_issued': 0,
-                'voucher_applied': 0,          # until the apply step exists
+                'voucher_applied': voucher_applied,
                 'payment_ref': self.payment_ref,
             }
 
@@ -845,6 +917,34 @@ class PaymentModel(QObject):
             if hasattr(self, '_payment_completing'):
                 self._payment_completing = False
             return False, f"Payment completion failed: {str(e)}"
+
+    def _commit_vouchers(self):
+        """Apply the Vouchers entered on this screen, linked to this payment.
+        Returns the value Applied, or None if it failed: then nothing was taken
+        off any Voucher, the Vouchers are dropped and the customer can pay the
+        rest in cash (payment mode is re-enabled)."""
+        if not self.applied_vouchers:
+            return 0
+        result = VoucherManager(self.db_manager).apply(
+            [v.code for v in self.applied_vouchers], self.voucher_total, payment_ref=self.payment_ref)
+        if result.success and result.total_applied == self.voucher_total:
+            self.applied_vouchers = []  # the raw codes aren't needed any more
+            return result.total_applied
+        print(f"ERROR: could not apply vouchers at payment: {result.message}")
+        try:
+            log_error("Voucher Apply Failed",
+                      f"Could not apply P{self.voucher_total} of vouchers "
+                      f"(payment_ref={self.payment_ref}): {result.message}", "payment_model")
+        except Exception:
+            pass
+        self._clear_vouchers()
+        message = (result.message if result.status in (LookupStatus.USED, LookupStatus.EXPIRED)
+                   else "Could not apply your voucher, please try again")
+        self.voucher_message.emit(f"{message}. Please pay the rest in cash.", True)
+        self._payment_completing = False
+        self.enable_payment_mode()
+        self._update_payment_status()
+        return None
 
     def _on_dispensing_finished(self, result):
         """Change dispensing is done (fully, partly, or not at all): issue a
@@ -939,6 +1039,7 @@ class PaymentModel(QObject):
             self.amount_received = 0
             self.total_cost = 0
             self.cash_received = {}
+            self._clear_vouchers()
 
             # Reset payment data
             self.payment_data = None

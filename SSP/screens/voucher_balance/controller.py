@@ -6,6 +6,7 @@
 from PyQt5.QtWidgets import QWidget, QGridLayout
 from PyQt5.QtCore import QTimer
 
+from managers.voucher_manager import CODE_ALPHABET
 from .model import VoucherBalanceModel
 from .view import VoucherBalanceScreenView
 
@@ -18,7 +19,7 @@ class VoucherBalanceController(QWidget):
         self.main_app = main_app
 
         self.model = VoucherBalanceModel()
-        self.view = VoucherBalanceScreenView()
+        self.view = VoucherBalanceScreenView(code_keys=CODE_ALPHABET)
 
         self.timeout_timer = QTimer()
         self.timeout_timer.setSingleShot(True)
