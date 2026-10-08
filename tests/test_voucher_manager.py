@@ -1,7 +1,8 @@
 """
 Tests for VoucherManager — pure logic, no hardware or real DB required.
 FakeVoucherDB mimics the voucher methods added to database/db_manager.py
-(create_voucher / get_active_vouchers / apply_vouchers) plus the settings
+(create_voucher / get_active_vouchers / get_inactive_vouchers /
+apply_vouchers) plus the settings
 helpers, in the same spirit as FakeDBManager in test_session_manager.py.
 """
 from datetime import datetime, timedelta
@@ -13,6 +14,8 @@ from managers.voucher_manager import (
     CODE_ALPHABET,
     MAX_FAILED_ATTEMPTS,
     LookupStatus,
+    MSG_FULLY_USED,
+    MSG_UNKNOWN,
     VoucherManager,
     format_code,
     normalize_code,
@@ -201,6 +204,31 @@ class TestBalance:
         clock.advance(days=30, seconds=1)
         assert not manager.balance(v.code).success
 
+    def test_expired_used_and_unknown_codes_get_distinct_messages(self, manager, clock):
+        used = manager.issue(4)
+        manager.apply([used.code], 4)
+        expired = manager.issue(9)  # issued 2026-10-01, 30-day expiry
+        clock.advance(days=31)
+        messages = {
+            "used": manager.balance(used.code).message,
+            "expired": manager.balance(expired.code).message,
+            "unknown": manager.balance("ZZZZ-ZZZZ").message,
+        }
+        assert messages["used"] == MSG_FULLY_USED
+        assert messages["expired"] == "This voucher expired on October 31, 2026"
+        assert messages["unknown"] == MSG_UNKNOWN
+        assert len(set(messages.values())) == 3
+
+    def test_expired_and_used_codes_do_not_count_toward_lockout(self, manager, db, clock):
+        used = manager.issue(4)
+        manager.apply([used.code], 4)
+        expired = manager.issue(9)
+        clock.advance(days=31)
+        for _ in range(MAX_FAILED_ATTEMPTS + 1):
+            assert not manager.balance(used.code).locked
+            assert not manager.balance(expired.code).locked
+        assert int(db.get_setting('voucher_failed_attempts', 0)) == 0
+
     def test_qr_payload_form_is_accepted(self, manager):
         v = manager.issue(9)
         assert manager.balance(f"V1:{v.code}").success
@@ -210,7 +238,7 @@ class TestDistinctOutcomes:
     def test_unknown_code(self, manager):
         r = manager.balance("ZZZZ-ZZZZ")
         assert r.status == LookupStatus.UNKNOWN
-        assert "recognise" in r.message
+        assert r.message == MSG_UNKNOWN
 
     def test_expired_code_names_its_expiry_and_is_not_a_wrong_guess(self, manager, clock, db):
         v = manager.issue(9)

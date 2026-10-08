@@ -565,7 +565,7 @@ class TestVoucherEntryMessages:
         assert all(is_error for _, is_error in messages)
         assert "expired" in texts[0]
         assert "fully used" in texts[1]
-        assert "recognise" in texts[2]
+        assert texts[2] == vm.MSG_UNKNOWN
         assert len(set(texts)) == 3
         assert not any("redeem" in t.lower() for t in texts)
 

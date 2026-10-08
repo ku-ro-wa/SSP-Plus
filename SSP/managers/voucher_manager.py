@@ -25,6 +25,10 @@ _CROCKFORD_FIXES = str.maketrans({"O": "0", "I": "1", "L": "1"})
 MONTHS = ("January", "February", "March", "April", "May", "June", "July",
           "August", "September", "October", "November", "December")
 
+MSG_MALFORMED = "That doesn't look like a voucher code"
+MSG_UNKNOWN = "We couldn't find a voucher with that code. Please check it and try again"
+MSG_FULLY_USED = "This voucher has already been fully used"
+
 
 class LookupStatus:
     """Why a lookup succeeded or failed, so screens can react without parsing
@@ -229,7 +233,7 @@ class VoucherManager:
 
         code = normalize_code(raw_code)
         if code is None:
-            return None, VoucherLookup(False, "That doesn't look like a voucher code",
+            return None, VoucherLookup(False, MSG_MALFORMED,
                                        status=LookupStatus.MALFORMED)
 
         row = self._resolve(code)
@@ -241,7 +245,7 @@ class VoucherManager:
         spent = self._resolve_inactive(code)
         if spent is not None:
             if int(spent['remaining_value']) <= 0:
-                return None, VoucherLookup(False, "This voucher has already been fully used",
+                return None, VoucherLookup(False, MSG_FULLY_USED,
                                            status=LookupStatus.USED)
             expired = format_expiry(_as_datetime(spent['expires_at']))
             return None, VoucherLookup(False, f"This voucher expired on {expired}",
@@ -252,7 +256,7 @@ class VoucherManager:
             remaining = self._lockout_remaining()
             msg = self._locked_message(remaining) if remaining else "Too many incorrect codes"
             return None, VoucherLookup(False, msg, locked=True, status=LookupStatus.LOCKED)
-        return None, VoucherLookup(False, "We don't recognise that voucher code. Please check it and try again",
+        return None, VoucherLookup(False, MSG_UNKNOWN,
                                    status=LookupStatus.UNKNOWN)
 
     # ---- public lookups -------------------------------------------------

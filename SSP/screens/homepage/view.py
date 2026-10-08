@@ -6,13 +6,14 @@ from PyQt5.QtWidgets import (
 from PyQt5.QtCore import Qt, pyqtSignal
 
 from ui.theme import COLORS, FONT
-from ui.widgets import Card, Header, ReaderHint, StatusBanner
+from ui.widgets import Card, Header, ReaderHint, SecondaryButton, StatusBanner
 
 
 class HomepageScreenView(QWidget):
     """The user interface for the Landing (upload method selection) screen. Contains no logic."""
 
     method_card_clicked = pyqtSignal(str)  # method_key
+    voucher_balance_clicked = pyqtSignal()
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -82,6 +83,16 @@ class HomepageScreenView(QWidget):
         grid_wrapper.addLayout(cards_grid)
         grid_wrapper.addStretch()
         fg_layout.addLayout(grid_wrapper)
+
+        # Not an upload method, so a plain button below the cards rather than a fifth card.
+        self.voucher_balance_button = SecondaryButton("Check voucher balance")
+        self.voucher_balance_button.clicked.connect(self.voucher_balance_clicked.emit)
+        voucher_row = QHBoxLayout()
+        voucher_row.addStretch()
+        voucher_row.addWidget(self.voucher_balance_button)
+        voucher_row.addStretch()
+        fg_layout.addSpacing(12)
+        fg_layout.addLayout(voucher_row)
         fg_layout.addStretch(2)
 
     def show_status(self, message, is_error=True):
