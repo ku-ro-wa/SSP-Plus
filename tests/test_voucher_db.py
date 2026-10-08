@@ -170,14 +170,15 @@ class TestRealDbVouchers:
         manager = VoucherManager(db, now_fn=clock)
         issued = manager.issue(5)
         manager.apply([issued.code], 5)
-        assert not manager.balance(issued.code).success
+        assert manager.balance(issued.code).message == vm.MSG_FULLY_USED
         assert not manager.apply([issued.code], 1).success
 
     def test_expired_voucher_is_rejected(self, db, clock):
         manager = VoucherManager(db, now_fn=clock)
         issued = manager.issue(5)
         clock.advance(days=30, seconds=1)
-        assert not manager.balance(issued.code).success
+        result = manager.balance(issued.code)
+        assert not result.success and result.message == "This voucher expired on October 31, 2026."
         assert not manager.apply([issued.code], 1).success
 
     def test_lockout_is_kiosk_wide_across_restarts(self, db_path, clock):

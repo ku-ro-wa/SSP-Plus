@@ -34,6 +34,8 @@ class HomepageController(QWidget):
 
         self.model.method_selected.connect(self._route_method)
 
+        self.view.voucher_balance_clicked.connect(self._check_voucher_balance)
+
     def _handle_method_selected(self, method_key):
         """Passes the selected method to the model."""
         self.model.select_method(method_key)
@@ -51,6 +53,10 @@ class HomepageController(QWidget):
             self.main_app.show_screen('scanner')
         else:
             print(f"Landing screen: Unknown method selected: {method_key}")
+
+    def _check_voucher_balance(self):
+        """Balance check doesn't start a print job; it returns here when done."""
+        self.main_app.show_screen('voucher_balance')
 
     def show_qr_message(self, message):
         """A message about a QR read (from main_app)."""

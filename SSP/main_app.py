@@ -33,6 +33,7 @@ from screens.print_options import PrintOptionsController
 from screens.admin import AdminController
 from screens.data_viewer import DataViewerController
 from screens.voucher import VoucherController
+from screens.voucher_balance import VoucherBalanceController
 from screens.thank_you import ThankYouController
 from database.models import init_db
 from managers.printer_manager import PrinterManager
@@ -87,6 +88,7 @@ class PrintingSystemApp(QMainWindow):
         'scan_destination': 12,
         'scan_result': 13,
         'voucher': 14,
+        'voucher_balance': 15,
     }
 
     def __init__(self):
@@ -184,6 +186,7 @@ class PrintingSystemApp(QMainWindow):
         self.scan_destination_screen = ScanDestinationController(self)
         self.scan_result_screen = ScanResultController(self)
         self.voucher_screen = VoucherController(self)
+        self.voucher_balance_screen = VoucherBalanceController(self)
 
         # Connect payment completion to the print workflow once screens exist.
         self.payment_screen.payment_completed.connect(self.on_payment_completed)
@@ -210,6 +213,7 @@ class PrintingSystemApp(QMainWindow):
         self.stacked_widget.addWidget(self.scan_destination_screen)
         self.stacked_widget.addWidget(self.scan_result_screen)
         self.stacked_widget.addWidget(self.voucher_screen)
+        self.stacked_widget.addWidget(self.voucher_balance_screen)
 
         # Manually disable payment acceptors at startup
         print("🔄 Disabling payment acceptors at startup...")

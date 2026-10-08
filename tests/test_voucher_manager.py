@@ -1,7 +1,8 @@
 """
 Tests for VoucherManager — pure logic, no hardware or real DB required.
 FakeVoucherDB mimics the voucher methods added to database/db_manager.py
-(create_voucher / get_active_vouchers / apply_vouchers) plus the settings
+(create_voucher / get_active_vouchers / get_inactive_vouchers /
+apply_vouchers) plus the settings
 helpers, in the same spirit as FakeDBManager in test_session_manager.py.
 """
 from datetime import datetime, timedelta
@@ -12,6 +13,8 @@ import managers.voucher_manager as vm
 from managers.voucher_manager import (
     CODE_ALPHABET,
     MAX_FAILED_ATTEMPTS,
+    MSG_FULLY_USED,
+    MSG_UNKNOWN,
     VoucherManager,
     format_code,
     normalize_code,
@@ -55,6 +58,12 @@ class FakeVoucherDB:
         return [
             dict(v) for v in self.vouchers.values()
             if v['remaining_value'] > 0 and v['expires_at'] > now
+        ]
+
+    def get_inactive_vouchers(self, now):
+        return [
+            dict(v) for v in sorted(self.vouchers.values(), key=lambda v: v['created_at'], reverse=True)
+            if v['remaining_value'] <= 0 or v['expires_at'] <= now
         ]
 
     def apply_vouchers(self, plan, payment_ref, applied_at):
@@ -193,6 +202,31 @@ class TestBalance:
         v = manager.issue(9)
         clock.advance(days=30, seconds=1)
         assert not manager.balance(v.code).success
+
+    def test_expired_used_and_unknown_codes_get_distinct_messages(self, manager, clock):
+        used = manager.issue(4)
+        manager.apply([used.code], 4)
+        expired = manager.issue(9)  # issued 2026-10-01, 30-day expiry
+        clock.advance(days=31)
+        messages = {
+            "used": manager.balance(used.code).message,
+            "expired": manager.balance(expired.code).message,
+            "unknown": manager.balance("ZZZZ-ZZZZ").message,
+        }
+        assert messages["used"] == MSG_FULLY_USED
+        assert messages["expired"] == "This voucher expired on October 31, 2026."
+        assert messages["unknown"] == MSG_UNKNOWN
+        assert len(set(messages.values())) == 3
+
+    def test_expired_and_used_codes_do_not_count_toward_lockout(self, manager, db, clock):
+        used = manager.issue(4)
+        manager.apply([used.code], 4)
+        expired = manager.issue(9)
+        clock.advance(days=31)
+        for _ in range(MAX_FAILED_ATTEMPTS + 1):
+            assert not manager.balance(used.code).locked
+            assert not manager.balance(expired.code).locked
+        assert int(db.get_setting('voucher_failed_attempts', 0)) == 0
 
     def test_qr_payload_form_is_accepted(self, manager):
         v = manager.issue(9)

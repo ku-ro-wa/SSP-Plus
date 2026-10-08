@@ -22,6 +22,13 @@ DEFAULT_EXPIRY_DAYS = 30     # fallback if 'voucher_expiry_days' is unset
 # Crockford decoding: commonly mistyped characters map to their look-alikes.
 _CROCKFORD_FIXES = str.maketrans({"O": "0", "I": "1", "L": "1"})
 
+MONTHS = ("January", "February", "March", "April", "May", "June", "July",
+          "August", "September", "October", "November", "December")
+
+MSG_MALFORMED = "That doesn't look like a voucher code"
+MSG_UNKNOWN = "We couldn't find a voucher with that code. Please check it and try again."
+MSG_FULLY_USED = "This voucher has already been fully used."
+
 
 def normalize_code(raw) -> Optional[str]:
     """Canonical 8-char code from whatever the customer typed or scanned
@@ -40,6 +47,12 @@ def normalize_code(raw) -> Optional[str]:
 def format_code(code: str) -> str:
     """'ABCD1234' -> 'ABCD-1234' (the typeable on-screen form)."""
     return f"{code[:4]}-{code[4:]}"
+
+
+def format_date(d) -> str:
+    """datetime -> 'October 31, 2026' for customer copy."""
+    # Not %B: QApplication applies the system locale, and the copy is English.
+    return f"{MONTHS[d.month - 1]} {d.day}, {d.year}"
 
 
 def _hash_code(voucher_id: str, code: str) -> str:
@@ -160,6 +173,14 @@ class VoucherManager:
                 return row
         return None
 
+    def _resolve_inactive(self, code: str):
+        """Expired or fully used voucher row matching a canonical code, or None.
+        Only consulted after an active lookup misses, to say why. Read-only."""
+        for row in self.db_manager.get_inactive_vouchers(self._now()):
+            if hmac.compare_digest(_hash_code(row['voucher_id'], code), row['code_hash']):
+                return row
+        return None
+
     def _lockout_remaining(self) -> Optional[timedelta]:
         raw = self.db_manager.get_setting('voucher_locked_until', '')
         if not raw:
@@ -195,8 +216,9 @@ class VoucherManager:
         """
         Resolve typed/scanned input to an active voucher row, honouring the
         shared lockout. Returns (row, None) or (None, VoucherLookup-failure).
-        A malformed string can't be a guess at a real code, so it is rejected
-        without counting toward the lockout.
+        Only a well-formed code matching no voucher at all counts toward the
+        lockout: a malformed string can't be a guess at a real code, and an
+        expired or fully used one was really issued.
         """
         remaining = self._lockout_remaining()
         if remaining:
@@ -204,17 +226,26 @@ class VoucherManager:
 
         code = normalize_code(raw_code)
         if code is None:
-            return None, VoucherLookup(False, "That doesn't look like a voucher code")
+            return None, VoucherLookup(False, MSG_MALFORMED)
 
         row = self._resolve(code)
-        if row is None:
-            if self._register_failure():
-                remaining = self._lockout_remaining()
-                msg = self._locked_message(remaining) if remaining else "Too many incorrect codes"
-                return None, VoucherLookup(False, msg, locked=True)
-            # Wrong, expired and fully-used codes are deliberately indistinguishable.
-            return None, VoucherLookup(False, "Voucher code not recognised, expired, or already used")
-        return row, None
+        if row is not None:
+            return row, None
+
+        # A real-but-spent code isn't a guess, so it doesn't count toward the
+        # lockout; only a code matching no voucher at all does.
+        spent = self._resolve_inactive(code)
+        if spent is not None:
+            if int(spent['remaining_value']) <= 0:
+                return None, VoucherLookup(False, MSG_FULLY_USED)
+            expired_on = format_date(_as_datetime(spent['expires_at']))
+            return None, VoucherLookup(False, f"This voucher expired on {expired_on}.")
+
+        if self._register_failure():
+            remaining = self._lockout_remaining()
+            msg = self._locked_message(remaining) if remaining else "Too many incorrect codes"
+            return None, VoucherLookup(False, msg, locked=True)
+        return None, VoucherLookup(False, MSG_UNKNOWN)
 
     # ---- public lookups -------------------------------------------------
 
