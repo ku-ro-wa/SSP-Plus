@@ -428,8 +428,11 @@ sudo python3 scripts/setup_hotspot.py
 interface unmanaged in NetworkManager and starts everything. `false` stops and disables them and
 removes the files the script wrote; the firewall stays on either way. Re-running is safe. Any
 file the script didn't write is moved to `/var/backups/ssp-hotspot/<timestamp>/` before being
-replaced. If RaspAP or Nodogsplash/openNDS are found, their services are disabled, the packages
-are purged, and RaspAP's `/etc/dnsmasq.d/090_*.conf` files are moved aside.
+replaced. If RaspAP or Nodogsplash/openNDS are found, their services are disabled (including
+RaspAP's `restapi` and `raspap-network-activity@<interface>`), the packages are purged, and
+RaspAP's `/etc/dnsmasq.d/090_*.conf` files and its systemd unit files are moved aside. RaspAP's
+installer builds Nodogsplash from source, so `apt` can't purge it: its service is disabled, but
+`/usr/bin/nodogsplash` and `/usr/bin/ndsctl` stay behind. They do nothing while the service is off.
 
 What it writes:
 

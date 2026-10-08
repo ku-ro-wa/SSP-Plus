@@ -51,9 +51,15 @@ HOTSPOT_FILES = [HOSTAPD_CONF, DNSMASQ_CONF, NM_UNMANAGED_CONF, IP_UNIT, HOSTAPD
 PACKAGES = ["hostapd", "dnsmasq", "nftables"]
 
 # RaspAP + Nodogsplash/openNDS, from the plan ADR 0007 replaced.
-RASPAP_SERVICES = ["raspapd", "nodogsplash", "opennds", "lighttpd"]
+RASPAP_SERVICES = ["raspapd", "restapi", "nodogsplash", "opennds", "lighttpd"]
+# Templated per interface, e.g. raspap-network-activity@wlan0.service.
+RASPAP_ACTIVITY_UNIT = "raspap-network-activity@{interface}.service"
 RASPAP_PACKAGES = ["nodogsplash", "opennds"]
-RASPAP_MARKERS = ["etc/raspap", "etc/nodogsplash", "etc/opennds", "etc/systemd/system/raspapd.service"]
+RASPAP_UNIT_FILES = [
+    "etc/systemd/system/raspapd.service",
+    "etc/systemd/system/raspap-network-activity@.service",
+]
+RASPAP_MARKERS = ["etc/raspap", "etc/nodogsplash", "etc/opennds", *RASPAP_UNIT_FILES]
 # RaspAP's dnsmasq drop-ins (090_raspap.conf, 090_wlan0.conf) would fight ours.
 RASPAP_DNSMASQ_GLOB = "090_*.conf"
 
@@ -351,13 +357,15 @@ def plan(
 
     raspap = detect_raspap(root)
     if raspap:
-        for unit in RASPAP_SERVICES:
-            actions.append(Run(("systemctl", "disable", "--now", f"{unit}.service"), check=False))
+        units = [f"{unit}.service" for unit in RASPAP_SERVICES]
+        units.append(RASPAP_ACTIVITY_UNIT.format(interface=s.interface))
+        for unit in units:
+            actions.append(Run(("systemctl", "disable", "--now", unit), check=False))
         purge = installed(RASPAP_PACKAGES)
         if purge:
             actions.append(Run(("apt-get", "purge", "-y", *purge)))
         for path in raspap:
-            if path.startswith("etc/dnsmasq.d/") or path == "etc/systemd/system/raspapd.service":
+            if path.startswith("etc/dnsmasq.d/") or path in RASPAP_UNIT_FILES:
                 actions.append(Backup(path))
 
     files = {
