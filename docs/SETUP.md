@@ -411,8 +411,14 @@ ADR-0007). They are planned, not all created yet. Rules for whoever sets them up
 The kiosk Pi runs its own open Wi-Fi network for the **Portal**: `hostapd` broadcasts it,
 `dnsmasq` hands out addresses and answers `PORTAL_HOSTNAME` with the Pi's hotspot address, and an
 nftables table on the hotspot interface allows only DHCP, DNS and `WIFI_PORTAL_PORT`. Nothing is
-forwarded to or from the router. There is no captive portal. See
-`docs/adr/0007-own-hotspot-replaces-raspap-captive-portal.md`.
+forwarded to or from the router: phones' attempts to reach the internet are refused straight away
+(TCP reset or ICMP), not silently dropped, so nothing on a phone waits for a timeout. There is no
+captive portal. See `docs/adr/0007-own-hotspot-replaces-raspap-captive-portal.md`.
+
+Portal pages must load nothing from the internet (no CDN fonts, icons or scripts): phones on the
+hotspot can't reach it. Icons are inline SVGs in `SSP/webapp/templates/icons/` (Font Awesome Free
+6.5.0, CC BY 4.0; the credit is kept in each file). `tests/test_webapp.py` fails if a template
+references an outside URL.
 
 Everything comes from `.env` (`WIFI_HOTSPOT_*`, `PORTAL_HOSTNAME`, `WIFI_PORTAL_PORT`, `KIOSK_ID`;
 see `.env.example`). Nothing is configured by hand on the Pi.
