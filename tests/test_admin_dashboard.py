@@ -38,6 +38,7 @@ from admin_dashboard.routers.accounting import PAPER_FULL_COUNT
 from admin_dashboard.seed_demo_data import FIXTURES, SIM_DB_PATH, seed, seed_transaction
 from database.db_manager import SIM_DB_NAME, DatabaseManager
 from database.models import DASHBOARD_ROLES_VERSION_KEY, init_db, migrate_dashboard_roles
+from managers.voucher_manager import VoucherManager
 
 
 @pytest.fixture
@@ -591,6 +592,125 @@ class TestChartAsset:
         response = client.get("/accounting")
 
         assert '"source": "usb"' in response.text or '"source":"usb"' in response.text
+
+
+def _log_job(db, source="usb", total_cost=10.0, amount_paid=10.0, change_given=0,
+             change_dispensed=0, voucher_issued=0, voucher_applied=0, status="completed"):
+    """A transactions row written by the kiosk's own write path
+    (DatabaseManager.log_transaction), with the Voucher-era amounts."""
+    db.log_transaction({
+        "file_name": "job.pdf", "pages": 1, "copies": 1, "color_mode": "Black and White",
+        "total_cost": total_cost, "amount_paid": amount_paid, "change_given": change_given,
+        "status": status, "source": source, "change_dispensed": change_dispensed,
+        "voucher_issued": voucher_issued, "voucher_applied": voucher_applied,
+    })
+
+
+def _backdate_transactions(db, when):
+    db.conn.execute("UPDATE transactions SET timestamp = ?", (when,))
+    db.conn.commit()
+
+
+def _vouchers_at(db, when):
+    """A VoucherManager whose clock reads `when`, so Vouchers are issued and
+    Applied through the real write path at a backdated time."""
+    return VoucherManager(db, now_fn=lambda: when)
+
+
+class TestVoucherAccounting:
+    """Voucher liability and the change / Voucher amounts on /accounting
+    (issue #28). Vouchers are created and Applied only through
+    VoucherManager, never hand-inserted."""
+
+    def _login(self, client, temp_db, role="admin"):
+        create_account(temp_db, "user1", "s3cret!", role)
+        client.post("/login", json={"username": "user1", "password": "s3cret!"})
+
+    def test_liability_is_the_unexpired_remaining_value(self, client, temp_db):
+        live = VoucherManager(temp_db).issue(10)
+        _vouchers_at(temp_db, datetime.now() - timedelta(days=40)).issue(7)  # expired 10 days ago
+        VoucherManager(temp_db).apply([live.code], amount_due=3)
+        self._login(client, temp_db)
+
+        data = client.get("/accounting/data?range=all").json()
+
+        assert data["vouchers"]["liability"] == 7
+
+    def test_liability_ignores_the_time_filter(self, client, temp_db):
+        _vouchers_at(temp_db, datetime.now() - timedelta(days=20)).issue(6)
+        self._login(client, temp_db)
+
+        data = client.get("/accounting/data?range=today").json()
+
+        assert data["vouchers"]["liability"] == 6
+        assert data["vouchers"]["issued"] == 0
+
+    def test_issued_and_applied_totals_respect_the_time_filter(self, client, temp_db):
+        long_ago = datetime.now() - timedelta(days=40)
+        old = _vouchers_at(temp_db, long_ago).issue(5)
+        _vouchers_at(temp_db, long_ago + timedelta(days=5)).apply([old.code], amount_due=2)
+        recent = VoucherManager(temp_db).issue(4)
+        VoucherManager(temp_db).apply([recent.code], amount_due=1)
+        self._login(client, temp_db)
+
+        totals = {
+            r: client.get(f"/accounting/data?range={r}").json()["vouchers"]
+            for r in ("today", "week", "month", "all")
+        }
+
+        for r in ("today", "week", "month"):
+            assert (totals[r]["issued"], totals[r]["applied"]) == (4, 1)
+        assert (totals["all"]["issued"], totals["all"]["applied"]) == (9, 3)
+
+    def test_change_dispensed_totals_completed_jobs_in_the_window(self, client, temp_db):
+        _log_job(temp_db, change_given=10, change_dispensed=6, voucher_issued=4)
+        _log_job(temp_db, change_given=3, change_dispensed=None)  # logged before #23
+        _log_job(temp_db, change_dispensed=5, status="cancelled_partial_payment")
+        self._login(client, temp_db)
+
+        today = client.get("/accounting/data?range=today").json()["vouchers"]
+        _backdate_transactions(temp_db, datetime.now() - timedelta(days=2))
+        later = client.get("/accounting/data?range=today").json()["vouchers"]
+
+        assert today["change_dispensed"] == 6
+        assert later["change_dispensed"] == 0
+
+    def test_voucher_paid_jobs_count_as_the_job_price_in_revenue(self, client, temp_db):
+        _log_job(temp_db, source="usb", total_cost=12.0, amount_paid=0, voucher_applied=12)
+        _log_job(temp_db, source="usb", total_cost=8.0, amount_paid=5.0, voucher_applied=3)
+        _log_job(temp_db, source="wifi", total_cost=6.0, amount_paid=20.0, change_given=14,
+                 change_dispensed=10, voucher_issued=4)
+        self._login(client, temp_db)
+
+        sources = {r["source"]: r for r in client.get("/accounting/data?range=all").json()["sources"]}
+
+        assert (sources["usb"]["revenue"], sources["usb"]["transaction_count"]) == (20.0, 2)
+        assert (sources["wifi"]["revenue"], sources["wifi"]["transaction_count"]) == (6.0, 1)
+
+    def test_operator_can_read_the_voucher_figures(self, client, temp_db):
+        VoucherManager(temp_db).issue(9)
+        self._login(client, temp_db, role="operator")
+
+        data_response = client.get("/accounting/data?range=all")
+        page_response = client.get("/accounting")
+
+        assert data_response.status_code == 200
+        assert data_response.json()["vouchers"]["liability"] == 9
+        assert page_response.status_code == 200
+        assert 'id="voucher-liability">₱9.00<' in page_response.text
+
+    def test_page_shows_todays_voucher_amounts(self, client, temp_db):
+        issued = VoucherManager(temp_db).issue(5)
+        VoucherManager(temp_db).apply([issued.code], amount_due=2)
+        _log_job(temp_db, change_given=7, change_dispensed=2, voucher_issued=5)
+        self._login(client, temp_db)
+
+        page = client.get("/accounting").text
+
+        assert 'id="voucher-issued">₱5.00<' in page
+        assert 'id="voucher-applied">₱2.00<' in page
+        assert 'id="change-dispensed">₱2.00<' in page
+        assert 'id="voucher-liability">₱3.00<' in page
 
 
 class TestBrowserEntryPoints:

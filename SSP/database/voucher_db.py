@@ -94,3 +94,40 @@ class VoucherDBMixin:
             except sqlite3.Error:
                 pass
             return False
+
+    def get_voucher_accounting(self, now, since=None):
+        """Admin Dashboard figures (issue #28), in pesos:
+        - change_dispensed: change that physically came out, over completed
+          transactions (rows logged before #23 have NULL and count as 0);
+        - issued / applied: Voucher value issued and Applied, read from the
+          vouchers / voucher_applications ledger rather than transactions,
+          since a transaction row is only logged once the print succeeds;
+        - liability: remaining value of every unexpired Voucher right now.
+        The first three are scoped to timestamp >= `since` when given;
+        liability is a point-in-time figure and ignores it."""
+        empty = {"change_dispensed": 0, "issued": 0, "applied": 0, "liability": 0}
+        if not self.conn:
+            return empty
+        # (key, column summed, table, row filter, timestamp column)
+        windowed = (
+            ("change_dispensed", "change_dispensed", "transactions", "status = 'completed'", "timestamp"),
+            ("issued", "initial_value", "vouchers", "1 = 1", "created_at"),
+            ("applied", "amount", "voucher_applications", "1 = 1", "applied_at"),
+        )
+        try:
+            cursor = self.conn.cursor()
+            totals = {}
+            for key, column, table, where, stamp in windowed:
+                query = f"SELECT COALESCE(SUM({column}), 0) AS total FROM {table} WHERE {where}"
+                params = ()
+                if since is not None:
+                    query += f" AND {stamp} >= ?"
+                    params = (since,)
+                totals[key] = cursor.execute(query, params).fetchone()["total"]
+            totals["liability"] = cursor.execute(
+                "SELECT COALESCE(SUM(remaining_value), 0) AS total FROM vouchers WHERE expires_at > ?",
+                (now,)).fetchone()["total"]
+            return totals
+        except sqlite3.Error as e:
+            print(f"Error getting voucher accounting: {e}")
+            return empty

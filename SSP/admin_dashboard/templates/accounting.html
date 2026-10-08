@@ -49,6 +49,10 @@
             padding: 20px;
             margin-bottom: 20px;
         }
+
+        .vouchers { margin-top: 20px; }
+        .vouchers td.label { color: #555; }
+        .vouchers .note { font-size: 13px; color: #777; }
     </style>
 </head>
 
@@ -85,6 +89,34 @@
             {% endfor %}
         </tbody>
     </table>
+
+    <!-- Change and Voucher amounts (issue #28). Revenue above stays the job
+         price; these show how it was settled. Liability is what unexpired
+         Vouchers are still worth right now, so it ignores the filter. -->
+    <table class="vouchers">
+        <thead>
+            <tr><th>Change &amp; Vouchers</th><th class="numeric">Amount</th></tr>
+        </thead>
+        <tbody>
+            <tr>
+                <td class="label">Change dispensed</td>
+                <td class="numeric" id="change-dispensed">₱{{ "%.2f"|format(vouchers.change_dispensed) }}</td>
+            </tr>
+            <tr>
+                <td class="label">Voucher value issued</td>
+                <td class="numeric" id="voucher-issued">₱{{ "%.2f"|format(vouchers.issued) }}</td>
+            </tr>
+            <tr>
+                <td class="label">Voucher value Applied</td>
+                <td class="numeric" id="voucher-applied">₱{{ "%.2f"|format(vouchers.applied) }}</td>
+            </tr>
+            <tr>
+                <td class="label">Outstanding Voucher liability<br>
+                    <span class="note">Unexpired Vouchers, as of now</span></td>
+                <td class="numeric" id="voucher-liability">₱{{ "%.2f"|format(vouchers.liability) }}</td>
+            </tr>
+        </tbody>
+    </table>
 </main>
 
 <!-- Vendored locally (issue #16) — no CDN fetch, since this is a
@@ -116,6 +148,14 @@
             tr.append(sourceCell, revenueCell, countCell);
             tbody.appendChild(tr);
         });
+    }
+
+    function renderVouchers(vouchers) {
+        const peso = (value) => "₱" + value.toFixed(2);
+        document.getElementById("change-dispensed").textContent = peso(vouchers.change_dispensed);
+        document.getElementById("voucher-issued").textContent = peso(vouchers.issued);
+        document.getElementById("voucher-applied").textContent = peso(vouchers.applied);
+        document.getElementById("voucher-liability").textContent = peso(vouchers.liability);
     }
 
     function renderChart(sources) {
@@ -161,6 +201,7 @@
         const data = await response.json();
         renderRows(data.sources);
         renderChart(data.sources);
+        renderVouchers(data.vouchers);
 
         document.querySelectorAll(".filter-btn").forEach((btn) => {
             btn.classList.toggle("active", btn.dataset.range === range);

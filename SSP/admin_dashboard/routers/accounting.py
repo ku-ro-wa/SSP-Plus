@@ -4,8 +4,10 @@
 # /accounting/data is the JSON aggregate endpoint the page's time-filter
 # buttons re-fetch from (issue #15, chart added in issue #16). Both are
 # reachable by either dashboard role (`admin` or `operator`) — read access isn't
-# role-gated. /paper-reset (issue #17) is the one write action here, and it
-# is role-gated to `admin` via require_write_role.
+# role-gated. Both also carry the change dispensed, Voucher value issued /
+# Applied, and outstanding Voucher liability (issue #28). /paper-reset
+# (issue #17) is the one write action here, and it is role-gated to `admin`
+# via require_write_role.
 
 import json
 from datetime import datetime, timedelta
@@ -53,8 +55,12 @@ def accounting_data(
     current_user: dict = Depends(get_current_user),
     db=Depends(get_db),
 ):
-    sources = db.get_accounting_summary(since=_range_start(time_range))
-    return {"range": time_range, "sources": sources}
+    since = _range_start(time_range)
+    return {
+        "range": time_range,
+        "sources": db.get_accounting_summary(since=since),
+        "vouchers": db.get_voucher_accounting(datetime.now(), since=since),
+    }
 
 
 @router.get("/accounting", response_class=HTMLResponse)
@@ -63,7 +69,8 @@ def accounting_page(
     current_user: dict = Depends(get_current_user_page),
     db=Depends(get_db),
 ):
-    sources = db.get_accounting_summary(since=_range_start("today"))
+    since = _range_start("today")
+    sources = db.get_accounting_summary(since=since)
     return templates.TemplateResponse(
         request,
         "accounting.html",
@@ -75,6 +82,7 @@ def accounting_page(
             # the chart's initial render (issue #16) gets its data as a
             # pre-serialized string instead.
             "sources_json": json.dumps(sources),
+            "vouchers": db.get_voucher_accounting(datetime.now(), since=since),
         },
     )
 
