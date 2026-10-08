@@ -34,8 +34,8 @@ for every **Shortfall** instead, so a sale is never blocked or short-changed for
   attendant, and the failure goes to `error_log` plus an operator alert.
 
 - **QR payload is type-tagged.** The Voucher QR encodes `V1:<code>` so the (future) kiosk
-  scanner can tell it apart from a Session payload (`session_id:otp`); only the payment screen
-  accepts it.
+  QR reader can tell it apart from a Session payload (`session_id:otp`); only the payment screen
+  Applies it (the voucher balance check also looks it up, read-only; #57).
 
 - **Accounting separates cash from credit.** Each transaction records cash received, change
   actually dispensed, Voucher value issued, and Voucher value Applied as distinct amounts;

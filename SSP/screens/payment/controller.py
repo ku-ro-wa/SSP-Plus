@@ -58,8 +58,8 @@ class PaymentController(QWidget):
         self.model.go_back_requested.connect(self._go_back)
 
     def apply_voucher_code(self, raw_code):
-        """Apply a Voucher from the "Use a voucher" entry. Takes a typed code
-        or a 'V1:<code>' payload, so a QR read can be passed straight in."""
+        """Apply a Voucher from the "Use a voucher" entry or a QR read. Takes a
+        typed code or a 'V1:<code>' payload, so a QR read can be passed straight in."""
         self._reset_timeout()
         return self.model.apply_voucher(raw_code)
 

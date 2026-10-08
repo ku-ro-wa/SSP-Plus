@@ -332,6 +332,10 @@ class PrintingSystemApp(QMainWindow):
         elif outcome.action == "rejected":
             # Only accepting screens get here, and each has a show_qr_message().
             self.stacked_widget.currentWidget().show_qr_message(outcome.message)
+        elif outcome.action == "apply_voucher":
+            self.payment_screen.apply_voucher_code(text)
+        elif outcome.action == "check_voucher":
+            self.voucher_balance_screen.check_voucher_code(text)
 
     def open_session_files(self, source, files):
         """Load a redeemed wifi/email Session's files into file_browser — the one
