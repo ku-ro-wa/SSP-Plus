@@ -261,10 +261,22 @@ class TestRaspapCleanup:
 
         assert ("systemctl", "disable", "--now", "raspapd.service") in runs
         assert ("systemctl", "disable", "--now", "nodogsplash.service") in runs
+        assert ("systemctl", "disable", "--now", "restapi.service") in runs
+        assert ("systemctl", "disable", "--now", "raspap-network-activity@wlan0.service") in runs
         assert ("apt-get", "purge", "-y", "nodogsplash") in runs
         assert hs.Backup("etc/dnsmasq.d/090_raspap.conf") in actions
         assert hs.Backup("etc/dnsmasq.d/090_wlan0.conf") in actions
         assert hs.Backup("etc/dnsmasq.d/README") not in actions
+
+    def test_moves_raspap_unit_files_aside(self, tmp_path):
+        units = tmp_path / "etc/systemd/system"
+        units.mkdir(parents=True)
+        (units / "raspap-network-activity@.service").write_text("[Unit]\n")
+        (units / "ssh.service").write_text("[Unit]\n")
+        actions = hs.plan(_settings(), tmp_path)
+
+        assert hs.Backup("etc/systemd/system/raspap-network-activity@.service") in actions
+        assert hs.Backup("etc/systemd/system/ssh.service") not in actions
 
     def test_cleanup_happens_before_the_new_hotspot_starts(self, tmp_path):
         root = self._raspap_root(tmp_path)
