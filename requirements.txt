@@ -16,8 +16,9 @@ PyQt5>=5.15
 PyMuPDF>=1.23
 pdf2image>=1.16
 
-# Image analysis
-opencv-python>=4.8
+# Image analysis. Headless: the GUI build bundles its own Qt plugins, which
+# break PyQt5 on Linux ("Could not load the Qt platform plugin xcb").
+opencv-python-headless>=4.8
 numpy>=1.24
 
 # Hardware communication (GSM modem)
