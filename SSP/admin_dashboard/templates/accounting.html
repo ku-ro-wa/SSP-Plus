@@ -104,11 +104,11 @@
             </tr>
             <tr>
                 <td class="label">Voucher value issued</td>
-                <td class="numeric" id="voucher-issued">₱{{ "%.2f"|format(vouchers.issued) }}</td>
+                <td class="numeric" id="voucher-issued">₱{{ "%.2f"|format(vouchers.voucher_issued) }}</td>
             </tr>
             <tr>
                 <td class="label">Voucher value Applied</td>
-                <td class="numeric" id="voucher-applied">₱{{ "%.2f"|format(vouchers.applied) }}</td>
+                <td class="numeric" id="voucher-applied">₱{{ "%.2f"|format(vouchers.voucher_applied) }}</td>
             </tr>
             <tr>
                 <td class="label">Outstanding Voucher liability<br>
@@ -153,8 +153,8 @@
     function renderVouchers(vouchers) {
         const peso = (value) => "₱" + value.toFixed(2);
         document.getElementById("change-dispensed").textContent = peso(vouchers.change_dispensed);
-        document.getElementById("voucher-issued").textContent = peso(vouchers.issued);
-        document.getElementById("voucher-applied").textContent = peso(vouchers.applied);
+        document.getElementById("voucher-issued").textContent = peso(vouchers.voucher_issued);
+        document.getElementById("voucher-applied").textContent = peso(vouchers.voucher_applied);
         document.getElementById("voucher-liability").textContent = peso(vouchers.liability);
     }
 

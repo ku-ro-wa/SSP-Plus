@@ -107,11 +107,10 @@ Login issues a signed cookie session with a 10-hour sliding inactivity timeout
 (`usb`/`wifi`/`email`/`scanner`) revenue and transaction-count aggregates via
 `DatabaseManager.get_accounting_summary()` — a `scanner`-sourced row only exists when the scan's
 destination was print (a Photocopy); scan-to-email/session-download never produce a
-transactions row. Both also carry `vouchers` (`DatabaseManager.get_voucher_accounting()`):
-change dispensed and Voucher value issued / Applied for the same window, plus the outstanding
-Voucher liability (remaining value of unexpired Vouchers, unfiltered). Issued/Applied are read
-from the `vouchers`/`voucher_applications` ledger, not `transactions`, because a transactions row
-is only logged after a successful print. `/paper-reset` (the SMS fuzzy-match reset fallback) is `admin`-only.
+transactions row. Both also carry `vouchers`: change dispensed and Voucher value issued / Applied
+summed from the same completed transactions (`get_change_and_voucher_totals()`), plus the
+outstanding Voucher liability — remaining value of unexpired Vouchers as of now, ignoring the
+filter (`get_voucher_liability()`). `/paper-reset` (the SMS fuzzy-match reset fallback) is `admin`-only.
 Real transactions get their `source` value from `screens/print_options/controller.py`'s
 `self.source` (set per intake screen — usb/wifi/email/scanner controllers all call
 `set_pdf_data(..., source=...)`), carried through `payment/model.py`'s `transaction_data` dict

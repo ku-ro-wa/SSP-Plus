@@ -49,6 +49,15 @@ def _range_start(range_key: RangeKey):
     return None
 
 
+def _voucher_figures(db, since):
+    """Change / Voucher amounts for the window plus the outstanding Voucher
+    liability, which is as of now whatever the window (issue #28)."""
+    return {
+        **db.get_change_and_voucher_totals(since=since),
+        "liability": db.get_voucher_liability(datetime.now()),
+    }
+
+
 @router.get("/accounting/data")
 def accounting_data(
     time_range: RangeKey = Query("today", alias="range"),
@@ -59,7 +68,7 @@ def accounting_data(
     return {
         "range": time_range,
         "sources": db.get_accounting_summary(since=since),
-        "vouchers": db.get_voucher_accounting(datetime.now(), since=since),
+        "vouchers": _voucher_figures(db, since),
     }
 
 
@@ -82,7 +91,7 @@ def accounting_page(
             # the chart's initial render (issue #16) gets its data as a
             # pre-serialized string instead.
             "sources_json": json.dumps(sources),
-            "vouchers": db.get_voucher_accounting(datetime.now(), since=since),
+            "vouchers": _voucher_figures(db, since),
         },
     )
 

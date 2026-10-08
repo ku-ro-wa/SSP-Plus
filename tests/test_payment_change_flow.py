@@ -674,8 +674,10 @@ class TestDashboardReflectsVouchers:
         # Overpay by ₱10 with only ₱3 in the hoppers: ₱7 Shortfall -> Voucher.
         stock_hoppers(db, ones=3, fives=0)
         _, shown = pay_with_change(main_app, model, 10)
+        row = logged_row(db)
+        assert (row['change_dispensed'], row['voucher_issued']) == (3, 7)
         assert dashboard()["vouchers"] == {
-            "change_dispensed": 3, "issued": 7, "applied": 0, "liability": 7}
+            "change_dispensed": 3, "voucher_issued": 7, "voucher_applied": 0, "liability": 7}
 
         # A later payment Applies it; any cost left is paid in cash.
         main_app.screens.clear()
@@ -685,9 +687,11 @@ class TestDashboardReflectsVouchers:
         stock_hoppers(db, ones=20, fives=20)
         finish_with_cash(main_app, model, cost - applied)
 
+        assert row_for(db, model.payment_ref)['voucher_applied'] == applied
         after = dashboard()
         assert after["vouchers"] == {
-            "change_dispensed": 3, "issued": 7, "applied": applied, "liability": 7 - applied}
+            "change_dispensed": 3, "voucher_issued": 7, "voucher_applied": applied,
+            "liability": 7 - applied}
         assert [a['amount'] for a in applications(db.db_path)] == [applied]
         usb = {r["source"]: r for r in after["sources"]}["usb"]
         assert (usb["revenue"], usb["transaction_count"]) == (2 * cost, 2)

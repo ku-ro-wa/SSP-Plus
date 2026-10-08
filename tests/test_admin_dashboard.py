@@ -643,14 +643,13 @@ class TestVoucherAccounting:
         data = client.get("/accounting/data?range=today").json()
 
         assert data["vouchers"]["liability"] == 6
-        assert data["vouchers"]["issued"] == 0
 
     def test_issued_and_applied_totals_respect_the_time_filter(self, client, temp_db):
-        long_ago = datetime.now() - timedelta(days=40)
-        old = _vouchers_at(temp_db, long_ago).issue(5)
-        _vouchers_at(temp_db, long_ago + timedelta(days=5)).apply([old.code], amount_due=2)
-        recent = VoucherManager(temp_db).issue(4)
-        VoucherManager(temp_db).apply([recent.code], amount_due=1)
+        _log_job(temp_db, amount_paid=20.0, change_given=10, change_dispensed=5, voucher_issued=5)
+        _log_job(temp_db, amount_paid=8.0, voucher_applied=2)
+        _backdate_transactions(temp_db, datetime.now() - timedelta(days=40))
+        _log_job(temp_db, amount_paid=20.0, change_given=10, change_dispensed=6, voucher_issued=4)
+        _log_job(temp_db, amount_paid=9.0, voucher_applied=1)
         self._login(client, temp_db)
 
         totals = {
@@ -659,8 +658,8 @@ class TestVoucherAccounting:
         }
 
         for r in ("today", "week", "month"):
-            assert (totals[r]["issued"], totals[r]["applied"]) == (4, 1)
-        assert (totals["all"]["issued"], totals["all"]["applied"]) == (9, 3)
+            assert (totals[r]["voucher_issued"], totals[r]["voucher_applied"]) == (4, 1)
+        assert (totals["all"]["voucher_issued"], totals["all"]["voucher_applied"]) == (9, 3)
 
     def test_change_dispensed_totals_completed_jobs_in_the_window(self, client, temp_db):
         _log_job(temp_db, change_given=10, change_dispensed=6, voucher_issued=4)
@@ -701,8 +700,9 @@ class TestVoucherAccounting:
 
     def test_page_shows_todays_voucher_amounts(self, client, temp_db):
         issued = VoucherManager(temp_db).issue(5)
+        _log_job(temp_db, amount_paid=20.0, change_given=7, change_dispensed=2, voucher_issued=5)
         VoucherManager(temp_db).apply([issued.code], amount_due=2)
-        _log_job(temp_db, change_given=7, change_dispensed=2, voucher_issued=5)
+        _log_job(temp_db, amount_paid=8.0, voucher_applied=2)
         self._login(client, temp_db)
 
         page = client.get("/accounting").text
