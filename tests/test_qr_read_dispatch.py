@@ -1,7 +1,7 @@
 """
 Seam tests for PrintingSystemApp._on_qr_read: a raw read on a given screen is
 de-duplicated, decided, and handed to the right screen. The screens are
-recorders; decide_redemption and a real SessionManager on a temp SQLite
+recorders; decide_qr_read and a real SessionManager on a temp SQLite
 database do the deciding. Voucher handling itself is covered by
 test_payment_change_flow.py and test_voucher_balance.py.
 """

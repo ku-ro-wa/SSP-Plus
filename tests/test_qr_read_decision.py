@@ -1,6 +1,6 @@
 """
-Seam tests for the QR redemption decision (managers/qr_reader.py
-decide_redemption): a classified read + current screen + a real
+Seam tests for the QR read decision (managers/qr_reader.py
+decide_qr_read): a classified read + current screen + a real
 SessionManager on a temp SQLite database -> an outcome. No Qt.
 """
 from datetime import datetime, timedelta
@@ -10,7 +10,7 @@ import pytest
 from database.db_manager import DatabaseManager
 from database.models import init_db
 from managers.qr_reader import (
-    DuplicateReadFilter, classify_payload, decide_redemption,
+    DuplicateReadFilter, classify_payload, decide_qr_read,
     MSG_CANT_READ, MSG_CANT_USE_HERE, MSG_VOUCHER_AT_PAYMENT,
 )
 from managers.session_manager import SessionManager, MAX_FAILED_ATTEMPTS
@@ -57,12 +57,12 @@ class TestSessionSource:
         assert (row['status'], row['failed_attempts']) == ("pending", 0)
 
 
-class TestDecideRedemption:
+class TestDecideQrRead:
     @pytest.mark.parametrize("screen", ACCEPTING_SCREENS)
     @pytest.mark.parametrize("source", ["wifi", "email"])
     def test_correct_pair_opens_files_for_that_source(self, sessions, screen, source):
         session = sessions.create_session(source, FILES)
-        outcome = decide_redemption(_read(session), screen, sessions)
+        outcome = decide_qr_read(_read(session), screen, sessions)
         assert outcome.action == "open_files"
         assert outcome.source == source
         assert outcome.files == FILES
@@ -70,18 +70,18 @@ class TestDecideRedemption:
     @pytest.mark.parametrize("screen,other", [("wifi", "email"), ("email", "wifi")])
     def test_other_sources_session_opens_its_own_flow(self, sessions, screen, other):
         session = sessions.create_session(other, FILES)
-        outcome = decide_redemption(_read(session), screen, sessions)
+        outcome = decide_qr_read(_read(session), screen, sessions)
         assert outcome.action == "open_files"
         assert outcome.source == other
 
     def test_correct_pair_marks_session_verified(self, sessions):
         session = sessions.create_session("wifi", FILES)
-        decide_redemption(_read(session), "idle", sessions)
+        decide_qr_read(_read(session), "idle", sessions)
         assert sessions.db_manager.get_session(session.session_id)['status'] == "verified"
 
     def test_wrong_otp_counts_an_attempt(self, sessions):
         session = sessions.create_session("wifi", FILES)
-        outcome = decide_redemption(_read(session, otp=_wrong_otp(session)), "homepage", sessions)
+        outcome = decide_qr_read(_read(session, otp=_wrong_otp(session)), "homepage", sessions)
         assert outcome.action == "rejected"
         assert outcome.message == "Incorrect OTP"
         assert _failed_attempts(sessions, session) == 1
@@ -89,9 +89,9 @@ class TestDecideRedemption:
     def test_wrong_otps_lock_the_session_like_typed_ones(self, sessions):
         session = sessions.create_session("email", FILES)
         for _ in range(MAX_FAILED_ATTEMPTS):
-            decide_redemption(_read(session, otp=_wrong_otp(session)), "idle", sessions)
+            decide_qr_read(_read(session, otp=_wrong_otp(session)), "idle", sessions)
         assert sessions.db_manager.get_session(session.session_id)['status'] == "locked"
-        outcome = decide_redemption(_read(session), "idle", sessions)
+        outcome = decide_qr_read(_read(session), "idle", sessions)
         assert outcome.action == "rejected"
         assert "locked" in outcome.message
 
@@ -100,7 +100,7 @@ class TestDecideRedemption:
         session = sessions.create_session("email", FILES)
         for _ in range(MAX_FAILED_ATTEMPTS):
             sessions.verify_otp(session.session_id, _wrong_otp(session))
-        outcome = decide_redemption(_read(session), screen, sessions)
+        outcome = decide_qr_read(_read(session), screen, sessions)
         assert outcome.action == "rejected"
         assert outcome.message == "Session locked after too many failed attempts"
 
@@ -109,40 +109,40 @@ class TestDecideRedemption:
         sessions.db_manager.conn.execute(
             "UPDATE sessions SET expires_at = ? WHERE session_id = ?",
             (datetime.now() - timedelta(minutes=1), session.session_id))
-        outcome = decide_redemption(_read(session), "idle", sessions)
+        outcome = decide_qr_read(_read(session), "idle", sessions)
         assert (outcome.action, outcome.message) == ("rejected", "Session expired")
 
     @pytest.mark.parametrize("screen", ACCEPTING_SCREENS)
     def test_used_session_is_rejected_like_a_typed_code(self, sessions, screen):
         session = sessions.create_session("wifi", FILES)
-        assert decide_redemption(_read(session), "idle", sessions).action == "open_files"
-        outcome = decide_redemption(_read(session), screen, sessions)
+        assert decide_qr_read(_read(session), "idle", sessions).action == "open_files"
+        outcome = decide_qr_read(_read(session), screen, sessions)
         assert (outcome.action, outcome.message) == ("rejected", "Incorrect or expired code")
 
     @pytest.mark.parametrize("screen", ACCEPTING_SCREENS)
     def test_scanner_source_rejected_without_an_attempt(self, sessions, screen):
         session = sessions.create_session("scanner", FILES)
         for otp in (session.otp, _wrong_otp(session)):
-            outcome = decide_redemption(_read(session, otp=otp), screen, sessions)
+            outcome = decide_qr_read(_read(session, otp=otp), screen, sessions)
             assert (outcome.action, outcome.message) == ("rejected", MSG_CANT_USE_HERE)
         assert _failed_attempts(sessions, session) == 0
         assert sessions.db_manager.get_session(session.session_id)['status'] == "pending"
 
     def test_unknown_session_gets_the_typed_message(self, sessions):
         read = classify_payload("f" * 16 + ":123456")
-        outcome = decide_redemption(read, "idle", sessions)
+        outcome = decide_qr_read(read, "idle", sessions)
         assert (outcome.action, outcome.message) == ("rejected", "Incorrect or expired code")
 
     @pytest.mark.parametrize("screen", ACCEPTING_SCREENS)
     def test_malformed_says_type_your_code_and_counts_nothing(self, sessions, screen):
         session = sessions.create_session("wifi", FILES)
-        outcome = decide_redemption(classify_payload("garbage"), screen, sessions)
+        outcome = decide_qr_read(classify_payload("garbage"), screen, sessions)
         assert (outcome.action, outcome.message) == ("rejected", MSG_CANT_READ)
         assert _failed_attempts(sessions, session) == 0
 
     @pytest.mark.parametrize("screen", ACCEPTING_SCREENS)
     def test_voucher_says_vouchers_are_for_payment(self, sessions, screen):
-        outcome = decide_redemption(classify_payload("V1:ABC"), screen, sessions)
+        outcome = decide_qr_read(classify_payload("V1:ABC"), screen, sessions)
         assert (outcome.action, outcome.message) == ("rejected", MSG_VOUCHER_AT_PAYMENT)
 
     @pytest.mark.parametrize("screen", ["usb", "file_browser", "printing_options",
@@ -151,7 +151,7 @@ class TestDecideRedemption:
     def test_mid_flow_screens_ignore_every_read_silently(self, sessions, screen):
         session = sessions.create_session("wifi", FILES)
         for text in (f"{session.session_id}:{session.otp}", "garbage", "V1:ABC"):
-            outcome = decide_redemption(classify_payload(text), screen, sessions)
+            outcome = decide_qr_read(classify_payload(text), screen, sessions)
             assert outcome.action == "ignore"
             assert outcome.message is None
         assert sessions.db_manager.get_session(session.session_id)['status'] == "pending"
@@ -159,7 +159,7 @@ class TestDecideRedemption:
     @pytest.mark.parametrize("screen,action", [("payment", "apply_voucher"),
                                                ("voucher_balance", "check_voucher")])
     def test_voucher_read_goes_to_the_voucher_screens(self, sessions, screen, action):
-        outcome = decide_redemption(classify_payload("V1:ABC"), screen, sessions)
+        outcome = decide_qr_read(classify_payload("V1:ABC"), screen, sessions)
         assert outcome.action == action
         assert outcome.message is None
 
@@ -167,7 +167,7 @@ class TestDecideRedemption:
     def test_voucher_screens_ignore_session_and_malformed_reads(self, sessions, screen):
         session = sessions.create_session("wifi", FILES)
         for text in (f"{session.session_id}:{session.otp}", "garbage"):
-            outcome = decide_redemption(classify_payload(text), screen, sessions)
+            outcome = decide_qr_read(classify_payload(text), screen, sessions)
             assert outcome.action == "ignore"
             assert outcome.message is None
         assert sessions.db_manager.get_session(session.session_id)['status'] == "pending"
