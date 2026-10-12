@@ -287,3 +287,26 @@ class TestSharedLockout:
 
         clock.advance(minutes=5, seconds=1)
         assert check(screen, v.display_code)['found']
+
+    def test_wrong_codes_read_here_count_toward_the_shared_lockout(self, kiosk, issue, db, clock):
+        v = issue(7)
+        screen = open_balance_check(kiosk)
+        for _ in range(3):
+            screen.check_voucher_code("V1:ZZZZZZZZ")  # what main_app hands a Voucher read
+            assert screen.view.status_banner._label.text() == MSG_UNKNOWN
+
+        at_payment = VoucherManager(db, now_fn=clock)
+        assert not at_payment.apply(["ZZZZ-ZZZZ"], 10).locked
+        assert at_payment.apply(["ZZZZ-ZZZZ"], 10).locked
+        screen.check_voucher_code(f"V1:{v.code}")
+        assert screen.view.result_panel.isHidden()
+        assert screen.model.locked
+
+    def test_malformed_reads_do_not_count_toward_the_lockout(self, kiosk, issue):
+        v = issue(7)
+        screen = open_balance_check(kiosk)
+        for _ in range(vm.MAX_FAILED_ATTEMPTS + 1):
+            screen.check_voucher_code("V1:HELLO")
+        assert not screen.model.locked
+        screen.check_voucher_code(f"V1:{v.code}")
+        assert not screen.view.result_panel.isHidden()

@@ -588,6 +588,28 @@ class TestVoucherEntryMessages:
             model.apply_voucher("hello")
         assert all("locked" not in m for m, _ in messages)
 
+    def test_wrong_codes_read_count_toward_the_same_lockout(self, kiosk, db, messages):
+        main_app, model = kiosk
+        code = issue_voucher(main_app, model, db, 2)
+        start_payment(model)
+
+        for _ in range(vm.MAX_FAILED_ATTEMPTS - 1):
+            model.apply_voucher("ZZZZ-ZZZZ")
+        assert "locked" not in messages[-1][0]
+        model.apply_voucher("V1:ZZZZZZZZ")  # a QR read of a wrong code
+        assert "locked for 5 more minute" in messages[-1][0]
+        assert not model.apply_voucher("V1:" + code.replace("-", ""))
+        assert model.applied_vouchers == []
+
+    def test_malformed_reads_do_not_count_toward_the_lockout(self, kiosk, db, messages):
+        main_app, model = kiosk
+        code = issue_voucher(main_app, model, db, 2)
+        start_payment(model)
+        for _ in range(vm.MAX_FAILED_ATTEMPTS + 1):
+            model.apply_voucher("V1:HELLO")
+        assert all("locked" not in m for m, _ in messages)
+        assert model.apply_voucher("V1:" + code.replace("-", ""))
+
 
 class TestVoucherEntryOnScreen:
     def test_typed_code_is_applied_and_listed_with_what_is_left(self, kiosk, db):
@@ -660,6 +682,24 @@ class TestVoucherEntryOnScreen:
             assert view.voucher_banner._label.text() == "Voucher applied: P2 off. P0 left on this voucher."
             assert view.vouchers_label.text() == f"Voucher ••••-{code[-4:]}: P2 applied, P0 left"
             assert screen.model.amount_owed == job_cost() - 2
+        finally:
+            screen.on_leave()
+
+    def test_several_qr_reads_are_applied_in_the_order_read(self, kiosk, db):
+        from screens.payment.controller import PaymentController
+        main_app, model = kiosk
+        cost = job_cost()
+        first = issue_voucher(main_app, model, db, cost - 1)
+        second = issue_voucher(main_app, model, db, 5)
+        screen = PaymentController(main_app)
+        main_app.stacked_widget = SimpleNamespace(currentWidget=lambda: screen)
+        screen.set_payment_data(job())
+        screen.on_enter()
+        try:
+            for code in (first, second):
+                assert screen.apply_voucher_code("V1:" + code.replace("-", ""))
+            assert [(v.amount, v.remaining) for v in screen.model.applied_vouchers] == [(cost - 1, 0), (1, 4)]
+            assert screen.model.amount_owed == 0
         finally:
             screen.on_leave()
 

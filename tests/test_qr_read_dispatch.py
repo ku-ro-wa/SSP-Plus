@@ -1,0 +1,113 @@
+"""
+Seam tests for PrintingSystemApp._on_qr_read: a raw read on a given screen is
+de-duplicated, decided, and handed to the right screen. The screens are
+recorders; decide_redemption and a real SessionManager on a temp SQLite
+database do the deciding. Voucher handling itself is covered by
+test_payment_change_flow.py and test_voucher_balance.py.
+"""
+import os
+from types import SimpleNamespace
+
+import pytest
+
+os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
+from database.db_manager import DatabaseManager  # noqa: E402
+from database.models import init_db  # noqa: E402
+from main_app import PrintingSystemApp  # noqa: E402
+from managers.qr_reader import DuplicateReadFilter, MSG_VOUCHER_AT_PAYMENT  # noqa: E402
+from managers.session_manager import SessionManager  # noqa: E402
+
+
+class Recorder:
+    def __init__(self):
+        self.calls = []
+
+    def __getattr__(self, name):
+        return lambda *args: self.calls.append((name, *args))
+
+
+class FakeClock:
+    def __init__(self):
+        self.now = 100.0
+
+    def __call__(self):
+        return self.now
+
+
+@pytest.fixture
+def sessions(tmp_path):
+    db_path = str(tmp_path / "test.db")
+    init_db(db_path)
+    db = DatabaseManager(db_path=db_path)
+    yield SessionManager(db)
+    db.conn.close()
+
+
+@pytest.fixture
+def app(sessions):
+    """Just the attributes _on_qr_read touches, with the read landing on `app.screen`."""
+    clock = FakeClock()
+    current = Recorder()
+    fake = SimpleNamespace(
+        screen="payment",
+        clock=clock,
+        current=current,
+        payment_screen=Recorder(),
+        voucher_balance_screen=Recorder(),
+        opened=[],
+        qr_session_manager=sessions,
+        _qr_duplicates=DuplicateReadFilter(window_seconds=3, clock=clock),
+        stacked_widget=SimpleNamespace(currentWidget=lambda: current),
+    )
+    fake._current_screen_name = lambda: fake.screen
+    fake.open_session_files = lambda source, files: fake.opened.append(source) or True
+    fake.read = lambda text: PrintingSystemApp._on_qr_read(fake, text)
+    return fake
+
+
+def test_voucher_read_on_payment_is_applied(app):
+    app.read("V1:ABCD1234")
+    assert app.payment_screen.calls == [("apply_voucher_code", "V1:ABCD1234")]
+    assert app.voucher_balance_screen.calls == []
+    assert app.current.calls == []
+
+
+def test_voucher_read_on_balance_check_is_checked(app):
+    app.screen = "voucher_balance"
+    app.read("V1:ABCD1234")
+    assert app.voucher_balance_screen.calls == [("check_voucher_code", "V1:ABCD1234")]
+    assert app.payment_screen.calls == []
+    assert app.current.calls == []
+
+
+@pytest.mark.parametrize("screen", ["idle", "homepage", "wifi", "email"])
+def test_voucher_read_elsewhere_says_vouchers_are_for_payment(app, screen):
+    app.screen = screen
+    app.read("V1:ABCD1234")
+    assert app.current.calls == [("show_qr_message", MSG_VOUCHER_AT_PAYMENT)]
+    assert app.payment_screen.calls == []
+    assert app.voucher_balance_screen.calls == []
+
+
+def test_several_voucher_reads_on_payment_are_applied_in_the_order_read(app):
+    for text in ("V1:AAAA1111", "V1:BBBB2222", "V1:CCCC3333"):
+        app.read(text)
+    assert [args for _, *args in app.payment_screen.calls] == [
+        ["V1:AAAA1111"], ["V1:BBBB2222"], ["V1:CCCC3333"]]
+
+
+def test_repeat_read_within_the_window_is_applied_once(app):
+    app.read("V1:ABCD1234")
+    app.clock.now += 1
+    app.read("V1:ABCD1234")
+    assert len(app.payment_screen.calls) == 1
+
+
+@pytest.mark.parametrize("screen", ["payment", "voucher_balance"])
+def test_voucher_screens_ignore_session_and_malformed_reads(app, sessions, screen):
+    app.screen = screen
+    session = sessions.create_session("wifi", [{"path": "/tmp/a.pdf", "original_filename": "a.pdf"}])
+    app.read(f"{session.session_id}:{session.otp}")
+    app.read("garbage")
+    assert app.payment_screen.calls == app.voucher_balance_screen.calls == app.current.calls == []
+    assert app.opened == []
