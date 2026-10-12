@@ -94,3 +94,20 @@ class VoucherDBMixin:
             except sqlite3.Error:
                 pass
             return False
+
+    def get_voucher_liability(self, now):
+        """Outstanding Voucher liability (issue #28): the remaining value, in
+        pesos, of every Voucher not yet expired at `now`. Point in time, so it
+        has no `since` window."""
+        if not self.conn:
+            return 0
+        try:
+            cursor = self.conn.cursor()
+            cursor.execute(
+                "SELECT COALESCE(SUM(remaining_value), 0) AS liability FROM vouchers "
+                "WHERE expires_at > ?", (now,)
+            )
+            return cursor.fetchone()["liability"]
+        except sqlite3.Error as e:
+            print(f"Error getting voucher liability: {e}")
+            return 0
