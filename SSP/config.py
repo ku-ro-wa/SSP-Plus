@@ -300,6 +300,15 @@ class Config:
             return 8000
 
     @property
+    def wifi_captive_port(self) -> int:
+        """Plain-HTTP port the captive-portal probe responder (webapp/captive.py)
+        listens on. The hotspot firewall redirects the hotspot's port 80 here."""
+        try:
+            return self.get('WIFI_CAPTIVE_PORT', int)
+        except KeyError:
+            return 8080
+
+    @property
     def wifi_tls_certfile(self) -> str:
         """
         Path to the TLS cert for the Wi-Fi portal's Uvicorn instance

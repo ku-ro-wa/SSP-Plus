@@ -1,5 +1,9 @@
 # The kiosk's own hotspot (hostapd + dnsmasq) replaces the RaspAP captive portal
 
+> **Partly changed (proposed 2026-10-12)** by ADR-0008: captive-portal detection opens the
+> Portal (still no splash page), `dnsmasq` answers every name with the Pi, and the parts that
+> need a domain are on hold because no domain is being bought.
+
 `project_objectives.txt` module 5 planned the Wi-Fi upload portal behind a RaspAP access point
 with a captive portal (Nodogsplash/openNDS). ADR-0001 left that piece out for local development.
 Testing it on the Pi showed that a captive portal doesn't fit our use: it's built to gate

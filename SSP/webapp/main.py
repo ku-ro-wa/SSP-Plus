@@ -1,10 +1,11 @@
 # webapp/main.py
 from pathlib import Path
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.staticfiles import StaticFiles
 
 from config import get_config
+from webapp.captive import captive_clients
 from webapp.routers import health, redeem, upload
 
 config = get_config()
@@ -21,6 +22,15 @@ app = FastAPI(title="AIO SPARK", docs_url=docs_url, redoc_url=redoc_url)
 # so your HTML's <img src="/static/image.png"> actually resolves.
 BASE_DIR = Path(__file__).resolve().parent
 app.mount("/static", StaticFiles(directory=BASE_DIR / "static"), name="static")
+
+
+# A device that has reached the Portal no longer needs the OS's sign-in
+# window, so its connectivity checks start answering "online" (webapp/captive.py).
+@app.middleware("http")
+async def release_captive_client(request: Request, call_next):
+    captive_clients.release(request.client.host if request.client else None)
+    return await call_next(request)
+
 
 app.include_router(health.router)
 app.include_router(upload.router)

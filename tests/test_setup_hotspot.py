@@ -25,7 +25,7 @@ _spec.loader.exec_module(hs)
 HOTSPOT_KEYS = [
     "KIOSK_ID", "WIFI_HOTSPOT_ENABLED", "WIFI_HOTSPOT_INTERFACE", "WIFI_HOTSPOT_SSID",
     "WIFI_HOTSPOT_COUNTRY", "WIFI_HOTSPOT_CHANNEL", "WIFI_HOTSPOT_ADDRESS",
-    "PORTAL_HOSTNAME", "WIFI_PORTAL_PORT", "ADMIN_DASHBOARD_PORT",
+    "PORTAL_HOSTNAME", "WIFI_PORTAL_PORT", "WIFI_CAPTIVE_PORT", "ADMIN_DASHBOARD_PORT",
 ]
 
 
@@ -39,6 +39,7 @@ def _config(**overrides):
         wifi_hotspot_address="10.3.141.1/24",
         portal_hostname="print.aio-spark.example",
         wifi_portal_port=8000,
+        wifi_captive_port=8080,
         admin_dashboard_port=8100,
         kiosk_id="kiosk-01",
     )
@@ -73,6 +74,7 @@ class TestSettings:
         assert s.interface == "wlan0"
         assert str(s.address) == "10.3.141.1/24"
         assert s.portal_port == 8000
+        assert s.captive_port == 8080
         assert s.portal_hostname == "print.aio-spark.example"
 
     def test_env_values_reach_settings(self, monkeypatch):
@@ -102,6 +104,10 @@ class TestSettings:
         (dict(portal_hostname="not a host"), "PORTAL_HOSTNAME"),
         (dict(wifi_portal_port=22), "SSH"),
         (dict(wifi_portal_port=8100), "Admin Dashboard"),
+        (dict(wifi_captive_port=0), "WIFI_CAPTIVE_PORT"),
+        (dict(wifi_captive_port=53), "WIFI_CAPTIVE_PORT.*SSH"),
+        (dict(wifi_captive_port=8000), "WIFI_CAPTIVE_PORT.*Portal"),
+        (dict(wifi_captive_port=8100), "WIFI_CAPTIVE_PORT.*dashboard"),
         (dict(kiosk_id="Kiosk One"), "KIOSK_ID"),
     ])
     def test_rejects_bad_values(self, overrides, fragment):
@@ -140,11 +146,15 @@ class TestHostapd:
 
 
 class TestDnsmasq:
-    def test_answers_portal_name_and_nothing_upstream(self):
+    def test_answers_every_name_with_the_pi_and_nothing_upstream(self):
         lines = _lines(hs.render_dnsmasq(_settings()))
-        assert "host-record=print.aio-spark.example,10.3.141.1" in lines
+        assert "address=/#/10.3.141.1" in lines
         assert "no-resolv" in lines
         assert not any(line.startswith("server=") for line in lines)
+
+    def test_windows_dns_check_gets_its_real_address(self):
+        lines = _lines(hs.render_dnsmasq(_settings()))
+        assert "address=/dns.msftncsi.com/131.107.255.255" in lines
 
     def test_serves_only_the_hotspot_interface(self):
         lines = _lines(hs.render_dnsmasq(_settings(wifi_hotspot_interface="wlan1")))
@@ -158,11 +168,11 @@ class TestDnsmasq:
 
 
 class TestFirewall:
-    def test_allows_only_dhcp_dns_and_portal(self):
-        text = hs.render_firewall(_settings(wifi_portal_port=8443))
+    def test_allows_only_dhcp_dns_portal_and_probe_responder(self):
+        text = hs.render_firewall(_settings(wifi_portal_port=8443, wifi_captive_port=8081))
         accepts = [line for line in _lines(text) if "dport" in line and "accept" in line]
         ports = sorted(line.split("dport")[1].split()[0] for line in accepts)
-        assert ports == ["53", "53", "67", "8443"]
+        assert ports == ["53", "53", "67", "8081", "8443"]
         assert "8100" not in text and "dport 22" not in text
 
     def test_drops_everything_else_on_the_hotspot_only(self):
@@ -178,6 +188,17 @@ class TestFirewall:
                    for line in lines)
         assert not any(line.startswith('iifname "wlan0" counter drop') for line in lines)
         assert any(line.startswith('oifname "wlan0" counter drop') for line in lines)
+
+    def test_hotspot_port_80_goes_to_the_probe_responder(self):
+        lines = _lines(hs.render_firewall(_settings(wifi_captive_port=8081)))
+        assert "type nat hook prerouting priority dstnat; policy accept;" in lines
+        assert any(line.startswith('iifname "wlan0" ip daddr 10.3.141.1 tcp dport 80 redirect to :8081') for line in lines)
+
+    def test_https_checks_are_reset_before_the_final_drop(self):
+        lines = _lines(hs.render_firewall(_settings()))
+        reset = next(i for i, line in enumerate(lines) if line.startswith("tcp dport 443 reject with tcp reset"))
+        drop = next(i for i, line in enumerate(lines) if line.startswith("counter drop"))
+        assert reset < drop
 
     def test_only_touches_its_own_table(self):
         text = hs.render_firewall(_settings())

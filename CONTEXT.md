@@ -68,9 +68,16 @@ _Avoid_: claim, verification (verification is one step inside redemption), unloc
 
 **Portal**:
 The FastAPI-served web page a user reaches from their own device to upload PDFs over the
-kiosk's network. Reached by URL (QR image or sticker) over the kiosk's own **Hotspot**; there is
-no captive portal (ADR 0007).
+kiosk's network. Reached by URL (QR image or sticker) over the kiosk's own **Hotspot**, or through
+the sign-in window a device's OS opens when it joins (captive-portal detection, ADR 0008). There's
+no splash page in front of it.
 _Avoid_: upload site, web app, captive portal (the dropped RaspAP/Nodogsplash plan, not this page).
+
+**Probe responder**:
+The small plain-HTTP server (`webapp/captive.py`) that answers the OSes' "am I online?" checks on
+the **Hotspot**. It redirects a device to the **Portal** until that device has opened it, then
+answers "online". A device that has opened the Portal is _released_.
+_Avoid_: captive portal, splash page, openNDS.
 
 **Hotspot**:
 The kiosk Pi's own open Wi-Fi network (hostapd + dnsmasq), set up from `.env` by
