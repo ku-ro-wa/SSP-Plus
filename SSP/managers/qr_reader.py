@@ -10,7 +10,7 @@
 #     and hands each one to a callback.
 #   - classify_payload(): every read is untrusted (anyone can reconfigure the
 #     reader), so it's checked against exact formats before anything acts on it.
-#   - decide_redemption(): classified read + current screen + SessionManager
+#   - decide_qr_read(): classified read + current screen + SessionManager
 #     -> what the app should do.
 
 import re
@@ -69,7 +69,7 @@ _VOUCHER_PREFIX = "V1:"
 
 # Screens that accept a read (and can show a message about it). Every other
 # screen ignores reads silently.
-_REDEEMABLE_SCREENS = {"idle", "homepage", "wifi", "email"}
+_ACCEPTING_SCREENS = {"idle", "homepage", "wifi", "email"}
 # Screens that take a Voucher payload, and what to do with it there. They
 # ignore every other read silently.
 _VOUCHER_SCREENS = {"payment": "apply_voucher", "voucher_balance": "check_voucher"}
@@ -92,7 +92,7 @@ class QrRead:
 
 
 @dataclass
-class RedemptionOutcome:
+class QrReadOutcome:
     # 'open_files' | 'rejected' (show `message`) | 'ignore' (silent)
     # | 'apply_voucher' / 'check_voucher' (hand the read's text to that screen)
     action: str
@@ -110,35 +110,35 @@ def classify_payload(text: str) -> QrRead:
     return QrRead("malformed")
 
 
-def decide_redemption(read: QrRead, screen: str, session_manager) -> RedemptionOutcome:
+def decide_qr_read(read: QrRead, screen: str, session_manager) -> QrReadOutcome:
     """Decide what a read means on `screen`. Only a well-formed Session payload
     on an accepting screen can touch the Session Manager; malformed reads,
     Voucher payloads and wrong-Source Sessions never count as a failed attempt.
     A Voucher payload is only checked by the screen it's handed to, where a
     wrong code counts toward the Voucher lockout just as a typed one does."""
     if screen in _VOUCHER_SCREENS:
-        return RedemptionOutcome(_VOUCHER_SCREENS[screen] if read.kind == "voucher" else "ignore")
-    if screen not in _REDEEMABLE_SCREENS:
-        return RedemptionOutcome("ignore")
+        return QrReadOutcome(_VOUCHER_SCREENS[screen] if read.kind == "voucher" else "ignore")
+    if screen not in _ACCEPTING_SCREENS:
+        return QrReadOutcome("ignore")
     if read.kind == "voucher":
-        return RedemptionOutcome("rejected", message=MSG_VOUCHER_AT_PAYMENT)
+        return QrReadOutcome("rejected", message=MSG_VOUCHER_AT_PAYMENT)
     if read.kind != "session":
-        return RedemptionOutcome("rejected", message=MSG_CANT_READ)
+        return QrReadOutcome("rejected", message=MSG_CANT_READ)
 
     # Checked before verification so a wrong-source Session never gets an attempt counted.
     source = session_manager.get_session_source(read.session_id)
     if source is None:
-        return RedemptionOutcome("rejected", message=MSG_NOT_FOUND_OR_USED)
+        return QrReadOutcome("rejected", message=MSG_NOT_FOUND_OR_USED)
     if source not in _KIOSK_SOURCES:
-        return RedemptionOutcome("rejected", message=MSG_CANT_USE_HERE)
+        return QrReadOutcome("rejected", message=MSG_CANT_USE_HERE)
     # A typed code never resolves a used Session, so a read must not reopen its files.
     if session_manager.get_session_status(read.session_id) == "verified":
-        return RedemptionOutcome("rejected", message=MSG_NOT_FOUND_OR_USED)
+        return QrReadOutcome("rejected", message=MSG_NOT_FOUND_OR_USED)
 
     success, message, files = session_manager.verify_otp(read.session_id, read.otp)
     if not success:
-        return RedemptionOutcome("rejected", message=message)
-    return RedemptionOutcome("open_files", source=source, files=files, message=message)
+        return QrReadOutcome("rejected", message=message)
+    return QrReadOutcome("open_files", source=source, files=files, message=message)
 
 
 def describe_reader_status(manager) -> str:

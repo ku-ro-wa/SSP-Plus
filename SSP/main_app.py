@@ -42,7 +42,7 @@ from managers.db_threader import DatabaseThreadManager
 from managers.ink_analysis_threader import InkAnalysisThreadManager
 from managers.webapp_thread import WebAppThreadManager
 from managers.email_poller_thread import EmailPollerThreadManager
-from managers.qr_reader import (CONNECTED, DuplicateReadFilter, QrReaderManager, classify_payload, decide_redemption,
+from managers.qr_reader import (CONNECTED, DuplicateReadFilter, QrReaderManager, classify_payload, decide_qr_read,
                                 describe_reader_status, should_log_status_change)
 from managers.session_manager import SessionManager
 from database.db_manager import DatabaseManager
@@ -324,7 +324,7 @@ class PrintingSystemApp(QMainWindow):
             return
         read = classify_payload(text)
         screen = self._current_screen_name()
-        outcome = decide_redemption(read, screen, self.qr_session_manager)
+        outcome = decide_qr_read(read, screen, self.qr_session_manager)
         print(f"QR read ({read.kind}) on '{screen}' -> {outcome.action}: {outcome.message}")
         if outcome.action == "open_files":
             if not self.open_session_files(outcome.source, outcome.files):
