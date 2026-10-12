@@ -70,6 +70,9 @@ _VOUCHER_PREFIX = "V1:"
 # Screens that accept a read (and can show a message about it). Every other
 # screen ignores reads silently.
 _REDEEMABLE_SCREENS = {"idle", "homepage", "wifi", "email"}
+# Screens that take a Voucher payload, and what to do with it there. They
+# ignore every other read silently.
+_VOUCHER_SCREENS = {"payment": "apply_voucher", "voucher_balance": "check_voucher"}
 _KIOSK_SOURCES = {"wifi", "email"}
 
 DUPLICATE_WINDOW_SECONDS = 3.0
@@ -90,7 +93,9 @@ class QrRead:
 
 @dataclass
 class RedemptionOutcome:
-    action: str  # 'open_files' | 'rejected' (show `message`) | 'ignore' (silent)
+    # 'open_files' | 'rejected' (show `message`) | 'ignore' (silent)
+    # | 'apply_voucher' / 'check_voucher' (hand the read's text to that screen)
+    action: str
     source: str = None
     files: list = None
     message: str = None
@@ -108,7 +113,11 @@ def classify_payload(text: str) -> QrRead:
 def decide_redemption(read: QrRead, screen: str, session_manager) -> RedemptionOutcome:
     """Decide what a read means on `screen`. Only a well-formed Session payload
     on an accepting screen can touch the Session Manager; malformed reads,
-    Voucher payloads and wrong-Source Sessions never count as a failed attempt."""
+    Voucher payloads and wrong-Source Sessions never count as a failed attempt.
+    A Voucher payload is only checked by the screen it's handed to, where a
+    wrong code counts toward the Voucher lockout just as a typed one does."""
+    if screen in _VOUCHER_SCREENS:
+        return RedemptionOutcome(_VOUCHER_SCREENS[screen] if read.kind == "voucher" else "ignore")
     if screen not in _REDEEMABLE_SCREENS:
         return RedemptionOutcome("ignore")
     if read.kind == "voucher":

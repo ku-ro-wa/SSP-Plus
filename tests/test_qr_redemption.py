@@ -146,11 +146,27 @@ class TestDecideRedemption:
         assert (outcome.action, outcome.message) == ("rejected", MSG_VOUCHER_AT_PAYMENT)
 
     @pytest.mark.parametrize("screen", ["usb", "file_browser", "printing_options",
-                                        "payment", "admin", "thank_you", "scanner",
+                                        "admin", "thank_you", "scanner",
                                         "scan_destination", "scan_result", "data_viewer"])
     def test_mid_flow_screens_ignore_every_read_silently(self, sessions, screen):
         session = sessions.create_session("wifi", FILES)
         for text in (f"{session.session_id}:{session.otp}", "garbage", "V1:ABC"):
+            outcome = decide_redemption(classify_payload(text), screen, sessions)
+            assert outcome.action == "ignore"
+            assert outcome.message is None
+        assert sessions.db_manager.get_session(session.session_id)['status'] == "pending"
+
+    @pytest.mark.parametrize("screen,action", [("payment", "apply_voucher"),
+                                               ("voucher_balance", "check_voucher")])
+    def test_voucher_read_goes_to_the_voucher_screens(self, sessions, screen, action):
+        outcome = decide_redemption(classify_payload("V1:ABC"), screen, sessions)
+        assert outcome.action == action
+        assert outcome.message is None
+
+    @pytest.mark.parametrize("screen", ["payment", "voucher_balance"])
+    def test_voucher_screens_ignore_session_and_malformed_reads(self, sessions, screen):
+        session = sessions.create_session("wifi", FILES)
+        for text in (f"{session.session_id}:{session.otp}", "garbage"):
             outcome = decide_redemption(classify_payload(text), screen, sessions)
             assert outcome.action == "ignore"
             assert outcome.message is None

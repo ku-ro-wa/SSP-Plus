@@ -52,7 +52,9 @@ reader.
 - **Payloads are checked against exact formats.** A Session payload must be
   `<16 lowercase hex>:<6 digits>`. A Voucher payload must start with `V1:`. Anything else,
   including reads altered by a reconfigured reader, is malformed: the customer is told to type
-  their code, and no failed attempt is counted.
+  their code, and no failed attempt is counted. The payment screen and the voucher balance
+  check are the exception: they act on a Voucher payload only and ignore every other read
+  silently, Session payloads included (#57).
 
 - **A read Session payload is checked as the exact pair.** It's verified with
   `verify_otp(session_id, otp)`, so a wrong OTP counts toward the lockout exactly like a typed

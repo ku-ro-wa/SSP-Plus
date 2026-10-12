@@ -227,6 +227,15 @@ class TestBalance:
         v = issue(7)
         assert check(open_balance_check(kiosk), f"V1:{v.code}")['found']
 
+    def test_qr_read_is_checked_and_keeps_the_screen_awake(self, kiosk, issue):
+        v = issue(7)
+        screen = open_balance_check(kiosk)
+        kiosk.countdown = 5
+        screen.check_voucher_code(f"V1:{v.code}")  # what main_app hands a Voucher read
+        assert kiosk.countdown == 60
+        assert not screen.view.result_panel.isHidden()
+        assert screen.view.amount_label.text() == f"{PESO}7"
+
     def test_expired_fully_used_and_unknown_get_distinct_messages(self, kiosk, issue, db, clock):
         used = issue(4)
         VoucherManager(db, now_fn=clock).apply([used.code], 4)
