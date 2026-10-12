@@ -55,10 +55,11 @@ Two persistent `QThread` managers are started in `PrintingSystemApp.__init__` an
 The QR reader is on when `QR_READER_PORT` is set in `.env` (blank = off, typed codes only). Reads are
 classified and decided in `managers/qr_reader.py` (`classify_payload`, `decide_redemption`), then
 `main_app._on_qr_read` acts on them via `open_session_files()` — the same path a typed OTP takes.
-Accepting screens are idle, homepage, wifi and email (each has `show_qr_message()` for the reply);
-all others ignore reads silently. A payload read again within 3 s of its last accepted read is dropped,
-even with other reads in between (`DuplicateReadFilter`; the reader's own duplicate time can't be set
-over serial). On every port open `QrReaderManager` first re-sends the reader's settings as `#<code>;`
+Accepting screens are idle, homepage, wifi and email (each has `show_qr_message()` for the reply).
+A Voucher read (`V1:`) is handed to `payment` (`apply_voucher_code`) or `voucher_balance`
+(`check_voucher_code`), which ignore every other read; all other screens ignore reads silently.
+A payload read again within 3 s of its last accepted read is dropped, even with other reads in
+between (`DuplicateReadFilter`; the reader's own duplicate time can't be set over serial). On every port open `QrReaderManager` first re-sends the reader's settings as `#<code>;`
 (`KIOSK_CONFIG`, ~8 s; reads during it are held until it ends); NAKed or unanswered codes write one
 `error_log` row per open. In `SIM_MODE`, Ctrl+Shift+Q opens a box to inject a payload. If the
 reader is unplugged or fails to open, `QrReaderManager` goes `unavailable`, retries every 5 s and

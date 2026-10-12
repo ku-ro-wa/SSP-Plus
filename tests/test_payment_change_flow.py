@@ -645,6 +645,24 @@ class TestVoucherEntryOnScreen:
         finally:
             screen.on_leave()
 
+    def test_qr_read_is_applied_without_opening_the_entry(self, kiosk, db):
+        from screens.payment.controller import PaymentController
+        main_app, model = kiosk
+        code = issue_voucher(main_app, model, db, 2)
+        screen = PaymentController(main_app)
+        main_app.stacked_widget = SimpleNamespace(currentWidget=lambda: screen)
+        screen.set_payment_data(job())
+        screen.on_enter()
+        view = screen.view
+        try:
+            assert screen.apply_voucher_code("V1:" + code.replace("-", ""))  # what main_app hands a Voucher read
+            assert not view.voucher_banner.isHidden()
+            assert view.voucher_banner._label.text() == "Voucher applied: P2 off. P0 left on this voucher."
+            assert view.vouchers_label.text() == f"Voucher ••••-{code[-4:]}: P2 applied, P0 left"
+            assert screen.model.amount_owed == job_cost() - 2
+        finally:
+            screen.on_leave()
+
 
 class TestDashboardReflectsVouchers:
     """Issue #28 / #21's parent acceptance test: a Voucher issued for a real

@@ -29,13 +29,15 @@ class VoucherBalanceController(QWidget):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.addWidget(self.view, 0, 0)
 
-        self.view.check_clicked.connect(self._handle_check)
-        self.view.check_clicked.connect(self._reset_timeout)
+        self.view.check_clicked.connect(self.check_voucher_code)
         self.view.input_edited.connect(self._reset_timeout)
         self.view.back_button_clicked.connect(self._go_back)
 
-    def _handle_check(self, code_text):
-        self.model.check(code_text)
+    def check_voucher_code(self, raw_code):
+        """Check a typed code or a 'V1:<code>' payload, so a QR read can be
+        passed straight in."""
+        self._reset_timeout()
+        self.model.check(raw_code)
         self.view.render(self.model)
 
     def _go_back(self):
