@@ -261,6 +261,15 @@ class Config:
         except KeyError:
             return ""
 
+    @property
+    def ui_scale(self) -> str:
+        """UI_SCALE: a number scales the whole touchscreen UI by that much; blank or
+        "auto" picks a scale from the screen height (ui/scaling.py)."""
+        try:
+            return self.get('UI_SCALE', str).strip()
+        except KeyError:
+            return ""
+
     # Web backend (FastAPI) settings
 
     @property

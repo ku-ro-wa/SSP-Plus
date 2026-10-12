@@ -49,6 +49,7 @@ from database.db_manager import DatabaseManager
 from managers.sms_manager import cleanup_sms
 from managers.persistent_gpio import cleanup_persistent_gpio
 from config import get_config
+from ui.scaling import apply_ui_scale
 from ui.theme import apply_theme, COLORS
 
 
@@ -925,6 +926,9 @@ def main():
         print("\n🔄 Initializing database...")
         init_db()
         print("✅ Database initialization successful\n")
+
+        scale = apply_ui_scale(get_config().ui_scale)
+        print(f"🔍 UI scale {scale}")
 
         # Create Qt application
         app = QApplication(sys.argv)  # Main thread init
