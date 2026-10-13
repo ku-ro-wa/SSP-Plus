@@ -67,7 +67,7 @@ reader is unplugged or fails to open, `QrReaderManager` goes `unavailable`, retr
 resumes on its own; each loss and recovery writes one `error_log` row (`QR Reader`), and Kiosk Admin
 shows the status (blank port = "Not configured"). See ADR 0004.
 
-`pigpio` requires the `pigpiod` daemon. All GPIO code degrades gracefully (simulated mode with console warnings) when `pigpio`/`pigpiod` is unavailable, independent of `SIM_MODE`.
+`pigpio` requires the `pigpiod` daemon. With `SIM_MODE` off, `main()` refuses to start if either is missing (`managers/gpio_check.py`), so a kiosk can never show customers the payment screen's simulated coin/bill buttons; those buttons appear only when `SIM_MODE=true`. The GPIO managers' own simulated fallbacks remain for SIM_MODE and tests. Pi install steps: "pigpio (kiosk)" in `docs/SETUP.md`.
 
 **`managers/payment_handler.py` is dead code.** Nothing imports it; `screens/payment/model.py` wires up `managers/persistent_gpio.py`. If you're changing acceptor behavior, edit `persistent_gpio.py`, not `payment_handler.py`.
 

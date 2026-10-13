@@ -4,10 +4,7 @@
 # System-level dependencies (install separately):
 #   sudo apt-get install cups libcups2-dev poppler-utils
 #   sudo systemctl start cups
-#   sudo systemctl start pigpiod
-#
-# pigpio (Raspberry Pi only):
-#   pip install pigpio   (Linux/Pi only; skipped automatically via SIM_MODE on laptops)
+#   pigpiod daemon: see "pigpio (kiosk)" in docs/SETUP.md
 
 # GUI
 PyQt5>=5.15
@@ -48,3 +45,8 @@ Jinja2>=3.1
 # Optional dependencies (for Windows only)
 psutil
 pywin32; sys_platform == "win32"
+
+# GPIO client for the coin/bill acceptors and hoppers. Talks to the pigpiod
+# daemon (installed separately, see docs/SETUP.md). With SIM_MODE off the app
+# refuses to start without it.
+pigpio>=1.78; sys_platform == "linux"
