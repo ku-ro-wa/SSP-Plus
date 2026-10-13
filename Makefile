@@ -13,7 +13,19 @@ PYTHON ?= $(if $(_VENV_PY),$(_VENV_PY),$(if $(_WIN_PY),$(_WIN_PY),python3))
 # Run the app on the kiosk (requires hardware + CUPS + pigpiod)
 # Runs from repo root so config.py finds .env here (SSP/.env is gitignored)
 # -X utf8 forces UTF-8 stdout on Windows (avoids CP1252 emoji errors)
+# Over SSH there is no DISPLAY: show the GUI on the kiosk's own screen if its
+# X session is up (logs stay in the SSH terminal), else run headless so the
+# app still starts with no screen attached.
 run:
+	@if [ -z "$$DISPLAY" ] && [ -z "$$WAYLAND_DISPLAY" ]; then \
+		if [ -S /tmp/.X11-unix/X0 ]; then \
+			echo "No display in this shell: showing the app on the kiosk screen (DISPLAY=:0)"; \
+			export DISPLAY=:0; \
+		else \
+			echo "No display found: running headless (QT_QPA_PLATFORM=offscreen)"; \
+			export QT_QPA_PLATFORM=offscreen; \
+		fi; \
+	fi; \
 	$(PYTHON) -X utf8 SSP/main_app.py
 
 # Run the app in simulation mode — no GPIO, CUPS, or modem required
