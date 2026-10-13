@@ -187,25 +187,73 @@ class Config:
         """Get admin phone number for SMS alerts."""
         return self.get('PHONE_NUMBER', str)
 
+    # Pin defaults match .env.example and this kiosk's wiring (coin pulses on GPIO 12).
     @property
     def coin_pin(self) -> int:
         """Get GPIO pin number for coin acceptor pulse input."""
-        return self.get('COIN_PIN', int)
+        try:
+            return self.get('COIN_PIN', int)
+        except KeyError:
+            return 12
 
     @property
     def bill_pin(self) -> int:
         """Get GPIO pin number for bill acceptor pulse input."""
-        return self.get('BILL_PIN', int)
+        try:
+            return self.get('BILL_PIN', int)
+        except KeyError:
+            return 18
 
     @property
     def coin_inhibit_pin(self) -> int:
         """Get GPIO pin number for coin acceptor inhibit/enable (active high)."""
-        return self.get('COIN_INHIBIT_PIN', int)
+        try:
+            return self.get('COIN_INHIBIT_PIN', int)
+        except KeyError:
+            return 22
 
     @property
     def bill_inhibit_pin(self) -> int:
         """Get GPIO pin number for bill acceptor inhibit/enable (active low)."""
-        return self.get('BILL_INHIBIT_PIN', int)
+        try:
+            return self.get('BILL_INHIBIT_PIN', int)
+        except KeyError:
+            return 23
+
+    # Coin pulse noise filtering (managers/persistent_gpio.py). The coin line picks
+    # up sub-millisecond spikes; real pulses are ~15 ms (Fast) to ~100 ms (Slow).
+
+    @property
+    def coin_pulse_filter(self) -> bool:
+        """Filter coin pulses by width. False = legacy falling-edge counting (diagnostics)."""
+        try:
+            return self.get('COIN_PULSE_FILTER', bool)
+        except KeyError:
+            return True
+
+    @property
+    def coin_glitch_filter_us(self) -> int:
+        """pigpio glitch filter on the coin pin: ignore level changes shorter than this (µs)."""
+        try:
+            return self.get('COIN_GLITCH_FILTER_US', int)
+        except KeyError:
+            return 5000
+
+    @property
+    def coin_pulse_min_ms(self) -> float:
+        """Shortest low pulse on the coin pin counted as a coin pulse (ms)."""
+        try:
+            return self.get('COIN_PULSE_MIN_MS', float)
+        except KeyError:
+            return 10.0
+
+    @property
+    def coin_pulse_max_ms(self) -> float:
+        """Longest low pulse on the coin pin counted as a coin pulse (ms)."""
+        try:
+            return self.get('COIN_PULSE_MAX_MS', float)
+        except KeyError:
+            return 150.0
 
     # Admin access
 
