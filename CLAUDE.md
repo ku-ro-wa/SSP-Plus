@@ -133,6 +133,8 @@ See `docs/adr/0002-admin-dashboard-auth-and-remote-access-architecture.md` and C
 
 All runtime config comes from `.env` via `config.py`'s `get_config()` (global `Config` singleton). `Config._load_env_file()` uses `os.environ.setdefault`, so a shell-exported var always overrides `.env` (this is how `make run-sim` forces `SIM_MODE=true` without editing `.env`). Accessing an unset key raises `KeyError` (see `Config.get`) — there are no silent defaults except `sim_mode`, which returns `False` if unset.
 
+The touchscreen UI is laid out in fixed pixels for an ~800px-tall screen; `main()` scales all of it with Qt's `QT_SCALE_FACTOR`, set by `ui/scaling.py` from `UI_SCALE` (blank/`auto` = screen height ÷ 800, minimum 1; a number forces that scale). Keep every screen within 800 logical px tall (scan_destination is ~790), or it overflows on the 1080-tall kiosk panel.
+
 ### Print job flow
 
 1. `file_browser` (select file) → `printing_options` (set copies/color/pages) → `payment` (insert coins/bills)
