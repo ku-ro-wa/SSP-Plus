@@ -2,6 +2,8 @@
 
 This guide gets you from a fresh clone to a working local dev environment. No kiosk hardware required — everything runs in simulation mode on your laptop.
 
+To build the kiosk Pi itself from a blank card, see `docs/KIOSK_PI_SETUP.md`.
+
 ---
 
 ## Windows
@@ -522,8 +524,9 @@ udev serial rules, not from this file, and appears under `/dev/serial/by-id/`:
 ls -l /dev/serial/by-id/
 ```
 
-> Not yet verified on the kiosk Pi; that's the separate "verify on the kiosk Pi" ticket (GitHub
-> issue #38). The rule assumes a libinput desktop session.
+> Verified on the kiosk Pi (GitHub issue #38): the by-id path survives a reboot, and a reader
+> switched to keyboard mode types nothing. That was on the first card, which died on 2026-10-14,
+> so check both again on the new one. The rule assumes a libinput desktop session.
 
 ### 2. Point the app at it
 
@@ -546,14 +549,33 @@ Read these settings barcodes from the booklet, in this order:
 5. **1D-OFF**
 6. **End Mark CR**
 7. **No Swap** (Capital & Lowercase Setup)
-8. **Invoice Function-OFF**
-9. **Duplicate Detection-ON**
-10. **Duplicate Detection time setting**, then Appendix 1 **Parameter Code** `3`, `0`, `0`, `0`
+8. **Display Prefix OFF**
+9. **Display Suffix OFF**
+10. **Delete Characters OFF**
+11. **Invoice Function-OFF**
+12. **Volume ON**
+13. **Low Volume**
+14. **Duplicate Detection-ON**
+15. **Duplicate Detection time setting**, then Appendix 1 **Parameter Code** `3`, `0`, `0`, `0`
     (the time is in milliseconds, so 3000 ms = 3 s; the booklet allows 1–3600000 ms)
-11. **Save settings**
+16. **Save settings**
 
-Then unplug and replug the reader to confirm the settings persisted. The same sequence restores a
-reader a customer has reconfigured.
+Then unplug and replug the reader to confirm the settings persisted.
+
+**The app re-sends most of these itself.** Each time it opens the reader's port, it sends
+steps 2–14 over serial as `#<code>;` (`KIOSK_CONFIG` in `managers/qr_reader.py`; see ADR 0004).
+This takes about 8 s, and reads that arrive meanwhile are held until it ends. A code the reader
+rejects (NAK) or doesn't answer writes one `error_log` row per open. The app can't send:
+
+- **Restore Defaults** or keyboard mode. Either one removes the serial port, so the app never
+  sends them.
+- **The Duplicate Detection time.** Multi-step entry is rejected over serial. The app drops a
+  payload read again within 3 s itself (`DuplicateReadFilter`), so the barcode setting is a
+  second layer, not the only one.
+
+So the full sequence is only needed for a new reader or after Restore Defaults. If a customer
+reconfigures the reader, scanning **USB COM** is usually enough: the app finds the port again
+within 5 s and re-sends the rest. If reads still misbehave, run the full sequence.
 
 ### 4. Check it from a terminal
 
