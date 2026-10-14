@@ -91,6 +91,7 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 <section id="dev-environment-setup" class="level1">
 <h1>Dev Environment Setup</h1>
 <p>This guide gets you from a fresh clone to a working local dev environment. No kiosk hardware required — everything runs in simulation mode on your laptop.</p>
+<p>To build the kiosk Pi itself from a blank card, see <code>docs/KIOSK_PI_SETUP.md</code>.</p>
 <hr>
 <section id="windows" class="level2">
 <h2 class="anchored" data-anchor-id="windows">Windows</h2>
@@ -254,7 +255,7 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 </section>
 <section id="email-wi-fi-end-to-end-on-a-laptop" class="level2">
 <h2 class="anchored" data-anchor-id="email-wi-fi-end-to-end-on-a-laptop">Email + Wi-Fi end-to-end (on a laptop)</h2>
-<p>Drives both intake workflows all the way through to a simulated print + a logged transaction, using <code>make run-sim</code> — no kiosk hardware, no RaspAP/Nodogsplash, no 4G modem. The Wi-Fi portal is served by the same in-process Uvicorn thread the kiosk already runs (see <code>docs/adr/0001-wifi-portal-in-process-uvicorn-self-signed-tls.md</code>).</p>
+<p>Drives both intake workflows all the way through to a simulated print + a logged transaction, using <code>make run-sim</code> — no kiosk hardware, no hotspot, no 4G modem. The Wi-Fi portal is served by the same in-process Uvicorn thread the kiosk already runs (see <code>docs/adr/0001-wifi-portal-in-process-uvicorn-self-signed-tls.md</code>).</p>
 <section id="one-time-setup" class="level3">
 <h3 class="anchored" data-anchor-id="one-time-setup">One-time setup</h3>
 <p><strong>1. TLS cert for the Wi-Fi portal</strong> (optional — skip for plain HTTP):</p>
@@ -319,9 +320,9 @@ ADMIN_DASHBOARD_LOCKOUT_MINUTES=15</code></pre>
 <section id="create-an-account" class="level3">
 <h3 class="anchored" data-anchor-id="create-an-account">2. Create an account</h3>
 <p>There’s no self-service signup — accounts are created by hand via the CLI:</p>
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb24"><pre class="sourceCode bash code-with-copy"><code class="sourceCode bash"><span id="cb24-1"><a href="#cb24-1" aria-hidden="true" tabindex="-1"></a><span class="va">PYTHONPATH</span><span class="op">=</span>SSP <span class="ex">python</span> <span class="at">-m</span> admin_dashboard.cli create-account <span class="at">--username</span> you <span class="at">--password</span> yourpassword <span class="at">--role</span> dev</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb24"><pre class="sourceCode bash code-with-copy"><code class="sourceCode bash"><span id="cb24-1"><a href="#cb24-1" aria-hidden="true" tabindex="-1"></a><span class="va">PYTHONPATH</span><span class="op">=</span>SSP <span class="ex">python</span> <span class="at">-m</span> admin_dashboard.cli create-account <span class="at">--username</span> you <span class="at">--password</span> yourpassword <span class="at">--role</span> admin</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
 <p>The CLI writes to the same DB file the dashboard reads: with <code>SIM_MODE=true</code> that’s the demo file <code>SSP/database/ssp_database.sim.db</code>, not the real <code>ssp_database.db</code> (it prints which one on every run). Create accounts with the same <code>SIM_MODE</code> you’ll run the dashboard with.</p>
-<p>(From the repo root, same as <code>make run-admin-dashboard</code> — <code>PYTHONPATH=SSP</code> is what lets <code>admin_dashboard</code>/<code>database</code> resolve as importable packages.) Roles are <code>dev</code> (full read/write, including the dev-only <code>/paper-reset</code> endpoint) and <code>admin</code> (read-only) — unrelated to, and less privileged than, the touchscreen’s own <code>Kiosk Admin</code>/<code>ADMIN_PIN</code>. The password is Argon2id-hashed before it’s stored in the <code>users</code> table. Reset a forgotten password the same way:</p>
+<p>(From the repo root, same as <code>make run-admin-dashboard</code> — <code>PYTHONPATH=SSP</code> is what lets <code>admin_dashboard</code>/<code>database</code> resolve as importable packages.) Roles are <code>admin</code> (full read/write, including the admin-only <code>/paper-reset</code> endpoint) and <code>operator</code> (read-only), both unrelated to the touchscreen’s own <code>Kiosk Admin</code>/<code>ADMIN_PIN</code>. The password is Argon2id-hashed before it’s stored in the <code>users</code> table. Reset a forgotten password the same way:</p>
 <div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb25"><pre class="sourceCode bash code-with-copy"><code class="sourceCode bash"><span id="cb25-1"><a href="#cb25-1" aria-hidden="true" tabindex="-1"></a><span class="va">PYTHONPATH</span><span class="op">=</span>SSP <span class="ex">python</span> <span class="at">-m</span> admin_dashboard.cli reset-password <span class="at">--username</span> you <span class="at">--password</span> newpassword</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
 </section>
 <section id="run-it-1" class="level3">
@@ -345,7 +346,99 @@ ADMIN_DASHBOARD_LOCKOUT_MINUTES=15</code></pre>
 <h3 class="anchored" data-anchor-id="automated-tests">5. Automated tests</h3>
 <div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb28"><pre class="sourceCode bash code-with-copy"><code class="sourceCode bash"><span id="cb28-1"><a href="#cb28-1" aria-hidden="true" tabindex="-1"></a><span class="fu">make</span> test</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
 <p><code>tests/test_admin_dashboard.py</code> drives <code>admin_dashboard.main:app</code> in-process via FastAPI’s <code>TestClient</code> — auth, sessions, lockout, role-gating, and the accounting aggregate queries all run through real HTTP requests against the real app, no mocked business logic, no port actually opened.</p>
-<p>See <code>docs/adr/0002-admin-dashboard-auth-and-remote-access-architecture.md</code> for the full design (why a separate process/port, the auth model, what’s deferred to a later remote-access phase).</p>
+<p>See <code>docs/adr/0002-admin-dashboard-auth-and-remote-access-architecture.md</code> for the full design (why a separate process/port, the auth model, what’s deferred to a later remote-access phase), and <code>docs/adr/0005-one-remote-admin-surface-via-tailscale-serve.md</code> for remote access.</p>
+<hr>
+</section>
+</section>
+<section id="external-accounts-remote-access" class="level2">
+<h2 class="anchored" data-anchor-id="external-accounts-remote-access">External accounts (remote access)</h2>
+<p>Remote access relies on a few accounts outside this repo (see ADR-0005, ADR-0006 and ADR-0007). They are planned, not all created yet. Rules for whoever sets them up:</p>
+<ul>
+<li><strong>Owned by one dedicated project account</strong>, an email address created for SSP-Plus and run by the project lead. Never a personal Gmail, so that the accounts can be handed over in one piece.</li>
+<li><strong>What it owns:</strong>
+<ul>
+<li>the Tailscale tailnet for remote admin;</li>
+<li>the Cloudflare account, with the domain behind <code>print.&lt;domain&gt;</code>, its DNS, and (later) the public upload tunnel.</li>
+</ul></li>
+<li><strong>The domain must not lapse.</strong> If it expires, every sticker and bookmark breaks, and whoever buys the name next receives customers’ uploads. Register it for several years at a time, with auto-renew on and a payment method that won’t quietly expire.</li>
+<li><strong>Handover:</strong> when the project changes hands, transfer the project account’s credentials (and the recovery email/phone on it) to the kiosk’s owners or the next lead, and record the date here.</li>
+</ul>
+<hr>
+</section>
+<section id="kiosk-hotspot-hostapd-dnsmasq" class="level2">
+<h2 class="anchored" data-anchor-id="kiosk-hotspot-hostapd-dnsmasq">Kiosk hotspot (hostapd + dnsmasq)</h2>
+<p>The kiosk Pi runs its own open Wi-Fi network for the <strong>Portal</strong>: <code>hostapd</code> broadcasts it, <code>dnsmasq</code> hands out addresses and answers <code>PORTAL_HOSTNAME</code> with the Pi’s hotspot address, and an nftables table on the hotspot interface allows only DHCP, DNS and <code>WIFI_PORTAL_PORT</code>. Nothing is forwarded to or from the router: phones’ attempts to reach the internet are refused straight away (TCP reset or ICMP), not silently dropped, so nothing on a phone waits for a timeout. There is no captive portal. See <code>docs/adr/0007-own-hotspot-replaces-raspap-captive-portal.md</code>.</p>
+<p>Portal pages must load nothing from the internet (no CDN fonts, icons or scripts): phones on the hotspot can’t reach it. Icons are inline SVGs in <code>SSP/webapp/templates/icons/</code> (Font Awesome Free 6.5.0, CC BY 4.0; the credit is kept in each file). <code>tests/test_webapp.py</code> fails if a template references an outside URL.</p>
+<p>Everything comes from <code>.env</code> (<code>WIFI_HOTSPOT_*</code>, <code>PORTAL_HOSTNAME</code>, <code>WIFI_PORTAL_PORT</code>, <code>KIOSK_ID</code>; see <code>.env.example</code>). Nothing is configured by hand on the Pi.</p>
+<section id="on-the-pi" class="level3">
+<h3 class="anchored" data-anchor-id="on-the-pi">On the Pi</h3>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb29"><pre class="sourceCode bash code-with-copy"><code class="sourceCode bash"><span id="cb29-1"><a href="#cb29-1" aria-hidden="true" tabindex="-1"></a><span class="fu">sudo</span> python3 scripts/setup_hotspot.py <span class="at">--dry-run</span>   <span class="co"># print every file and command first</span></span>
+<span id="cb29-2"><a href="#cb29-2" aria-hidden="true" tabindex="-1"></a><span class="fu">sudo</span> python3 scripts/setup_hotspot.py</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<p><code>WIFI_HOTSPOT_ENABLED=true</code> installs <code>hostapd</code>/<code>dnsmasq</code>/<code>nftables</code>, writes their config, marks the interface unmanaged in NetworkManager and starts everything. <code>false</code> stops and disables them and removes the files the script wrote; the firewall stays on either way. Re-running is safe. Any file the script didn’t write is moved to <code>/var/backups/ssp-hotspot/&lt;timestamp&gt;/</code> before being replaced. If RaspAP or Nodogsplash/openNDS are found, their services are disabled (including RaspAP’s <code>restapi</code> and <code>raspap-network-activity@&lt;interface&gt;</code>), the packages are purged, and RaspAP’s <code>/etc/dnsmasq.d/090_*.conf</code> files and its systemd unit files are moved aside. RaspAP’s installer builds Nodogsplash from source, so <code>apt</code> can’t purge it: its service is disabled, but <code>/usr/bin/nodogsplash</code> and <code>/usr/bin/ndsctl</code> stay behind. They do nothing while the service is off.</p>
+<p>What it writes:</p>
+<table class="caption-top table">
+<colgroup>
+<col style="width: 40%">
+<col style="width: 60%">
+</colgroup>
+<thead>
+<tr class="header">
+<th>File</th>
+<th>Purpose</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td><code>/etc/hostapd/hostapd.conf</code></td>
+<td>open network, <code>ap_isolate=1</code></td>
+</tr>
+<tr class="even">
+<td><code>/etc/dnsmasq.d/ssp-hotspot.conf</code></td>
+<td>DHCP on the hotspot, <code>PORTAL_HOSTNAME</code> → hotspot address, no upstream DNS</td>
+</tr>
+<tr class="odd">
+<td><code>/etc/ssp-hotspot/firewall.nft</code> + <code>ssp-hotspot-firewall.service</code></td>
+<td>its own <code>inet ssp_hotspot</code> table (doesn’t touch Tailscale’s rules)</td>
+</tr>
+<tr class="even">
+<td><code>ssp-hotspot-ip.service</code></td>
+<td>puts <code>WIFI_HOTSPOT_ADDRESS</code> on the interface, unblocks rfkill</td>
+</tr>
+<tr class="odd">
+<td><code>hostapd.service.d/</code>, <code>dnsmasq.service.d/</code> drop-ins</td>
+<td>start only after the address and firewall</td>
+</tr>
+<tr class="even">
+<td><code>/etc/NetworkManager/conf.d/ssp-hotspot-unmanaged.conf</code></td>
+<td>stops NetworkManager fighting hostapd</td>
+</tr>
+</tbody>
+</table>
+</section>
+<section id="off-the-pi" class="level3">
+<h3 class="anchored" data-anchor-id="off-the-pi">Off the Pi</h3>
+<ul>
+<li><code>make test</code>: <code>tests/test_setup_hotspot.py</code> checks the rendered files, the order of the plan, the enable/disable paths and the RaspAP clean-up, all under a tmp root.</li>
+<li><code>make test-hotspot</code> (needs Docker): runs the real <code>nft</code> and <code>dnsmasq</code> from Debian Bookworm against the generated files. A “phone” network namespace on a veth named <code>wlan0</code> gets a DHCP lease, resolves <code>PORTAL_HOSTNAME</code>, reaches the Portal port, and can’t reach SSH, port 8100, the router side, or the internet. SSH over the uplink keeps working.</li>
+</ul>
+<p>Not covered off the Pi: hostapd on the real radio, <code>ap_isolate</code>, NetworkManager, the systemd units, and real phones.</p>
+</section>
+<section id="verified-on-the-kiosk-pi-issue-29" class="level3">
+<h3 class="anchored" data-anchor-id="verified-on-the-kiosk-pi-issue-29">Verified on the kiosk Pi (issue #29)</h3>
+<p>First run: 2026-10-08.</p>
+<ul>
+<li>Raspberry Pi OS version: Debian 13 “trixie” (arm64), Python 3.13. Kernel <code>6.18.50+rpt-rpi-v8</code>. Note <code>make test-hotspot</code> runs on Bookworm, not trixie.</li>
+<li>Package versions: hostapd <code>2:2.10-24+rpt3</code>, dnsmasq <code>2.91-1+deb13u2</code>, nftables <code>1.1.3-1</code>.</li>
+<li>Interface names (<code>ip -br link</code>): hotspot <code>wlan0</code>, uplink <code>eth0</code>. There is also a <code>usb0</code> (USB gadget Ethernet, down when no host is plugged into the USB-C port).</li>
+<li>RaspAP was installed. The clean-up disabled <code>raspapd</code> and <code>lighttpd</code> and moved aside <code>/etc/dnsmasq.d/090_uap0.conf</code> and <code>/etc/hostapd/hostapd.conf</code>. RaspAP’s <code>restapi</code> (crash-looping) and <code>raspap-network-activity@wlan0</code> were still running and had to be disabled by hand; the script now handles them. Nodogsplash had been built from source (<code>~/nodogsplash</code>), so its binaries in <code>/usr/bin</code> remain.</li>
+<li>Gotchas:
+<ul>
+<li>The first run failed with <code>Could not get lock /var/lib/dpkg/lock-frontend</code> because automatic updates were running. Wait for them (<code>pgrep -a apt</code>) and re-run; don’t kill apt.</li>
+<li>Run it over Ethernet: it takes <code>wlan0</code> away from NetworkManager.</li>
+<li>The repo had been copied onto the Pi without <code>.git</code>, so <code>git pull</code> didn’t work. Clone it.</li>
+</ul></li>
+<li>Phones: iPhone with mobile data off and on both reached the upload page, but each took over 10 s (cause not yet known). Android not yet tested.</li>
+</ul>
 <hr>
 </section>
 </section>
@@ -356,15 +449,15 @@ ADMIN_DASHBOARD_LOCKOUT_MINUTES=15</code></pre>
 <section id="ignore-the-reader-as-a-keyboard-udev" class="level3">
 <h3 class="anchored" data-anchor-id="ignore-the-reader-as-a-keyboard-udev">1. Ignore the reader as a keyboard (udev)</h3>
 <p>Plug the reader in and find its USB vendor and product ID. Don’t guess them:</p>
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb29"><pre class="sourceCode bash code-with-copy"><code class="sourceCode bash"><span id="cb29-1"><a href="#cb29-1" aria-hidden="true" tabindex="-1"></a><span class="ex">lsusb</span></span>
-<span id="cb29-2"><a href="#cb29-2" aria-hidden="true" tabindex="-1"></a><span class="co"># Bus 001 Device 004: ID xxxx:yyyy ...   &lt;- the reader; unplug/replug to see which line changes</span></span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb30"><pre class="sourceCode bash code-with-copy"><code class="sourceCode bash"><span id="cb30-1"><a href="#cb30-1" aria-hidden="true" tabindex="-1"></a><span class="ex">lsusb</span></span>
+<span id="cb30-2"><a href="#cb30-2" aria-hidden="true" tabindex="-1"></a><span class="co"># Bus 001 Device 004: ID xxxx:yyyy ...   &lt;- the reader; unplug/replug to see which line changes</span></span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
 <p>Create <code>/etc/udev/rules.d/99-qr-reader.rules</code>, replacing <code>xxxx</code> / <code>yyyy</code> with the IDs from <code>lsusb</code>:</p>
 <pre><code># QR reader: never treat it as a keyboard, even if a settings barcode switches it to HID-KBW
 SUBSYSTEM=="input", ATTRS{idVendor}=="xxxx", ATTRS{idProduct}=="yyyy", ENV{ID_INPUT}="", ENV{ID_INPUT_KEYBOARD}="", ENV{LIBINPUT_IGNORE_DEVICE}="1"</code></pre>
 <p>Reload with <code>sudo udevadm control --reload &amp;&amp; sudo udevadm trigger</code>, then unplug and replug the reader. This rule only silences the keyboard side. The stable serial path comes from the stock udev serial rules, not from this file, and appears under <code>/dev/serial/by-id/</code>:</p>
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb31"><pre class="sourceCode bash code-with-copy"><code class="sourceCode bash"><span id="cb31-1"><a href="#cb31-1" aria-hidden="true" tabindex="-1"></a><span class="fu">ls</span> <span class="at">-l</span> /dev/serial/by-id/</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb32"><pre class="sourceCode bash code-with-copy"><code class="sourceCode bash"><span id="cb32-1"><a href="#cb32-1" aria-hidden="true" tabindex="-1"></a><span class="fu">ls</span> <span class="at">-l</span> /dev/serial/by-id/</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
 <blockquote class="blockquote">
-<p>Not yet verified on the kiosk Pi; that’s the separate “verify on the kiosk Pi” ticket (GitHub issue #38). The rule assumes a libinput desktop session.</p>
+<p>Verified on the kiosk Pi (GitHub issue #38): the by-id path survives a reboot, and a reader switched to keyboard mode types nothing. That was on the first card, which died on 2026-10-14, so check both again on the new one. The rule assumes a libinput desktop session.</p>
 </blockquote>
 </section>
 <section id="point-the-app-at-it" class="level3">
@@ -384,17 +477,28 @@ SUBSYSTEM=="input", ATTRS{idVendor}=="xxxx", ATTRS{idProduct}=="yyyy", ENV{ID_IN
 <li><strong>1D-OFF</strong></li>
 <li><strong>End Mark CR</strong></li>
 <li><strong>No Swap</strong> (Capital &amp; Lowercase Setup)</li>
+<li><strong>Display Prefix OFF</strong></li>
+<li><strong>Display Suffix OFF</strong></li>
+<li><strong>Delete Characters OFF</strong></li>
 <li><strong>Invoice Function-OFF</strong></li>
+<li><strong>Volume ON</strong></li>
+<li><strong>Low Volume</strong></li>
 <li><strong>Duplicate Detection-ON</strong></li>
 <li><strong>Duplicate Detection time setting</strong>, then Appendix 1 <strong>Parameter Code</strong> <code>3</code>, <code>0</code>, <code>0</code>, <code>0</code> (the time is in milliseconds, so 3000 ms = 3 s; the booklet allows 1–3600000 ms)</li>
 <li><strong>Save settings</strong></li>
 </ol>
-<p>Then unplug and replug the reader to confirm the settings persisted. The same sequence restores a reader a customer has reconfigured.</p>
+<p>Then unplug and replug the reader to confirm the settings persisted.</p>
+<p><strong>The app re-sends most of these itself.</strong> Each time it opens the reader’s port, it sends steps 2–14 over serial as <code>#&lt;code&gt;;</code> (<code>KIOSK_CONFIG</code> in <code>managers/qr_reader.py</code>; see ADR 0004). This takes about 8 s, and reads that arrive meanwhile are held until it ends. A code the reader rejects (NAK) or doesn’t answer writes one <code>error_log</code> row per open. The app can’t send:</p>
+<ul>
+<li><strong>Restore Defaults</strong> or keyboard mode. Either one removes the serial port, so the app never sends them.</li>
+<li><strong>The Duplicate Detection time.</strong> Multi-step entry is rejected over serial. The app drops a payload read again within 3 s itself (<code>DuplicateReadFilter</code>), so the barcode setting is a second layer, not the only one.</li>
+</ul>
+<p>So the full sequence is only needed for a new reader or after Restore Defaults. If a customer reconfigures the reader, scanning <strong>USB COM</strong> is usually enough: the app finds the port again within 5 s and re-sends the rest. If reads still misbehave, run the full sequence.</p>
 </section>
 <section id="check-it-from-a-terminal" class="level3">
 <h3 class="anchored" data-anchor-id="check-it-from-a-terminal">4. Check it from a terminal</h3>
 <p>pyserial’s miniterm shows what the reader sends. The <code>hexlify</code> encoding makes the line ending visible:</p>
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb33"><pre class="sourceCode bash code-with-copy"><code class="sourceCode bash"><span id="cb33-1"><a href="#cb33-1" aria-hidden="true" tabindex="-1"></a><span class="ex">python</span> <span class="at">-m</span> serial.tools.miniterm <span class="at">--encoding</span> hexlify /dev/serial/by-id/usb-<span class="op">&lt;</span>name<span class="op">&gt;</span> 9600</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb34"><pre class="sourceCode bash code-with-copy"><code class="sourceCode bash"><span id="cb34-1"><a href="#cb34-1" aria-hidden="true" tabindex="-1"></a><span class="ex">python</span> <span class="at">-m</span> serial.tools.miniterm <span class="at">--encoding</span> hexlify /dev/serial/by-id/usb-<span class="op">&lt;</span>name<span class="op">&gt;</span> 9600</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
 <p>Read a Session payload (its QR image, from a phone). The payload appears as hex ending in <code>0d</code> (CR only, no <code>0a</code>). Decode <code>session_id:otp</code> to compare: 16 lowercase hex characters, <code>:</code>, 6 digits.</p>
 <p>Phone screens need brightness up: reads fail at the lowest brightness.</p>
 <hr>
@@ -412,6 +516,15 @@ feature/&lt;module&gt; ← your working branch</code></pre>
 </ol>
 <hr>
 </section>
+<section id="coin-hoppers-kiosk" class="level2">
+<h2 class="anchored" data-anchor-id="coin-hoppers-kiosk">Coin hoppers (kiosk)</h2>
+<p><strong>Keep Kiosk Admin’s Coin Inventory counts accurate.</strong> Change dispensing only attempts the coins the <code>cash_inventory</code> table says the hoppers hold: as many ₱5 coins as are owed and in stock, then ₱1 coins. Whatever it can’t give becomes a Voucher (ADR 0003). If the counts read 0 (e.g.&nbsp;a fresh database), the kiosk dispenses <strong>nothing</strong> and issues a Voucher for the full change, even with coins physically in the hoppers.</p>
+<ul>
+<li>After filling or emptying a hopper, set <strong>₱1 Coins</strong> / <strong>₱5 Coins</strong> under Kiosk Admin → Coin Inventory to what is actually in it. <strong>Refill All</strong> sets 100 × ₱1 and 50 × ₱5, so only use it when the hoppers really hold that many.</li>
+<li>Counts too <strong>high</strong> are the safer mistake: the kiosk tries the coin, the hopper comes up empty, and the Shortfall still becomes a Voucher. That counts as a hopper failure, so the operator also gets an SMS.</li>
+<li>The counts drop automatically after each successful print by the coins dispensed.</li>
+</ul>
+</section>
 <section id="troubleshooting" class="level2">
 <h2 class="anchored" data-anchor-id="troubleshooting">Troubleshooting</h2>
 <p><strong><code>make test</code> — module not found</strong> Run <code>pip install -r requirements.txt</code> (or <code>py -3.11 -m pip install -r requirements.txt</code> on Windows). On Mac also check <code>brew install poppler</code>.</p>
@@ -419,6 +532,10 @@ feature/&lt;module&gt; ← your working branch</code></pre>
 <p><strong><code>make run-sim</code> — SIM_MODE isn’t respected (hardware still errors)</strong> Make sure <code>SIM_MODE=true</code> is in your <code>.env</code>, OR that you’re running <code>make run-sim</code> (not <code>make run</code>). The shell env set by <code>make run-sim</code> takes precedence over <code>.env</code>.</p>
 <p><strong>Windows: emoji / Unicode crash on startup (<code>UnicodeEncodeError: 'charmap'</code>)</strong> The Makefile already passes <code>-X utf8</code> to Python which fixes this. If you’re running Python directly (not via <code>make</code>), add the flag: <code>python.exe -X utf8 SSP/main_app.py</code>.</p>
 <p><strong>Windows: <code>make</code> says “Permission denied” for a Python command</strong> The Makefile auto-detects the first Windows Python that has <code>pytest</code> installed. If you installed Python 3.13 but only have <code>pytest</code> in 3.11, make sure you ran <code>pip install</code> for the right version (<code>py -3.11 -m pip install -r requirements.txt</code>).</p>
+<p><strong>Linux/Pi: <code>Could not load the Qt platform plugin "xcb" in ".../cv2/qt/plugins"</code></strong> The GUI build of OpenCV (<code>opencv-python</code>) is installed. It ships its own Qt plugins, which break PyQt5. Replace it with the headless build that <code>requirements.txt</code> now lists. Uninstall first: both install into the same <code>cv2</code> folder.</p>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb36"><pre class="sourceCode bash code-with-copy"><code class="sourceCode bash"><span id="cb36-1"><a href="#cb36-1" aria-hidden="true" tabindex="-1"></a><span class="ex">.venv/bin/pip</span> uninstall <span class="at">-y</span> opencv-python</span>
+<span id="cb36-2"><a href="#cb36-2" aria-hidden="true" tabindex="-1"></a><span class="ex">.venv/bin/pip</span> install <span class="st">"opencv-python-headless&gt;=4.8"</span></span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<p><strong>Pi over SSH: <code>make run-sim</code> aborts with no display</strong> An SSH session has no screen. To run the kiosk headless (enough for the Wi-Fi portal and phone tests), use <code>QT_QPA_PLATFORM=offscreen make run-sim</code>.</p>
 <p><strong>Mac: <code>PyQt5</code> install fails on Apple Silicon</strong> Try: <code>pip3 install --upgrade pip &amp;&amp; pip3 install PyQt5</code>. The wheels include Qt bundled and support arm64.</p>
 </section>
 </section>
