@@ -235,14 +235,15 @@ class PersistentGPIO(QObject):
                 self.bill_pulse_count = 0
 
     def _get_coin_value(self, pulse_count):
-        """Get coin value based on pulse count (matching original GPIOPaymentThread)."""
-        if pulse_count == 1:
+        """Get coin value based on pulse count, as this kiosk's acceptor is programmed
+        (₱1 = 3 pulses, ₱5 = 5 seen on the kiosk; each range allows one extra pulse)."""
+        if 3 <= pulse_count <= 4:
             return 1
-        elif 5 <= pulse_count <= 7:
+        elif 5 <= pulse_count <= 6:
             return 5
-        elif 10 <= pulse_count <= 12:
+        elif 8 <= pulse_count <= 9:
             return 10
-        elif 18 <= pulse_count <= 21:
+        elif 11 <= pulse_count <= 12:
             return 20
         return 0
 

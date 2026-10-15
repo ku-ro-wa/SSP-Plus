@@ -80,13 +80,25 @@ def test_pulse_spanning_tick_wraparound_is_measured(make_gpio):
     assert gpio.coin_pulse_count == 1
 
 
-def test_unmatched_pulse_count_is_logged_not_credited(make_gpio, capsys):
+@pytest.mark.parametrize('pulses, value', [
+    (3, 1), (4, 1), (5, 5), (6, 5), (8, 10), (9, 10), (11, 20), (12, 20),
+])
+def test_pulse_counts_map_to_the_kiosk_acceptors_coins(make_gpio, pulses, value):
     gpio = make_gpio(COIN_PULSE_FILTER='true')
-    for i in range(3):
+    for i in range(pulses):
+        pulse(gpio, i * 100, 68)  # ~68 ms pulses, as measured on the kiosk
+    finish_coin(gpio)
+    assert gpio.coins == [value]
+
+
+@pytest.mark.parametrize('pulses', [1, 2, 7, 10, 13])
+def test_unmatched_pulse_count_is_logged_not_credited(make_gpio, capsys, pulses):
+    gpio = make_gpio(COIN_PULSE_FILTER='true')
+    for i in range(pulses):
         pulse(gpio, i * 60, 16)
     finish_coin(gpio)
     assert gpio.coins == []
-    assert "3 pulses match no coin" in capsys.readouterr().out
+    assert f"{pulses} pulses match no coin" in capsys.readouterr().out
 
 
 def test_pulses_ignored_while_payment_disabled(make_gpio):
