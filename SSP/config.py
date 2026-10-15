@@ -255,6 +255,41 @@ class Config:
         except KeyError:
             return 150.0
 
+    # Coin hoppers (managers/hopper_manager.py). Defaults match this kiosk's wiring,
+    # found by watching every GPIO while each hopper ran (2026-10-15).
+
+    @property
+    def hopper_a_signal_pin(self) -> int:
+        """Get GPIO pin number for hopper A's (₱1) coin-out sensor."""
+        try:
+            return self.get('HOPPER_A_SIGNAL_PIN', int)
+        except KeyError:
+            return 9
+
+    @property
+    def hopper_a_enable_pin(self) -> int:
+        """Get GPIO pin number for hopper A's (₱1) motor enable (active low)."""
+        try:
+            return self.get('HOPPER_A_ENABLE_PIN', int)
+        except KeyError:
+            return 24
+
+    @property
+    def hopper_b_signal_pin(self) -> int:
+        """Get GPIO pin number for hopper B's (₱5) coin-out sensor."""
+        try:
+            return self.get('HOPPER_B_SIGNAL_PIN', int)
+        except KeyError:
+            return 26
+
+    @property
+    def hopper_b_enable_pin(self) -> int:
+        """Get GPIO pin number for hopper B's (₱5) motor enable (active low)."""
+        try:
+            return self.get('HOPPER_B_ENABLE_PIN', int)
+        except KeyError:
+            return 25
+
     # Admin access
 
     @property

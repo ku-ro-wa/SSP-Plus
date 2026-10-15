@@ -56,6 +56,7 @@ class PaymentController(QWidget):
         self.model.voucher_message.connect(self.view.show_voucher_message)
         self.model.payment_completed.connect(self._handle_payment_completed)
         self.model.go_back_requested.connect(self._go_back)
+        self.model.payment_locked.connect(lambda locked: self.view.set_buttons_enabled(not locked))
 
     def apply_voucher_code(self, raw_code):
         """Apply a Voucher from the "Use a voucher" entry or a QR read. Takes a
@@ -155,6 +156,11 @@ class PaymentController(QWidget):
 
     def _on_timeout(self):
         """Handle timeout - return to idle screen."""
+        if self.model.is_busy():
+            # Leaving now would stop the hoppers mid-payout: wait for the payment to finish.
+            print("TIMEOUT: Payment screen timeout deferred, change is dispensing")
+            self.timeout_timer.start(60000)
+            return
         print("TIMEOUT: Payment screen timeout - returning to idle screen")
         # Properly clean up payment screen before navigating away
         self.on_leave()

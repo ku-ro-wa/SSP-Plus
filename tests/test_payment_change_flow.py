@@ -218,6 +218,31 @@ def test_reentering_payment_credits_each_coin_once(kiosk):
     assert model.amount_received == 1
 
 
+def test_back_is_ignored_while_change_is_dispensing(kiosk, db, monkeypatch):
+    """Back mid-payout used to stop the hoppers and log the paid job as cancelled."""
+    main_app, model = kiosk
+    stock_hoppers(db, ones=20, fives=20)
+    monkeypatch.setattr(hm, 'SIM_COIN_SECONDS', 0.2)
+    locked = []
+    model.payment_locked.connect(locked.append)
+    options = PrintOptionsModel()
+    options.set_color_mode("Black and White")
+    options.set_pdf_data({'path': PDF}, [1])
+    payment_data = options.get_payment_data()
+    model.set_payment_data(payment_data)
+    model.on_enter()
+    main_app.acceptors.bill_inserted.emit(int(payment_data['total_cost'] + 3))
+    wait_for(lambda: model.dispense_thread and model.dispense_thread.isRunning(), "change to start")
+
+    assert model.is_busy()
+    model.go_back()
+    wait_for(lambda: {'voucher', 'thank_you'} & set(main_app.screens), "payment to finish")
+
+    assert model.change_dispensed == {1: 3, 5: 0}
+    assert db.get_transaction_history() == []  # nothing logged as cancelled
+    assert locked[0] is True                   # Back/Vouchers greyed out from auto-complete
+
+
 class TestChangeActuallyDispensed:
     def test_full_change_is_recorded_with_no_shortfall(self, kiosk, db):
         main_app, model = kiosk

@@ -15,24 +15,29 @@ except ImportError:
 
 # --- General Configuration ---
 COIN_DELAY = 1.0         # Delay after a successful dispense before next one
-DISPENSING_TIMEOUT = 10  # Maximum time to wait for a single coin
-MAX_RETRY_ATTEMPTS = 5   # Maximum attempts per coin before giving up (increased from 3)
-RETRY_DELAY = 0.5        # Delay between retry attempts
+# Longest the motor runs waiting for one coin. The hoppers pay ~5 coins/s, so a
+# sensor that sees nothing (empty, jammed, unwired) lets out a few coins at most
+# before the hopper is given up and the rest of the change becomes a Voucher.
+# There is no retry: each one would run the motor blind again.
+DISPENSING_TIMEOUT = 1.5
 SIM_COIN_SECONDS = 1.5   # Simulated time per coin when pigpio isn't available
 
-# --- Centralized configuration for the two hoppers ---
-# Hopper A dispenses 1-peso coins
-# Hopper B dispenses 5-peso coins
-HOPPER_CONFIGS = {
-    'A': {
-        'signal_pin': 10,  # Coin pulse input for Hopper A  1 Peso
-        'enable_pin': 24   # Hopper enable control for Hopper A
-    },
-    'B': {
-        'signal_pin': 11,   # Coin pulse input for Hopper B
-        'enable_pin': 25   # Hopper enable control for Hopper B
+# Coin-out sensor filtering. The sensor lines pick up motor noise (thousands of
+# edges a second while a motor runs); a coin is one low pulse, 43-183 ms on the kiosk.
+SENSOR_GLITCH_FILTER_US = 5000  # pigpiod drops level changes shorter than this
+SENSOR_PULSE_MIN_MS = 20
+SENSOR_PULSE_MAX_MS = 300
+
+
+def hopper_configs():
+    """Pins for the two hoppers, from .env (see config.py for defaults).
+    Hopper A dispenses ₱1 coins, hopper B ₱5 coins."""
+    from config import get_config
+    cfg = get_config()
+    return {
+        'A': {'signal_pin': cfg.hopper_a_signal_pin, 'enable_pin': cfg.hopper_a_enable_pin},
+        'B': {'signal_pin': cfg.hopper_b_signal_pin, 'enable_pin': cfg.hopper_b_enable_pin},
     }
-}
 
 
 class HopperController:
@@ -56,25 +61,24 @@ class HopperController:
         self.dispensing = False
 
         # Sensor state tracking
-        self.sensor_active = False
-        self.coin_passage_detected = False
         self.coin_passage_count = 0
-        self.last_sensor_change = 0
+        self.pulse_start_tick = None  # pigpio tick of the current low pulse's falling edge
 
         if PIGPIO_AVAILABLE and self.pi and self.pi.connected:
             try:
-                # Setup GPIO
-                self.pi.set_mode(self.signal_pin, pigpio.INPUT)
-                self.pi.set_pull_up_down(self.signal_pin, pigpio.PUD_UP)
+                # Motor off before the pin becomes an output (write() makes it one):
+                # setting the mode first could leave it low, i.e. running, for a moment.
+                self._disable_hopper()
                 self.pi.set_mode(self.enable_pin, pigpio.OUTPUT)
 
-                # Monitor both rising and falling edges to track coin passage
-                # Each instance will have its own callback tied to its specific signal pin
-                self.callback = self.pi.callback(self.signal_pin, pigpio.EITHER_EDGE, self._sensor_callback)
+                self.pi.set_mode(self.signal_pin, pigpio.INPUT)
+                self.pi.set_pull_up_down(self.signal_pin, pigpio.PUD_UP)
+                self.pi.set_glitch_filter(self.signal_pin, SENSOR_GLITCH_FILTER_US)
 
-                # Start with hopper disabled
-                self._disable_hopper()
-                print(f"[{self.name}] GPIO setup completed successfully")
+                # Both edges, so each low pulse can be timed
+                self.callback = self.pi.callback(self.signal_pin, pigpio.EITHER_EDGE, self._sensor_callback)
+                print(f"[{self.name}] GPIO setup completed: sensor GPIO {self.signal_pin}, "
+                      f"motor enable GPIO {self.enable_pin}")
             except Exception as e:
                 print(f"[{self.name}] ERROR: Failed to setup GPIO: {e}")
                 self.callback = None
@@ -100,6 +104,8 @@ class HopperController:
                     print(f"[{self.name}] Callback cleaned up")
                 except Exception as callback_error:
                     print(f"[{self.name}] Error canceling callback: {callback_error}")
+            if self.pi and getattr(self.pi, 'connected', False):
+                self.pi.set_glitch_filter(self.signal_pin, 0)  # pigpiod keeps it after we exit
 
         except Exception as e:
             print(f"[{self.name}] Error during cleanup: {e}")
@@ -130,20 +136,21 @@ class HopperController:
             return False
 
     def _sensor_callback(self, gpio, level, tick):
-        current_time = self.pi.get_current_tick()
-
-        if level == 0:  # Falling edge - coin detected
-            if not self.sensor_active:
-                self.sensor_active = True
-                self.last_sensor_change = current_time
-        else:  # Rising edge - coin cleared
-            if self.sensor_active:
-                self.sensor_active = False
-                # pigpio tick is a 32-bit unsigned int, handle wraparound
-                elapsed = pigpio.tickDiff(self.last_sensor_change, current_time) / 1000000.0
-                if elapsed > 0.01:  # Debounce: Minimum time for valid coin passage (10ms)
-                    self.coin_passage_count += 1
-                    print(f"[{self.name}] SENSOR: Coin passage complete (took {elapsed:.3f}s). Total passages in this cycle: {self.coin_passage_count}")
+        """A coin passing the sensor is one low pulse SENSOR_PULSE_MIN_MS-MAX_MS wide.
+        Uses the edge's own tick: the time the callback runs is not the edge time."""
+        if level == 0:  # falling edge: a low pulse starts
+            self.pulse_start_tick = tick
+            return
+        if level != 1 or self.pulse_start_tick is None:
+            return
+        # Rising edge: the pulse ends. Ticks are µs and wrap at 2**32.
+        width_ms = ((tick - self.pulse_start_tick) & 0xFFFFFFFF) / 1000
+        self.pulse_start_tick = None
+        if not SENSOR_PULSE_MIN_MS <= width_ms <= SENSOR_PULSE_MAX_MS:
+            return
+        self.coin_passage_count += 1
+        print(f"[{self.name}] SENSOR: Coin passage ({width_ms:.0f}ms). "
+              f"Total passages in this cycle: {self.coin_passage_count}")
 
     def _wait_for_coin_passage(self):
         """Wait for exactly one coin passage through the sensor."""
@@ -151,7 +158,7 @@ class HopperController:
 
         # Reset detection counters for this attempt
         self.coin_passage_count = 0
-        self.sensor_active = False
+        self.pulse_start_tick = None
 
         timeout_start = time.time()
         while (time.time() - timeout_start) < DISPENSING_TIMEOUT:
@@ -185,7 +192,7 @@ class HopperController:
         return success
 
     def dispense_single_coin(self):
-        """Dispense exactly one coin with retry logic."""
+        """Dispense exactly one coin: one attempt, no retry (see DISPENSING_TIMEOUT)."""
         if self.dispensing:
             print(f"[{self.name}] Cannot start new dispense, already in progress.")
             return False
@@ -193,26 +200,14 @@ class HopperController:
         self.dispensing = True
         print(f"\n--- [{self.name}] Dispensing 1 coin ---")
 
-        attempt = 1
-        success = False
-        while attempt <= MAX_RETRY_ATTEMPTS:
-            print(f"[{self.name}] Attempt {attempt}/{MAX_RETRY_ATTEMPTS}...")
-            if self._dispense_single_coin_attempt():
-                print(f"[{self.name}] SUCCESS: Coin dispensed and verified on attempt {attempt}.")
-                success = True
-                break
-            else:
-                print(f"[{self.name}] FAILED: Attempt {attempt} was unsuccessful.")
-                if self.coin_passage_count > 1:
-                    print(f"[{self.name}] CRITICAL: Dispensed too many coins. Aborting.")
-                    break  # Don't retry if we over-dispensed
-                if attempt < MAX_RETRY_ATTEMPTS:
-                    print(f"[{self.name}] Retrying in {RETRY_DELAY}s...")
-                    time.sleep(RETRY_DELAY)
-            attempt += 1
-
-        if not success:
-            print(f"[{self.name}] CRITICAL FAILURE: Could not dispense a single coin after {MAX_RETRY_ATTEMPTS} attempts.")
+        success = self._dispense_single_coin_attempt()
+        if success:
+            print(f"[{self.name}] SUCCESS: Coin dispensed and verified.")
+        elif self.coin_passage_count > 1:
+            print(f"[{self.name}] CRITICAL: Dispensed too many coins ({self.coin_passage_count}). Stopping this hopper.")
+        else:
+            print(f"[{self.name}] CRITICAL FAILURE: No coin seen within {DISPENSING_TIMEOUT}s "
+                  "(empty, jammed or sensor not seeing coins). Stopping this hopper.")
 
         # Brief pause to allow system to settle before next command
         time.sleep(COIN_DELAY)
@@ -235,7 +230,7 @@ class ChangeDispenser:
                     raise RuntimeError("Could not connect to pigpiod daemon.")
 
                 # Create a controller for each hopper defined in config
-                for name, config in HOPPER_CONFIGS.items():
+                for name, config in hopper_configs().items():
                     print(f"Initializing Hopper '{name}' on Signal={config['signal_pin']}, Enable={config['enable_pin']}")
                     self.hoppers[name] = HopperController(
                         pi_instance=self.pi,
@@ -266,7 +261,7 @@ class ChangeDispenser:
                 if self.pi.connected:
                     print("pigpio connection restored")
                     # Recreate all hopper controllers with new pi instance
-                    for name, config in HOPPER_CONFIGS.items():
+                    for name, config in hopper_configs().items():
                         print(f"Reinitializing Hopper '{name}' with new pigpio connection")
                         self.hoppers[name] = HopperController(
                             pi_instance=self.pi,
@@ -302,7 +297,7 @@ class ChangeDispenser:
             self.cleanup_all_hoppers()
 
             # Recreate all hopper controllers
-            for name, config in HOPPER_CONFIGS.items():
+            for name, config in hopper_configs().items():
                 print(f"Reinitializing Hopper '{name}' on Signal={config['signal_pin']}, Enable={config['enable_pin']}")
                 self.hoppers[name] = HopperController(
                     pi_instance=self.pi,
