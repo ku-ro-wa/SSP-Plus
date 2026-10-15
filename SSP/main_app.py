@@ -38,6 +38,7 @@ from screens.voucher_balance import VoucherBalanceController
 from screens.thank_you import ThankYouController
 from database.models import init_db
 from managers.printer_manager import PrinterManager
+from managers.hopper_manager import stop_all_hopper_motors
 from managers.db_threader import DatabaseThreadManager
 from managers.ink_analysis_threader import InkAnalysisThreadManager
 from managers.webapp_thread import WebAppThreadManager
@@ -245,6 +246,9 @@ class PrintingSystemApp(QMainWindow):
                     print("🔄 GPIO connection cleaned up")
                 except Exception as cleanup_error:
                     print(f"⚠️ GPIO cleanup warning: {cleanup_error}")
+
+        # A run that crashed or was killed mid-payout can leave a hopper motor running
+        stop_all_hopper_motors()
 
         # Show idle screen as initial screen
         self.show_screen('idle')
@@ -859,6 +863,9 @@ class PrintingSystemApp(QMainWindow):
         try:
             print("🧹 Starting application cleanup...")
 
+            # Hoppers first: a motor running now would keep running after we exit
+            self._stop_hoppers()
+
             # Stop database operations first to prevent SQLite thread errors
             if hasattr(self, 'db_threader'):
                 print("🔄 Stopping database threader...")
@@ -902,6 +909,21 @@ class PrintingSystemApp(QMainWindow):
 
         except Exception as e:
             print(f"❌ Error during cleanup: {e}")
+
+    def _stop_hoppers(self):
+        """Stop any change payout and switch both hopper motors off."""
+        print("🔄 Stopping hopper motors...")
+        try:
+            model = self.payment_screen.model
+            thread = getattr(model, 'dispense_thread', None)
+            if thread and thread.isRunning():
+                # Motors off and the payout's pigpio connection closed, so its
+                # remaining coins fail instead of starting a motor again.
+                model.change_dispenser.cleanup()
+                thread.wait(5000)
+        except Exception as e:
+            print(f"⚠️ Error stopping change dispensing: {e}")
+        stop_all_hopper_motors()
 
     def closeEvent(self, a0) -> None:
         """

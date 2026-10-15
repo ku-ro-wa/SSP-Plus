@@ -34,6 +34,9 @@ class FakePi:
     def set_glitch_filter(self, pin, us):
         self.calls.append(('glitch', pin, us))
 
+    def stop(self):
+        self.calls.append(('stop', None, None))
+
     def callback(self, pin, edge, func):
         self.callbacks[pin] = func
         return SimpleNamespace(cancel=lambda: self.callbacks.pop(pin, None))
@@ -112,3 +115,20 @@ def test_seen_coin_succeeds_and_stops_the_motor(hopper):
     threading.Timer(0.05, pulse, args=(hopper, 0, 45)).start()
     assert hopper.dispense_single_coin() is True
     assert hopper.pi.calls[-1] == ('write', 24, 1)
+
+
+def test_stop_all_hopper_motors_writes_both_enables_off(fake_pigpio, monkeypatch):
+    pi = FakePi()
+    monkeypatch.setattr(hm.pigpio, 'pi', lambda: pi, raising=False)
+    monkeypatch.setenv('HOPPER_A_ENABLE_PIN', '24')
+    monkeypatch.setenv('HOPPER_B_ENABLE_PIN', '25')
+    assert hm.stop_all_hopper_motors() is True
+    assert pi.calls == [('write', 24, 1), ('write', 25, 1), ('stop', None, None)]
+
+
+def test_stop_all_hopper_motors_without_pigpiod(fake_pigpio, monkeypatch):
+    pi = FakePi()
+    pi.connected = False
+    monkeypatch.setattr(hm.pigpio, 'pi', lambda: pi, raising=False)
+    assert hm.stop_all_hopper_motors() is False
+    assert [c for c in pi.calls if c[0] == 'write'] == []

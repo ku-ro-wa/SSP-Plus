@@ -40,6 +40,31 @@ def hopper_configs():
     }
 
 
+def stop_all_hopper_motors():
+    """Switch both hopper motors off over a fresh pigpio connection. pigpiod keeps an
+    output's level after the app exits, so a motor left on keeps running until the
+    hopper is empty or the power is cut. Safe to call any time; True if written."""
+    if not PIGPIO_AVAILABLE:
+        return False
+    pi = None
+    try:
+        pi = pigpio.pi()
+        if not pi.connected:
+            print("WARNING: pigpio not connected, could not stop the hopper motors")
+            return False
+        pins = [cfg['enable_pin'] for cfg in hopper_configs().values()]
+        for pin in pins:
+            pi.write(pin, 1)  # active low: HIGH = motor off
+        print(f"Hopper motors stopped (GPIO {', '.join(map(str, pins))})")
+        return True
+    except Exception as e:
+        print(f"WARNING: could not stop the hopper motors: {e}")
+        return False
+    finally:
+        if pi is not None:
+            pi.stop()
+
+
 class HopperController:
     """
     Controls a single coin hopper motor and sensor.

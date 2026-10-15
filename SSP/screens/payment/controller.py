@@ -45,6 +45,7 @@ class PaymentController(QWidget):
         self.view.simulation_coin_clicked.connect(self._reset_timeout)
         self.view.simulation_bill_clicked.connect(self._reset_timeout)
         self.view.voucher_entry_activity.connect(self._reset_timeout)
+        self.model.amount_received_updated.connect(lambda _amount: self._reset_timeout())  # a coin or bill
 
         # --- Model -> Controller -> View ---
         self.model.payment_data_updated.connect(self.view.update_payment_data)
