@@ -202,6 +202,22 @@ def logged_row(db):
     return rows[0]
 
 
+def test_reentering_payment_credits_each_coin_once(kiosk):
+    """The acceptor service outlives the payment screen; re-entering must not
+    connect its signals again (each extra connection credited every coin again)."""
+    main_app, model = kiosk
+    options = PrintOptionsModel()
+    options.set_color_mode("Black and White")
+    options.set_pdf_data({'path': PDF}, [1])
+    model.set_payment_data(options.get_payment_data())
+    for _ in range(3):
+        model.on_enter()
+        model.on_leave()
+    model.on_enter()
+    main_app.acceptors.coin_inserted.emit(1)
+    assert model.amount_received == 1
+
+
 class TestChangeActuallyDispensed:
     def test_full_change_is_recorded_with_no_shortfall(self, kiosk, db):
         main_app, model = kiosk

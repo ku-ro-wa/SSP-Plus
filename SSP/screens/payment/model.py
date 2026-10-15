@@ -410,11 +410,14 @@ class PaymentModel(QObject):
         print(f"DEBUG: Persistent GPIO enabled: {getattr(self.persistent_gpio, 'enabled', 'N/A')}")
         print(f"DEBUG: Persistent GPIO available: {getattr(self.persistent_gpio, 'gpio_available', 'N/A')}")
 
-        print("DEBUG: About to connect signals")
-        self.persistent_gpio.coin_inserted.connect(self.on_coin_inserted)
-        self.persistent_gpio.bill_inserted.connect(self.on_bill_inserted)
-        self.persistent_gpio.payment_status.connect(self.payment_status_updated.emit)
-        print("DEBUG: Signals connected successfully")
+        # The GPIO service outlives this screen and setup_gpio() runs on every on_enter(),
+        # so connect only once: each extra connection credited every coin/bill again.
+        if getattr(self, '_connected_gpio', None) is not self.persistent_gpio:
+            self.persistent_gpio.coin_inserted.connect(self.on_coin_inserted)
+            self.persistent_gpio.bill_inserted.connect(self.on_bill_inserted)
+            self.persistent_gpio.payment_status.connect(self.payment_status_updated.emit)
+            self._connected_gpio = self.persistent_gpio
+            print("DEBUG: Signals connected successfully")
 
         # Setup coin timeout timer for persistent GPIO
         from PyQt5.QtCore import QTimer
