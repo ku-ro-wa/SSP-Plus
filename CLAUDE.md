@@ -68,13 +68,15 @@ shows the status (blank port = "Not configured"). See ADR 0004.
 
 `pigpio` requires the `pigpiod` daemon. All GPIO code degrades gracefully (simulated mode with console warnings) when `pigpio`/`pigpiod` is unavailable, independent of `SIM_MODE`.
 
-**`managers/payment_handler.py` is dead code.** It's a newer, `.env`-configurable rewrite of the coin/bill acceptor logic (with pulse-width noise filtering) but nothing imports it — `screens/payment/model.py` still wires up `managers/persistent_gpio.py`, whose pins are hardcoded in `__init__` rather than read from config. If you're changing acceptor behavior, edit `persistent_gpio.py`, not `payment_handler.py`.
+**`managers/payment_handler.py` is dead code.** Nothing imports it; `screens/payment/model.py` wires up `managers/persistent_gpio.py`. If you're changing acceptor behavior, edit `persistent_gpio.py`, not `payment_handler.py`.
 
-GPIO pin assignments (hardcoded in `persistent_gpio.py` / `hopper_manager.py`, **not** read from `.env` despite `.env.example` defining `COIN_PIN`/`BILL_PIN`/etc. — those config values are only consumed by the unused `payment_handler.py`):
-- Coin acceptor input: GPIO 17; inhibit (active high, HIGH=enabled): GPIO 22
+Acceptor pins are read from `.env` (`COIN_PIN`, `COIN_INHIBIT_PIN`, `BILL_PIN`, `BILL_INHIBIT_PIN`; defaults in `config.py`). Hopper pins are hardcoded in `hopper_manager.py`. The idle/payment controllers' "manual disable" backups and `main_app`'s startup disable still hardcode inhibit pins 22/23.
+- Coin acceptor input: GPIO 12; inhibit (active high, HIGH=enabled): GPIO 22
 - Bill acceptor input: GPIO 18; inhibit (active low, LOW=enabled): GPIO 23
 - Hopper A (₱1 coins): signal GPIO 10, enable GPIO 24 (active low)
 - Hopper B (₱5 coins): signal GPIO 11, enable GPIO 25 (active low)
+
+The coin line is noisy (sub-millisecond spikes even with no coin). With `COIN_PULSE_FILTER=true` (default) `PersistentGPIO` sets a pigpio glitch filter (`COIN_GLITCH_FILTER_US`) and counts only low pulses `COIN_PULSE_MIN_MS`–`COIN_PULSE_MAX_MS` wide; `false` falls back to falling-edge counting with a 0.1 s debounce, for checking the wiring alone. Pulse counts that match no coin are logged (`Coin ignored`) instead of dropped silently (`tests/test_persistent_gpio_coin_filter.py`).
 
 ### Database
 
