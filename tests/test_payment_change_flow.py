@@ -218,6 +218,51 @@ def test_reentering_payment_credits_each_coin_once(kiosk):
     assert model.amount_received == 1
 
 
+def test_back_is_ignored_while_change_is_dispensing(kiosk, db, monkeypatch):
+    """Back mid-payout used to stop the hoppers and log the paid job as cancelled."""
+    main_app, model = kiosk
+    stock_hoppers(db, ones=20, fives=20)
+    monkeypatch.setattr(hm, 'SIM_COIN_SECONDS', 0.2)
+    locked = []
+    model.payment_locked.connect(locked.append)
+    options = PrintOptionsModel()
+    options.set_color_mode("Black and White")
+    options.set_pdf_data({'path': PDF}, [1])
+    payment_data = options.get_payment_data()
+    model.set_payment_data(payment_data)
+    model.on_enter()
+    main_app.acceptors.bill_inserted.emit(int(payment_data['total_cost'] + 3))
+    wait_for(lambda: model.dispense_thread and model.dispense_thread.isRunning(), "change to start")
+
+    assert model.is_busy()
+    model.go_back()
+    wait_for(lambda: {'voucher', 'thank_you'} & set(main_app.screens), "payment to finish")
+
+    assert model.change_dispensed == {1: 3, 5: 0}
+    assert db.get_transaction_history() == []  # nothing logged as cancelled
+    assert locked[0] is True                   # Back/Vouchers greyed out from auto-complete
+
+
+def test_inserted_money_restarts_the_payment_timeout(kiosk):
+    """Only taps restarted it, so a customer still feeding money had the screen
+    time out under them (a bill takes seconds to validate)."""
+    from screens.payment.controller import PaymentController
+    main_app, model = kiosk
+    screen = PaymentController(main_app)
+    main_app.stacked_widget = SimpleNamespace(currentWidget=lambda: screen)
+    options = PrintOptionsModel()
+    options.set_color_mode("Black and White")
+    options.set_pdf_data({'path': PDF}, [1])
+    screen.set_payment_data(options.get_payment_data())
+    screen.on_enter()
+    try:
+        screen.timeout_timer.start(1000)  # as if 59 s had gone by
+        screen.model.persistent_gpio.coin_inserted.emit(1)
+        assert screen.timeout_timer.remainingTime() > 50000
+    finally:
+        screen.on_leave()
+
+
 class TestChangeActuallyDispensed:
     def test_full_change_is_recorded_with_no_shortfall(self, kiosk, db):
         main_app, model = kiosk

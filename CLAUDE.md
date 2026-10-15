@@ -70,13 +70,15 @@ shows the status (blank port = "Not configured"). See ADR 0004.
 
 **`managers/payment_handler.py` is dead code.** Nothing imports it; `screens/payment/model.py` wires up `managers/persistent_gpio.py`. If you're changing acceptor behavior, edit `persistent_gpio.py`, not `payment_handler.py`.
 
-Acceptor pins are read from `.env` (`COIN_PIN`, `COIN_INHIBIT_PIN`, `BILL_PIN`, `BILL_INHIBIT_PIN`; defaults in `config.py`). Hopper pins are hardcoded in `hopper_manager.py`. The idle/payment controllers' "manual disable" backups and `main_app`'s startup disable still hardcode inhibit pins 22/23.
+Acceptor and hopper pins are read from `.env` (`COIN_PIN`, `COIN_INHIBIT_PIN`, `BILL_PIN`, `BILL_INHIBIT_PIN`, `HOPPER_A_SIGNAL_PIN`, `HOPPER_A_ENABLE_PIN`, `HOPPER_B_SIGNAL_PIN`, `HOPPER_B_ENABLE_PIN`; defaults in `config.py`). The idle/payment controllers' "manual disable" backups and `main_app`'s startup disable still hardcode inhibit pins 22/23.
 - Coin acceptor input: GPIO 12; inhibit (active high, HIGH=enabled): GPIO 22
 - Bill acceptor input: GPIO 18; inhibit (active low, LOW=enabled): GPIO 23
-- Hopper A (₱1 coins): signal GPIO 10, enable GPIO 24 (active low)
-- Hopper B (₱5 coins): signal GPIO 11, enable GPIO 25 (active low)
+- Hopper A (₱1 coins): coin-out sensor GPIO 9, enable GPIO 24 (active low)
+- Hopper B (₱5 coins): coin-out sensor GPIO 26, enable GPIO 25 (active low)
 
 The coin line is noisy (sub-millisecond spikes even with no coin). With `COIN_PULSE_FILTER=true` (default) `PersistentGPIO` sets a pigpio glitch filter (`COIN_GLITCH_FILTER_US`) and counts only low pulses `COIN_PULSE_MIN_MS`–`COIN_PULSE_MAX_MS` wide; `false` falls back to falling-edge counting with a 0.1 s debounce, for checking the wiring alone. Pulse counts that match no coin are logged (`Coin ignored`) instead of dropped silently (`tests/test_persistent_gpio_coin_filter.py`).
+
+The hopper sensor lines pick up motor noise too, so `HopperController` sets a 5 ms glitch filter and counts a coin as one low pulse 20–300 ms wide (43–183 ms measured). A coin the sensor doesn't see within `DISPENSING_TIMEOUT` (1.5 s, the hoppers pay ~5 coins/s) stops that hopper with no retry, so an empty or jammed hopper, or a sensor that never registers coins, lets out a few coins at most and the rest of the change becomes a Voucher (`tests/test_hopper_controller.py`). From auto-complete until the change is out, the payment screen ignores Back and defers its timeout (`PaymentModel.is_busy()`), since leaving stops the hoppers. pigpiod keeps a motor's enable pin low after the app exits, so `main_app` stops both motors (`stop_all_hopper_motors()`) at startup and first thing in `cleanup()`, after ending any payout. A credited coin or bill restarts the payment screen's 60 s timeout.
 
 ### Database
 

@@ -241,6 +241,7 @@ class PaymentModel(QObject):
     payment_mode_changed = pyqtSignal(bool)  # payment mode enabled/disabled
     vouchers_updated = pyqtSignal(list)       # [AppliedVoucher], in the order Applied
     voucher_message = pyqtSignal(str, bool)   # message, is_error
+    payment_locked = pyqtSignal(bool)         # True from auto-complete until change is out
 
     def __init__(self, main_app=None):
         super().__init__()
@@ -1069,8 +1070,29 @@ class PaymentModel(QObject):
         except Exception as e:
             print(f"ERROR: Error resetting payment state: {e}")
 
+    @property
+    def _payment_completing(self):
+        return getattr(self, '_completing', False)
+
+    @_payment_completing.setter
+    def _payment_completing(self, value):
+        # Also locks the screen (Back, Vouchers, timeout) while the payment completes.
+        changed = value != self._payment_completing
+        self._completing = value
+        if changed:
+            self.payment_locked.emit(value)
+
+    def is_busy(self):
+        """True while a paid payment is completing or change is coming out. Leaving
+        then would stop the hoppers mid-payout and log a paid job as cancelled."""
+        thread = getattr(self, 'dispense_thread', None)
+        return self._payment_completing or bool(thread and thread.isRunning())
+
     def go_back(self):
         """Goes back to print options screen."""
+        if self.is_busy():
+            print("Payment screen: Back ignored, payment is completing / change is dispensing")
+            return
         print("Payment screen: going back to print options")
 
         # Log partial payment if user received cash but cancelled
