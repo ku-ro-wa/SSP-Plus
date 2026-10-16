@@ -21,7 +21,7 @@ BUTTON_HEIGHT = 44
 
 TOGGLE_BUTTON_QSS = f"""
 QPushButton {{
-    color: {COLORS["text_secondary"]}; font-size: 12px; font-weight: 700;
+    color: {COLORS["text_secondary"]}; font-size: {FONT["size_sm"]}px; font-weight: 700;
     border: 1px solid {COLORS["border_strong"]}; border-radius: {RADIUS["sm"]}px; height: {BUTTON_HEIGHT}px;
     background-color: {COLORS["bg"]}; padding-left: 12px; padding-right: 12px;
 }}
@@ -33,7 +33,7 @@ QPushButton:checked {{
 
 PAGINATION_BUTTON_QSS = f"""
 QPushButton {{
-    color: {COLORS["bg"]}; font-size: 12px; font-weight: 700; border: none;
+    color: {COLORS["bg"]}; font-size: {FONT["size_sm"]}px; font-weight: 700; border: none;
     border-radius: {RADIUS["sm"]}px; height: {BUTTON_HEIGHT}px;
     background-color: {COLORS["primary"]}; padding-left: 12px; padding-right: 12px;
 }}
@@ -163,14 +163,14 @@ class PDFButton(QPushButton):
         self.setStyleSheet(self.get_normal_style())
         self.clicked.connect(self.on_click)
         self.setMinimumWidth(280)
-        self.setFixedHeight(60)
+        self.setFixedHeight(72)
 
     def get_normal_style(self):
         return f"""
             QPushButton {{
                 background-color: {COLORS["bg"]}; color: {COLORS["text"]}; border: 1px solid {COLORS["border"]};
                 border-radius: {RADIUS["md"]}px; padding: 10px; text-align: left;
-                font-size: 13px; margin: 2px; height: 60px;
+                font-size: {FONT["size_sm"]}px; margin: 2px; height: 60px;
             }}
             QPushButton:hover {{ background-color: {COLORS["bg_subtle"]}; border: 1px solid {COLORS["primary"]}; }}
         """
@@ -181,13 +181,13 @@ class PDFButton(QPushButton):
                 background-color: {COLORS["primary"]}; color: {COLORS["bg"]};
                 border: 2px solid {COLORS["primary_hover"]};
                 border-radius: {RADIUS["md"]}px; padding: 10px; text-align: left;
-                font-size: 13px; font-weight: 700; margin: 2px; height: 60px;
+                font-size: {FONT["size_sm"]}px; font-weight: 700; margin: 2px; height: 60px;
             }}
             QPushButton:disabled {{
                 background-color: {COLORS["primary"]}; color: {COLORS["bg"]};
                 border: 2px solid {COLORS["primary_hover"]};
                 border-radius: {RADIUS["md"]}px; padding: 10px; text-align: left;
-                font-size: 13px; font-weight: 700; margin: 2px; height: 60px;
+                font-size: {FONT["size_sm"]}px; font-weight: 700; margin: 2px; height: 60px;
             }}
         """
 
@@ -228,7 +228,7 @@ class PDFPageWidget(QFrame):
         self.checkbox.setStyleSheet(f"""
             QCheckBox {{
                 color: {COLORS["text"]};
-                font-size: 14px;
+                font-size: {FONT["size_sm"]}px;
                 font-weight: 700;
                 padding: 4px 2px 6px 2px;
                 min-height: 44px;
@@ -255,7 +255,7 @@ class PDFPageWidget(QFrame):
         self.preview_label.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         self.preview_label.setStyleSheet(
             f"QLabel {{ background-color: {COLORS['bg_subtle']}; border: 1px solid {COLORS['border']}; "
-            f"border-radius: {RADIUS['sm']}px; color: {COLORS['text_secondary']}; font-size: 10px; }}"
+            f"border-radius: {RADIUS['sm']}px; color: {COLORS['text_secondary']}; font-size: 13px; }}"
         )
         self.preview_label.setText(f"Loading\nPage {self.page_num}...")
         layout.addWidget(self.checkbox, 0)
@@ -304,7 +304,7 @@ class PDFPageWidget(QFrame):
         self.preview_label.setText(f"Page {self.page_num}\n\nError:\n{error_msg}")
         self.preview_label.setStyleSheet(
             f"QLabel {{ background-color: {COLORS['danger_bg']}; border: 1px solid {COLORS['danger']}; "
-            f"border-radius: {RADIUS['sm']}px; color: {COLORS['danger']}; font-size: 9px; }}"
+            f"border-radius: {RADIUS['sm']}px; color: {COLORS['danger']}; font-size: 13px; }}"
         )
 
 
@@ -504,7 +504,7 @@ class FileBrowserView(QWidget):
         self.deselect_all_btn.setVisible(False)
         self.deselect_all_btn.setStyleSheet(f"""
             QPushButton {{
-                color: {COLORS["bg"]}; font-size: 12px; font-weight: 700;
+                color: {COLORS["bg"]}; font-size: {FONT["size_sm"]}px; font-weight: 700;
                 border: none; border-radius: {RADIUS["sm"]}px; height: {BUTTON_HEIGHT}px;
                 background-color: {COLORS["warning"]}; padding-left: 12px; padding-right: 12px;
             }}
@@ -559,7 +559,7 @@ class FileBrowserView(QWidget):
         self.next_grid_page_btn.clicked.connect(self.next_grid_page_clicked.emit)
         self.grid_page_label = QLabel("Page 1 / 1")
         self.grid_page_label.setAlignment(Qt.AlignCenter)
-        self.grid_page_label.setStyleSheet(f"color: {COLORS['text']}; font-size: 14px; background-color: transparent;")
+        self.grid_page_label.setStyleSheet(f"color: {COLORS['text']}; font-size: {FONT['size_sm']}px; background-color: transparent;")
 
         # BOTTOM CONTROLS
         self.back_to_idle_btn = BackButton("Back to Input Selection")
@@ -583,11 +583,11 @@ class FileBrowserView(QWidget):
 
         self.page_info = QLabel("No PDF selected")
         self.page_info.setStyleSheet(
-            f"QLabel {{ color: {COLORS['text']}; font-size: 14px; background-color: transparent; }}"
+            f"QLabel {{ color: {COLORS['text']}; font-size: {FONT['size_sm']}px; background-color: transparent; }}"
         )
         self.selected_count_label = QLabel("")
         self.selected_count_label.setStyleSheet(
-            f"QLabel {{ color: {PAGE_SELECTED_COLOR}; font-size: 14px; font-weight: 700; "
+            f"QLabel {{ color: {PAGE_SELECTED_COLOR}; font-size: {FONT['size_sm']}px; font-weight: 700; "
             f"background-color: transparent; }}"
         )
         pagination_controls = QHBoxLayout()
@@ -606,14 +606,14 @@ class FileBrowserView(QWidget):
         self.next_page_btn.clicked.connect(self.next_page_clicked.emit)
         self.page_input = QLabel("1")
         self.page_input.setStyleSheet(
-            f"QLabel {{ background-color: transparent; color: {COLORS['text']}; font-size: 13px; "
+            f"QLabel {{ background-color: transparent; color: {COLORS['text']}; font-size: {FONT['size_sm']}px; "
             f"min-width: 40px; max-width: 40px; border-radius: {RADIUS['sm']}px; padding: 1px 4px; "
             f"border: none; font-weight: 700; qproperty-alignment: AlignCenter; }}"
         )
         self.single_page_checkbox = QCheckBox("Select this page")
         self.single_page_checkbox.setMinimumHeight(44)
         self.single_page_checkbox.setStyleSheet(
-            f"QCheckBox {{ color: {COLORS['text']}; font-size: 13px; background-color: transparent; "
+            f"QCheckBox {{ color: {COLORS['text']}; font-size: {FONT['size_sm']}px; background-color: transparent; "
             f"min-height: 44px; }}"
             f"QCheckBox::indicator {{ width: 20px; height: 20px; border-radius: {RADIUS['sm']}px; }}"
             f"QCheckBox::indicator:checked {{ image: url({CHECKBOX_CHECKED_ICON}); "
@@ -633,7 +633,7 @@ class FileBrowserView(QWidget):
         self.zoom_label = QLabel("100%")
         self.zoom_label.setAlignment(Qt.AlignCenter)
         self.zoom_label.setStyleSheet(
-            f"QLabel {{ color: {COLORS['text']}; font-size: 13px; font-weight: 700; "
+            f"QLabel {{ color: {COLORS['text']}; font-size: {FONT['size_sm']}px; font-weight: 700; "
             f"background-color: transparent; min-width: 48px; }}"
         )
 

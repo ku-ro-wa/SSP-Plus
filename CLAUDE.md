@@ -13,6 +13,7 @@ make lint      # flake8 SSP/ scripts/  (config in .flake8)
 make run-sim   # launches the GUI with SIM_MODE=true (no GPIO/CUPS/modem needed)
 make run       # launches the GUI against real hardware (kiosk only)
 make run-admin-dashboard   # launches the Admin Dashboard (separate process, own port — see below)
+make screenshots   # renders every screen to screenshots/<screen>.png as the 1920×1080 kiosk shows it
 ```
 
 Run a single test: `python -m pytest tests/test_payment_algorithm.py::TestCalculateChangeBreakdown::test_mixed -v`
@@ -137,7 +138,9 @@ See `docs/adr/0002-admin-dashboard-auth-and-remote-access-architecture.md` and C
 
 All runtime config comes from `.env` via `config.py`'s `get_config()` (global `Config` singleton). `Config._load_env_file()` uses `os.environ.setdefault`, so a shell-exported var always overrides `.env` (this is how `make run-sim` forces `SIM_MODE=true` without editing `.env`). Accessing an unset key raises `KeyError` (see `Config.get`) — there are no silent defaults except `sim_mode`, which returns `False` if unset.
 
-The touchscreen UI is laid out in fixed pixels for an ~800px-tall screen; `main()` scales all of it with Qt's `QT_SCALE_FACTOR`, set by `ui/scaling.py` from `UI_SCALE` (blank/`auto` = screen height ÷ 800, minimum 1; a number forces that scale). Keep every screen within 800 logical px tall (scan_destination is ~790), or it overflows on the 1080-tall kiosk panel.
+The touchscreen UI is laid out in fixed pixels for an ~800px-tall screen; `main()` scales all of it with Qt's `QT_SCALE_FACTOR`, set by `ui/scaling.py` from `UI_SCALE` (blank/`auto` = screen height ÷ 800, minimum 1; a number forces that scale). Keep every screen within 800 logical px tall (scan_destination is ~785), or it overflows on the 1080-tall kiosk panel; `tests/test_screen_render.py` fails if one doesn't fit.
+
+The UI renders the same however it's launched (desktop terminal, SSH, systemd, a laptop): `main()` calls `ui/scaling.py`'s `pin_render_environment()` first (on Linux forces `QT_QPA_PLATFORM=xcb` and drops the desktop's Qt theme/DPI variables), `apply_theme()` uses the Fusion style and the Inter font bundled in `SSP/assets/fonts/`, and the base font is sized in pixels, never points. Startup prints a `Render:` line (platform, screen, scale, DPI, font); two launches with the same line look the same. `make screenshots` (`scripts/render_screens.py`) is the reference picture for UI changes. Text sizes and colours come from `ui/theme.py`'s `FONT`/`COLORS` (smallest text 16px, body text semibold, secondary/muted greys at WCAG AA contrast); use those tokens rather than hardcoded px.
 
 ### Print job flow
 

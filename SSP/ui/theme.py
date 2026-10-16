@@ -1,7 +1,9 @@
 # ui/theme.py
 """Design tokens and QSS for the app's shared visual theme (single light theme)."""
 
-from PyQt5.QtGui import QFont
+import os
+
+from PyQt5.QtGui import QFont, QFontDatabase
 from PyQt5.QtWidgets import QApplication
 
 COLORS = {
@@ -10,8 +12,10 @@ COLORS = {
     "border": "#E9E9E7",
     "border_strong": "#DFDFDD",
     "text": "#37352F",
-    "text_secondary": "#787774",
-    "text_muted": "#9B9A97",
+    # Secondary/muted text sits on white at >= 7:1 / >= 4.5:1 contrast (WCAG AA),
+    # so small print stays readable for every customer, not just good eyesight.
+    "text_secondary": "#55544F",
+    "text_muted": "#6F6E69",
     "primary": "#2F7D5C",
     "primary_hover": "#256B4D",
     "primary_pressed": "#1E5A40",
@@ -27,13 +31,17 @@ SPACING = {"xs": 4, "sm": 8, "md": 12, "lg": 16, "xl": 24, "xxl": 40}
 
 RADIUS = {"sm": 6, "md": 10, "lg": 14}
 
+# Inter ships in SSP/assets/fonts, so the kiosk, a laptop and an SSH launch all draw
+# the same glyphs instead of whatever each machine's font fallback picks.
 FONT = {
-    "family": '"Segoe UI", "Helvetica Neue", Arial, sans-serif',
-    "size_sm": 13,
-    "size_md": 15,
-    "size_lg": 18,
-    "size_xl": 24,
+    "family": '"Inter"',
+    "size_sm": 16,
+    "size_md": 18,
+    "size_lg": 20,
+    "size_xl": 26,
     "size_display": 40,
+    # Weight of text with no font-weight of its own (body copy, card descriptions).
+    "weight_body": 600,
 }
 
 # Scoped via setObjectName so these never leak onto unrelated widgets.
@@ -278,6 +286,7 @@ def build_stylesheet() -> str:
     return f"""
     QWidget {{
         font-family: {FONT["family"]};
+        font-weight: {FONT["weight_body"]};
         color: {COLORS["text"]};
     }}
     QLabel {{
@@ -299,6 +308,43 @@ def build_stylesheet() -> str:
     """
 
 
+def _fonts_dir() -> str:
+    return os.path.normpath(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'assets', 'fonts'))
+
+
+def load_fonts() -> None:
+    """Register the bundled Inter weights with Qt. Call after the QApplication exists."""
+    for name in sorted(os.listdir(_fonts_dir())):
+        if name.endswith('.ttf') and QFontDatabase.addApplicationFont(os.path.join(_fonts_dir(), name)) < 0:
+            print(f"WARNING: Could not load font '{name}'.")
+
+
+def base_font() -> QFont:
+    """App-wide default font, sized in pixels: a point size turns into a different pixel
+    size on each display's DPI, which made the same build render differently by launch."""
+    font = QFont("Inter")
+    font.setPixelSize(FONT["size_md"])
+    font.setWeight(QFont.DemiBold)  # FONT["weight_body"]
+    return font
+
+
 def apply_theme(app: QApplication) -> None:
-    app.setFont(QFont("Segoe UI", FONT["size_md"]))
+    # Fusion draws the same everywhere; the default style follows the OS (macOS
+    # on a laptop) and the desktop's Qt theme (on the Pi).
+    app.setStyle("Fusion")
+    load_fonts()
+    app.setFont(base_font())
     app.setStyleSheet(build_stylesheet())
+
+
+def render_summary(app: QApplication) -> str:
+    """One line of everything that decides how the UI looks on this launch. Two
+    launches that print the same line render the same."""
+    screen = app.primaryScreen()
+    size = screen.geometry()
+    font = app.font()
+    return (
+        f"Render: platform={app.platformName()} "
+        f"screen={size.width()}x{size.height()} scale={os.environ.get('QT_SCALE_FACTOR', '1')} "
+        f"dpi={screen.logicalDotsPerInch():.0f} font={font.family()} {font.pixelSize()}px"
+    )

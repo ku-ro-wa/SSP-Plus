@@ -83,7 +83,7 @@ class Card(QFrame):
         self.setObjectName("Card")
         self.setCursor(Qt.PointingHandCursor)
         self.setStyleSheet(CARD_QSS)
-        self.setFixedSize(300, 200)
+        self.setFixedSize(340, 200)
 
         shadow = QGraphicsDropShadowEffect(self)
         shadow.setBlurRadius(16)
@@ -94,7 +94,9 @@ class Card(QFrame):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(16, 16, 16, 16)
         layout.setSpacing(6)
-        layout.setAlignment(Qt.AlignCenter)
+        # Stretches, not layout.setAlignment(): an aligned layout sizes wrapped labels by
+        # their sizeHint, which cuts off a third line of description.
+        layout.addStretch()
 
         if icon_name:
             icon = svg_widget(icon_name, size=(32, 32))
@@ -121,6 +123,7 @@ class Card(QFrame):
         if extra_widget:
             layout.addSpacing(4)
             layout.addWidget(extra_widget)
+        layout.addStretch()
 
     def mousePressEvent(self, event):
         if event.button() == Qt.LeftButton:

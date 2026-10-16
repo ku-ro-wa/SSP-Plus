@@ -652,6 +652,10 @@ install into the same `cv2` folder.
 **Pi over SSH: `make run-sim` aborts with no display**
 An SSH session has no screen. To run the kiosk headless (enough for the Wi-Fi portal and phone
 tests), use `QT_QPA_PLATFORM=offscreen make run-sim`.
+To draw on the kiosk's own screen from SSH instead, use `DISPLAY=:0 make run` (or `run-sim`). It
+renders exactly like a launch from the Pi's desktop terminal: the app pins its Qt environment at
+startup (see the `Render:` line it prints). To see the screens without the kiosk, `make screenshots`
+renders them into `screenshots/` at the panel's 1920×1080.
 
 **Mac: `PyQt5` install fails on Apple Silicon**
 Try: `pip3 install --upgrade pip && pip3 install PyQt5`. The wheels include Qt bundled and support arm64.
