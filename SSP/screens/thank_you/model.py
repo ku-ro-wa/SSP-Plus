@@ -14,7 +14,6 @@ States:
 """
 
 from PyQt5.QtCore import QObject, pyqtSignal, QTimer
-import subprocess
 
 from ui.theme import COLORS, FONT
 
@@ -45,11 +44,6 @@ class ThankYouModel(QObject):
         self.redirect_timer = QTimer()
         self.redirect_timer.setSingleShot(True)
         self.redirect_timer.timeout.connect(self._on_timer_timeout)
-
-        # Status check timer for fallback monitoring
-        self.status_check_timer = QTimer()
-        self.status_check_timer.timeout.connect(self._check_print_status)
-        self.status_check_timer.setSingleShot(False)
 
         # Screen state tracking
         self.current_state = "initial"
@@ -160,6 +154,8 @@ class ThankYouModel(QObject):
             clean_message = "Could not communicate with the printer."
         elif is_paper_jam:
             clean_message = "Paper jam detected. Please clear the paper jam."
+        elif "paused" in message.lower():
+            clean_message = "The printer is paused. It may be out of paper."
         else:
             clean_message = "An error occurred."
 
@@ -256,9 +252,6 @@ class ThankYouModel(QObject):
         if hasattr(self, 'warning_timer') and self.warning_timer.isActive():
             self.warning_timer.stop()
 
-        if self.status_check_timer.isActive():
-            self.status_check_timer.stop()
-
         # Hide admin override button since print succeeded
         self.admin_override_hidden.emit()
 
@@ -335,80 +328,8 @@ class ThankYouModel(QObject):
             print("DEBUG: No print job details available")
             self.show_printing_error("No print job details available")
 
-    def _check_print_status(self):
-        """
-        Fallback method to check printer status if signals fail.
-
-        Uses lpstat command to check if printer is idle/ready as a backup
-        method in case print completion signals don't arrive.
-        Improved to handle multiple printers and detect active printer completion.
-        """
-        # Only check if we're still waiting
-        if self.current_state != "waiting":
-            return
-
-        try:
-            result = subprocess.run(['lpstat', '-p'], capture_output=True, text=True, timeout=5)
-
-            if result.returncode == 0:
-                # Check printer status using alerts-based detection (fallback method)
-                target_printer = "HP_Smart_Tank_580_590_series_5E0E1D_USB"
-                is_printing = False
-
-                detailed_result = subprocess.run(['lpstat', '-l', '-p', target_printer],
-                                                 capture_output=True, text=True, timeout=5)
-
-                if detailed_result.returncode == 0:
-                    # Look for alerts line in the output
-                    for line in detailed_result.stdout.split('\n'):
-                        line = line.strip()
-                        if line.startswith("Alerts:"):
-                            alerts_text = line.replace("Alerts:", "").strip()
-                            print(f"Fallback: Printer alerts for {target_printer}: {alerts_text}")
-
-                            if alerts_text and alerts_text != "none":
-                                alerts_found = [alert.strip() for alert in alerts_text.split()]
-
-                                # Check if printer is actively printing
-                                if "cups-waiting-for-job-completed" in alerts_found:
-                                    is_printing = True
-                                    print(f"Fallback: Printer '{target_printer}' still processing/printing (cups-waiting-for-job-completed)")
-
-                                # Check for specific error conditions
-                                if "media-jam-error" in alerts_found or "paper-jam" in alerts_found:
-                                    self.show_paper_jam_error(f"Paper jam detected on {target_printer}")
-                                    return
-                                elif "media-empty-error" in alerts_found or "media-needed-error" in alerts_found:
-                                    self.show_printing_error(f"No paper detected on {target_printer}")
-                                    return
-                                elif "offline" in alerts_found or "stopped" in alerts_found:
-                                    self.show_printing_error(f"Printer {target_printer} went offline")
-                                    return
-                                elif "error" in alerts_found:
-                                    self.show_printing_error(f"Printer error on {target_printer}")
-                                    return
-                            else:
-                                # No alerts means printer is idle
-                                print(f"Fallback: Printer '{target_printer}' is idle (no alerts)")
-                            break
-
-                # Only assume completion if target printer is not actively printing
-                if not is_printing:
-                    print("Fallback: Target printer not actively printing, marking print as complete")
-                    self._on_print_success()
-                else:
-                    print(f"Fallback: Still waiting for target printer '{target_printer}' to finish printing")
-
-        except subprocess.TimeoutExpired:
-            print("⚠️ Fallback lpstat command timed out")
-        except Exception as e:
-            print(f"⚠️ Fallback status check error: {e}")
-
     def _start_timers(self):
         """Start monitoring timers in the main thread."""
-        # Start periodic printer status check as fallback (every 5 seconds)
-        self.status_check_timer.start(5000)
-
         # Only start safety timeout if not in error state
         # Error states should wait for admin override, not auto-redirect
         if self.current_state not in ["error", "admin_override"]:
@@ -438,8 +359,6 @@ class ThankYouModel(QObject):
         # Stop timers
         if self.redirect_timer.isActive():
             self.redirect_timer.stop()
-        if self.status_check_timer.isActive():
-            self.status_check_timer.stop()
 
         # Reset state for next transaction
         self.print_job_started = False

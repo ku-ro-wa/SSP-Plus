@@ -146,7 +146,7 @@ The UI renders the same however it's launched (desktop terminal, SSH, systemd, a
 
 1. `file_browser` (select file) → `printing_options` (set copies/color/pages) → `payment` (insert coins/bills)
 2. `payment` model emits `payment_completed` → `main_app.on_payment_completed()` calls `printer_manager.print_file(...)`
-3. `PrinterThread.run()` builds a temp PDF containing only the selected pages (via PyMuPDF/`fitz`), submits it to CUPS with `lp`, then polls `lpstat -l -p <printer>` for job completion, paper jams, and media-empty alerts (sends SMS on jam/no-paper via `sms_manager`)
+3. `PrinterThread.run()` builds a temp PDF containing only the selected pages (via PyMuPDF/`fitz`), submits it to CUPS with `lp`, then polls `lpstat -l -p <printer>` for job completion, paper jams, and media-empty alerts (sends SMS on jam/no-paper via `sms_manager`). A `paused` alert (the HP's out-of-paper state) fails the job. The job counts as printed only once it has left `lpstat -o`, and this thread is the only thing that reports success: the thank-you screen just waits for its signals (`tests/test_printer_completion.py`)
 4. On success, `main_app` decrements paper count and updates coin inventory (received coins added, dispensed change subtracted) directly against the DB, *then* triggers ink analysis
 5. `InkAnalysisThreadManager` uses `pdf2image` + OpenCV on the temp PDF to estimate CMYK consumption and updates `cmyk_ink_levels`
 6. The temp PDF is deleted only after ink analysis completes (`PrinterManager.cleanup_last_temp_pdf`), since analysis needs it even if the original USB drive was removed
