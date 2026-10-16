@@ -648,6 +648,13 @@ sudo systemctl enable --now pigpiod
 8888 on every interface, and anyone who reaches that port can drive the GPIO pins
 (the hoppers and acceptors).
 
+Check that systemd is running this unit and not pigpio's own stock one (`Description=Pigpio
+daemon`, no `-l`). On the rebuilt kiosk card the stock unit was installed:
+
+```bash
+systemctl cat pigpiod | grep ExecStart    # must end in -l
+```
+
 ### 3. Install the Python client in the venv
 
 `make run` uses `.venv/bin/python`. `pip install -r requirements.txt` installs
@@ -665,6 +672,7 @@ Install a normal copy into the venv:
 ```bash
 pigs t                                                    # prints a tick count
 .venv/bin/python -c "import pigpio; print(pigpio.pi().connected)"   # True
+ss -ltnp | grep 8888        # 127.0.0.1:8888 or [::1]:8888; *:8888 means -l is missing
 ```
 
 `make run` should log `SUCCESS: Persistent GPIO initialized successfully`, and the
