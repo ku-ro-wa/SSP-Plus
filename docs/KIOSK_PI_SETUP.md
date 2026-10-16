@@ -155,6 +155,11 @@ In `sudo raspi-config`:
 `UI_SCALE` in `.env` is blank (auto) for the 1920×1080 panel. Not covered yet: screen rotation and
 hiding the cursor.
 
+The app always draws through X11 (Xwayland under labwc) and ships its own font, so a launch from
+the desktop, from systemd and over SSH (`DISPLAY=:0 make run`) look the same. Each prints a
+`Render:` line at startup; on this panel it should read `platform=xcb screen=1920x1080 scale=1.35
+... font=Inter 18px`.
+
 ## 10. Hotspot
 
 Over Ethernet, once no apt job is running:
@@ -251,8 +256,7 @@ It needs the desktop session, so it's a user service started by the desktop.
 
    The first command passes the display to systemd; without it the GUI has nowhere to draw.
 5. Test: reboot, and the app should open on its own. `pkill -f main_app.py` should bring it back
-   within about 5 s. Logs: `journalctl --user -u ssp-kiosk -f`. If Qt fails on Wayland, add
-   `Environment=QT_QPA_PLATFORM=xcb` under `[Service]`, then reload and restart.
+   within about 5 s. Logs: `journalctl --user -u ssp-kiosk -f`.
 
 ### Admin Dashboard (system service)
 

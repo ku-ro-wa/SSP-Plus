@@ -4,6 +4,10 @@
 Every screen is laid out in fixed pixels (QSS font sizes, setFixedSize, padding).
 Rather than scale each of those, Qt scales the whole UI through QT_SCALE_FACTOR,
 which must be set before the QApplication is created.
+
+The same goes for the rest of the Qt environment: a desktop terminal and an SSH
+shell on the kiosk export different Qt variables, and each one changed how the UI
+rendered. pin_render_environment() makes every launch use the same values.
 """
 
 import os
@@ -32,11 +36,48 @@ def ui_scale_factor(screen_height: int, setting: str = "") -> float:
     return max(1.0, round(screen_height / DESIGN_HEIGHT, 2))
 
 
+# Variables a desktop session sets (and an SSH shell doesn't) that change the
+# style, palette, fonts or DPI scaling Qt renders with.
+_SESSION_RENDER_VARS = (
+    "QT_QPA_PLATFORMTHEME",
+    "QT_STYLE_OVERRIDE",
+    "QT_AUTO_SCREEN_SCALE_FACTOR",
+    "QT_ENABLE_HIGHDPI_SCALING",
+    "QT_SCREEN_SCALE_FACTORS",
+    "QT_FONT_DPI",
+)
+
+# Platforms that draw nowhere (tests, headless runs over SSH); left as they are.
+_HEADLESS_PLATFORMS = ("offscreen", "minimal")
+
+
+def pin_render_environment(environ=os.environ, platform: str = sys.platform) -> None:
+    """Make the UI render the same however the app was launched. Call before any
+    QApplication exists (including apply_ui_scale's probe).
+
+    On Linux the GUI always goes through X11 (xcb; Xwayland under the kiosk's labwc
+    desktop) rather than whichever of X11/Wayland the launching shell picked, and
+    the desktop's Qt theme and DPI variables are dropped. QT_SCALE_FACTOR is kept:
+    apply_ui_scale treats it as a deliberate override.
+    """
+    for name in _SESSION_RENDER_VARS:
+        environ.pop(name, None)
+    if platform.startswith("linux") and environ.get("QT_QPA_PLATFORM") not in _HEADLESS_PLATFORMS:
+        environ["QT_QPA_PLATFORM"] = "xcb"
+
+
 def _primary_screen_height() -> int:
-    """Height of the primary screen (as _setup_display sizes the window), read with
-    a throwaway QApplication."""
+    """Height of the primary screen, read with a throwaway QApplication.
+
+    On Linux this is the full screen: the kiosk window is fullscreen, and the space
+    a taskbar reserves is reported differently by X11 and Wayland. Elsewhere (a dev
+    laptop) the window is sized to the space left by the menu bar and Dock, as
+    _setup_display does, so that's what has to fit.
+    """
     probe = QApplication(sys.argv)
-    height = probe.primaryScreen().availableGeometry().height()
+    screen = probe.primaryScreen()
+    geometry = screen.geometry() if sys.platform.startswith("linux") else screen.availableGeometry()
+    height = geometry.height()
     del probe
     return height
 

@@ -67,3 +67,27 @@ def test_apply_leaves_env_unset_at_1x(env):
 def test_apply_respects_existing_qt_scale_factor(env):
     env.setenv("QT_SCALE_FACTOR", "2")
     assert apply_ui_scale("1.2") == 2.0
+
+
+@pytest.mark.parametrize("launched_with", [
+    {},                                                    # SSH shell
+    {"QT_QPA_PLATFORM": "wayland", "QT_QPA_PLATFORMTHEME": "qt5ct",
+     "QT_AUTO_SCREEN_SCALE_FACTOR": "1", "QT_FONT_DPI": "120"},  # desktop terminal
+])
+def test_pin_gives_every_linux_launch_the_same_environment(launched_with):
+    environ = dict(launched_with, QT_SCALE_FACTOR="1.35", HOME="/home/kiosk")
+    scaling.pin_render_environment(environ, platform="linux")
+    assert environ == {"QT_QPA_PLATFORM": "xcb", "QT_SCALE_FACTOR": "1.35", "HOME": "/home/kiosk"}
+
+
+@pytest.mark.parametrize("headless", ["offscreen", "minimal"])
+def test_pin_keeps_headless_platforms(headless):
+    environ = {"QT_QPA_PLATFORM": headless}
+    scaling.pin_render_environment(environ, platform="linux")
+    assert environ["QT_QPA_PLATFORM"] == headless
+
+
+def test_pin_leaves_the_platform_alone_off_linux():
+    environ = {"QT_QPA_PLATFORMTHEME": "x"}
+    scaling.pin_render_environment(environ, platform="darwin")
+    assert environ == {}

@@ -18,7 +18,7 @@ QFrame#Card {{
 }}
 """
 
-THUMBNAIL_HEIGHT = 220
+THUMBNAIL_HEIGHT = 200
 
 
 class DestinationOption(QFrame):
