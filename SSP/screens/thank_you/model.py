@@ -155,7 +155,7 @@ class ThankYouModel(QObject):
         elif is_paper_jam:
             clean_message = "Paper jam detected. Please clear the paper jam."
         elif "paused" in message.lower():
-            clean_message = "The printer is paused. It may be out of paper."
+            clean_message = "The printer is paused."
         else:
             clean_message = "An error occurred."
 

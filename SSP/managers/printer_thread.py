@@ -227,9 +227,9 @@ class PrinterThread(QThread):
                             self.print_failed.emit(f"No paper detected on {target_printer}")
                             return False
                         elif "paused" in alerts_found:
-                            # The HP reports this when it stops for missing paper; the job
-                            # stays queued in CUPS, so it would never count as complete
-                            self.print_failed.emit(f"Printer paused on {target_printer} (out of paper?)")
+                            # CUPS sets this when it disables the queue (e.g. after a backend
+                            # failure); the job stays queued, so it would never count as complete
+                            self.print_failed.emit(f"Printer {target_printer} is paused (CUPS queue disabled)")
                             return False
                         elif "offline" in alerts_found or "stopped" in alerts_found:
                             self.print_failed.emit(f"Printer {target_printer} is offline")

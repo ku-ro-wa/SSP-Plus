@@ -1,8 +1,9 @@
 """
 PrinterThread.wait_for_print_completion against faked `lpstat` output: a job
 only counts as printed once it has left the CUPS queue, and a printer that
-reports `paused` (what the HP sends when it stops for missing paper) fails the
-job instead of leaving it waiting. Also the thank-you screen's wording for it.
+reports `paused` (CUPS's alert for a disabled queue) fails the job instead of
+leaving it waiting. Also the thank-you screen's wording for it, and the
+pre-print availability check refusing a disabled queue.
 """
 import os
 from types import SimpleNamespace
@@ -100,7 +101,22 @@ def test_thank_you_screen_explains_a_paused_printer(monkeypatch):
     shown = []
     model.status_updated.connect(lambda title, body: shown.append((title, body)))
 
-    model.show_printing_error(f"Printer paused on {PRINTER} (out of paper?)")
+    model.show_printing_error(f"Printer {PRINTER} is paused (CUPS queue disabled)")
 
     assert model.current_state == "error"
-    assert "paused" in shown[-1][1] and "out of paper" in shown[-1][1]
+    assert "The printer is paused." in shown[-1][1]
+
+
+def test_disabled_queue_is_not_available(monkeypatch):
+    import managers.printer_manager as pm
+    monkeypatch.delenv('SIM_MODE', raising=False)
+
+    def fake_run(cmd, **kwargs):
+        out = (f"printer {PRINTER} disabled since Fri 16 Oct 2026 18:41:46 HKT -\n"
+               if cmd[0] == 'lpstat' else "/usr/bin/lp\n")
+        return SimpleNamespace(returncode=0, stdout=out, stderr="")
+    monkeypatch.setattr(pm.subprocess, 'run', fake_run)
+
+    manager = pm.PrinterManager.__new__(pm.PrinterManager)
+    manager.printer_name = PRINTER
+    assert manager.check_printer_availability() is False
