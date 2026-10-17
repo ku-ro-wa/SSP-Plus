@@ -1,10 +1,12 @@
 """
 Sets up (or switches off) the kiosk's own Wi-Fi hotspot from .env.
 
-hostapd broadcasts an open network, dnsmasq hands out addresses and answers the
-Portal's name, and an nftables table limits the hotspot interface to DHCP, DNS
-and the Portal's port, with no forwarding anywhere. No captive portal. See
-docs/adr/0007-own-hotspot-replaces-raspap-captive-portal.md and GitHub issue #29.
+hostapd broadcasts an open network, dnsmasq hands out addresses and answers
+every name with the Pi, and an nftables table limits the hotspot interface to
+DHCP, DNS, the Portal's port and the captive-portal probe responder (port 80 is
+redirected to it), with no forwarding anywhere. See
+docs/adr/0007-own-hotspot-replaces-raspap-captive-portal.md, GitHub issue #29
+and docs/adr/0008-captive-portal-detection-without-a-splash-page.md.
 
 Usage (on the kiosk Pi, from anywhere in the repo):
     sudo python3 scripts/setup_hotspot.py              # apply
@@ -63,7 +65,7 @@ RASPAP_MARKERS = ["etc/raspap", "etc/nodogsplash", "etc/opennds", *RASPAP_UNIT_F
 # RaspAP's dnsmasq drop-ins (090_raspap.conf, 090_wlan0.conf) would fight ours.
 RASPAP_DNSMASQ_GLOB = "090_*.conf"
 
-# Ports the Portal must never share: SSH, DNS, DHCP.
+# Ports the Portal and the probe responder must never share: SSH, DNS, DHCP.
 RESERVED_PORTS = {22, 53, 67}
 
 _IFNAME_RE = re.compile(r"^[a-zA-Z0-9_-]{1,15}$")
@@ -85,6 +87,7 @@ class HotspotSettings:
     address: ipaddress.IPv4Interface
     portal_hostname: str
     portal_port: int
+    captive_port: int
     admin_dashboard_port: int
     kiosk_id: str
 
@@ -109,6 +112,7 @@ class HotspotSettings:
             address=address,
             portal_hostname=config.portal_hostname,
             portal_port=config.wifi_portal_port,
+            captive_port=config.wifi_captive_port,
             admin_dashboard_port=config.admin_dashboard_port,
             kiosk_id=config.kiosk_id,
         )
@@ -147,6 +151,14 @@ class HotspotSettings:
             problems.append(f"WIFI_PORTAL_PORT={self.portal_port} clashes with SSH/DNS/DHCP")
         elif self.portal_port == self.admin_dashboard_port:
             problems.append(f"WIFI_PORTAL_PORT={self.portal_port} is the Admin Dashboard's port, which must stay closed")
+        if not 1 <= self.captive_port <= 65535:
+            problems.append(f"WIFI_CAPTIVE_PORT={self.captive_port} is out of range")
+        elif self.captive_port in RESERVED_PORTS:
+            problems.append(f"WIFI_CAPTIVE_PORT={self.captive_port} clashes with SSH/DNS/DHCP")
+        elif self.captive_port in (self.portal_port, self.admin_dashboard_port):
+            problems.append(
+                f"WIFI_CAPTIVE_PORT={self.captive_port} must differ from the Portal's and the dashboard's ports"
+            )
         if self.kiosk_id and not _KIOSK_ID_RE.match(self.kiosk_id):
             problems.append(f"KIOSK_ID={self.kiosk_id!r} must be lowercase letters, digits and hyphens")
         return problems
@@ -194,8 +206,11 @@ def _hostapd_ssid(ssid: str) -> str:
 def render_dnsmasq(s: HotspotSettings) -> str:
     start, end = s.dhcp_range
     ip = s.address.ip
-    # no-resolv with no server= lines: dnsmasq answers the Portal's name and
-    # nothing else, so phones can't use it to look up the internet.
+    # no-resolv with no server= lines: dnsmasq never looks anything up on the
+    # internet. Instead every name is answered with the Pi (address=/#/), so
+    # the OSes' connectivity checks reach the probe responder (ADR 0008) and
+    # any name typed on the hotspot, the Portal's included, lands on the Pi.
+    # Windows also checks that dns.msftncsi.com has its real, fixed address.
     # except-interface=lo keeps the Pi's own lookups away from it.
     # The router option points at the Pi so phones treat the Wi-Fi as a
     # normal network; the firewall drops anything they try to forward.
@@ -206,7 +221,8 @@ no-resolv
 no-hosts
 domain-needed
 bogus-priv
-host-record={s.portal_hostname},{ip}
+address=/#/{ip}
+address=/dns.msftncsi.com/131.107.255.255
 dhcp-range={start},{end},{s.address.netmask},1h
 dhcp-option=option:router,{ip}
 dhcp-option=option:dns-server,{ip}
@@ -220,7 +236,10 @@ def render_firewall(s: HotspotSettings) -> str:
     # Every other base chain on these hooks still runs; a drop here is final.
     # Phones' internet traffic is rejected, not dropped, so it fails at once:
     # a silent drop made each page wait ~10 s on anything it tried to fetch
-    # from the internet. Input stays a silent drop.
+    # from the internet. Input stays a silent drop, except HTTPS: the OSes'
+    # HTTPS connectivity checks are reset so they fail at once.
+    # The hotspot's port 80 is redirected to the probe responder (ADR 0008);
+    # input sees the redirected port.
     return f"""#!/usr/sbin/nft -f
 {_header()}
 table inet ssp_hotspot
@@ -234,7 +253,14 @@ table inet ssp_hotspot {{
 \t\tudp dport 53 accept comment "DNS"
 \t\ttcp dport 53 accept comment "DNS"
 \t\ttcp dport {s.portal_port} accept comment "Portal"
+\t\ttcp dport {s.captive_port} accept comment "captive-portal probe responder"
+\t\ttcp dport 443 reject with tcp reset comment "HTTPS connectivity checks fail at once"
 \t\tcounter drop comment "everything else on the hotspot, SSH and the dashboard included"
+\t}}
+
+\tchain prerouting {{
+\t\ttype nat hook prerouting priority dstnat; policy accept;
+\t\tiifname "{s.interface}" ip daddr {s.address.ip} tcp dport 80 redirect to :{s.captive_port} comment "captive-portal checks"
 \t}}
 
 \tchain forward {{
@@ -515,6 +541,7 @@ def main(argv=None) -> int:
 
     if settings.enabled:
         print(f"\nPortal on the hotspot: https://{settings.portal_hostname}:{settings.portal_port}/upload")
+        print(f"Captive-portal checks: hotspot port 80 -> {settings.captive_port}")
         if not settings.kiosk_id:
             print("⚠️  KIOSK_ID is blank in .env; set it before printing this kiosk's sticker.")
     return 0

@@ -60,8 +60,8 @@ in_uplink ip addr add 192.168.50.2/24 dev up0 && in_uplink ip link set up0 up
 in_uplink ip route add 10.3.141.0/24 via 192.168.50.1
 echo 1 > /proc/sys/net/ipv4/ip_forward   # worst case: kernel forwarding on, firewall must still stop it
 
-# Listeners on the kiosk: SSH, the dashboard, the Portal. Plus one in the uplink.
-for port in 22 8100 8000; do nc -lk -p $port >/dev/null 2>&1 & done
+# Listeners on the kiosk: SSH, the dashboard, the Portal, the probe responder. Plus one in the uplink.
+for port in 22 8100 8000 8080; do nc -lk -p $port >/dev/null 2>&1 & done
 in_uplink nc -lk -p 80 >/dev/null 2>&1 &
 sleep 0.5
 
@@ -93,11 +93,16 @@ in_phone ip route replace default via $PI
 
 ANSWER=$(in_phone dig +short +time=2 +tries=1 @$PI $HOST A)
 if [ "$ANSWER" = "$PI" ]; then pass "dnsmasq answers $HOST with $PI"; else fail "dnsmasq answers $HOST (got '$ANSWER')"; fi
-ANSWER=$(in_phone dig +short +time=2 +tries=1 @$PI example.com A)
-if [ -z "$ANSWER" ]; then pass "dnsmasq resolves nothing else (example.com)"; else fail "dnsmasq resolved example.com: $ANSWER"; fi
+ANSWER=$(in_phone dig +short +time=2 +tries=1 @$PI captive.apple.com A)
+if [ "$ANSWER" = "$PI" ]; then pass "dnsmasq answers every other name with $PI (captive.apple.com)"; else fail "dnsmasq answers captive.apple.com (got '$ANSWER')"; fi
+ANSWER=$(in_phone dig +short +time=2 +tries=1 @$PI dns.msftncsi.com A)
+if [ "$ANSWER" = "131.107.255.255" ]; then pass "dnsmasq gives Windows' DNS check its real address"; else fail "dns.msftncsi.com (got '$ANSWER')"; fi
 check "DNS over TCP is allowed" in_phone dig +tcp +short +time=2 +tries=1 @$PI $HOST A
 
 check  "phone reaches the Portal (tcp/8000)" in_phone nc -z -w2 $PI 8000
+check  "phone's port 80 reaches the probe responder (tcp/80 -> 8080)" in_phone nc -z -w2 $PI 80
+check  "phone's HTTPS checks are refused at once, not left to time out" bash -c \
+    's=$(date +%s%N); ! ip netns exec phone nc -z -w5 '$PI' 443; [ $(( ($(date +%s%N) - s) / 1000000 )) -lt 1000 ]'
 refuse "phone can't reach SSH (tcp/22)" in_phone nc -z -w2 $PI 22
 refuse "phone can't reach the dashboard (tcp/8100)" in_phone nc -z -w2 $PI 8100
 refuse "phone can't ping the kiosk" in_phone ping -c1 -W1 $PI
