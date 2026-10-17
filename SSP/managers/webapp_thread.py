@@ -11,6 +11,7 @@
 # `make run-sim` still serves the portal. Run scripts/generate_tls_cert.py
 # to produce the cert/key pair.
 
+import ipaddress
 import os
 import socket
 import threading
@@ -48,6 +49,21 @@ def _lan_ip() -> str:
         s.close()
 
 
+def _portal_host() -> str:
+    """The address phones reach the portal at. On a kiosk running its own
+    hotspot (ADR 0007) that's the Pi's hotspot address: phones join the
+    hotspot, and _lan_ip() would give the upstream interface they can't
+    reach. Laptops (SIM_MODE) and hotspot-less kiosks use the LAN address."""
+    config = get_config()
+    if config.wifi_hotspot_enabled and not config.sim_mode:
+        try:
+            return str(ipaddress.IPv4Interface(config.wifi_hotspot_address).ip)
+        except ValueError:
+            print(f"⚠️ WIFI_HOTSPOT_ADDRESS={config.wifi_hotspot_address!r} is not an IPv4 address; "
+                  f"showing the LAN address instead")
+    return _lan_ip()
+
+
 def _portal_url(path: str, host: Optional[str] = None, tls: Optional[bool] = None) -> str:
     """
     The URL a phone on the same network types to reach a given portal path.
@@ -60,7 +76,7 @@ def _portal_url(path: str, host: Optional[str] = None, tls: Optional[bool] = Non
     if tls is None:
         tls = not _missing_tls_files()
     scheme = "https" if tls else "http"
-    return f"{scheme}://{host or _lan_ip()}:{get_config().wifi_portal_port}{path}"
+    return f"{scheme}://{host or _portal_host()}:{get_config().wifi_portal_port}{path}"
 
 
 def wifi_portal_url(host: Optional[str] = None, tls: Optional[bool] = None) -> str:

@@ -8,7 +8,7 @@ from PyQt5.QtGui import QIntValidator
 
 from ui.theme import COLORS, FONT
 from ui.qr import qr_pixmap
-from ui.widgets import BackButton, Card, Header, PrimaryButton, ReaderHint, StatusBanner
+from ui.widgets import BackButton, Card, Header, PrimaryButton, ReaderHint, StatusBanner, nav_row
 
 
 class WifiScreenView(QWidget):
@@ -54,23 +54,43 @@ class WifiScreenView(QWidget):
         self.guide_text.setStyleSheet(f"color: {COLORS['text_secondary']}; font-size: {FONT['size_md']}px;")
 
         self.portal_url_label = QLabel("")
-        self.portal_url_label.setAlignment(Qt.AlignCenter)
         self.portal_url_label.setTextInteractionFlags(Qt.TextSelectableByMouse)
         self.portal_url_label.setStyleSheet(
             f"color: {COLORS['text']}; font-size: {FONT['size_lg']}px; font-weight: 700;"
         )
 
+        # A phone VPN routes the portal address into the tunnel, so the page never loads
+        self.vpn_note = QLabel("Page won't load? Turn off any VPN on your phone, then try again.")
+        self.vpn_note.setWordWrap(True)
+        self.vpn_note.setMaximumWidth(420)
+        self.vpn_note.setStyleSheet(
+            f"color: {COLORS['text_secondary']}; font-size: {FONT['size_sm']}px; font-weight: 600;"
+        )
+
+        url_column = QVBoxLayout()
+        url_column.setSpacing(8)
+        url_column.addStretch()
+        url_column.addWidget(self.portal_url_label)
+        url_column.addWidget(self.vpn_note)
+        url_column.addStretch()
+
         self.portal_qr_label = QLabel("")
         self.portal_qr_label.setAlignment(Qt.AlignCenter)
+
+        # QR beside the address, not under it: stacked, the page is taller than the screen
+        portal_row = QHBoxLayout()
+        portal_row.setSpacing(24)
+        portal_row.addStretch()
+        portal_row.addWidget(self.portal_qr_label)
+        portal_row.addLayout(url_column)
+        portal_row.addStretch()
 
         body_layout.addWidget(guide_title)
         body_layout.addSpacing(8)
         body_layout.addWidget(self.guide_text)
         body_layout.addSpacing(10)
-        body_layout.addWidget(self.portal_url_label)
-        body_layout.addSpacing(8)
-        body_layout.addWidget(self.portal_qr_label)
-        body_layout.addSpacing(24)
+        body_layout.addLayout(portal_row)
+        body_layout.addSpacing(16)
 
         # QR Code Scan / Enter Code cards
         self.cancel_card = Card('qr', "QR Code Scan", "Scan QR code to access files.", icon_name='qr-code')
@@ -104,6 +124,10 @@ class WifiScreenView(QWidget):
             extra_widget=otp_row_widget,
         )
 
+        # Shorter than the default card, so the page fits with its QR, a status and the nav row
+        for card in (self.cancel_card, self.enter_code_card):
+            card.setFixedHeight(172)
+
         cards_row = QHBoxLayout()
         cards_row.setSpacing(24)
         cards_row.addStretch()
@@ -122,15 +146,12 @@ class WifiScreenView(QWidget):
 
         body_layout.addStretch(2)
 
-        nav_row = QHBoxLayout()
-        nav_row.addWidget(self.back_button, 0, Qt.AlignLeft)
-        nav_row.addStretch()
-        body_layout.addLayout(nav_row)
+        body_layout.addLayout(nav_row(self.back_button))
 
     def set_portal_hint(self, url: str):
         """Show the live upload-portal URL and a scannable QR of it."""
         self.portal_url_label.setText(url)
-        self.portal_qr_label.setPixmap(qr_pixmap(url))
+        self.portal_qr_label.setPixmap(qr_pixmap(url, size=160))
 
     def show_status(self, message, is_error=True):
         self.status_banner.show_message(message, variant="error" if is_error else "success")

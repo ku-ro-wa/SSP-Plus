@@ -6,7 +6,7 @@ from PyQt5.QtWidgets import (
 from PyQt5.QtCore import Qt, pyqtSignal
 
 from ui.theme import CARD_QSS, COLORS, FONT
-from ui.widgets import BackButton, Card, Header, PrimaryButton, StatusBanner
+from ui.widgets import BackButton, Card, Header, PrimaryButton, StatusBanner, nav_row
 
 # Appended after CARD_QSS (same QFrame#Card selector, later rule wins) to
 # highlight a selected DestinationOption without touching Card itself —
@@ -127,23 +127,12 @@ class ScanDestinationScreenView(QWidget):
         self.continue_button.setEnabled(False)
         self.continue_button.clicked.connect(self.continue_clicked.emit)
 
-        continue_row = QHBoxLayout()
-        continue_row.addStretch()
-        continue_row.addWidget(self.continue_button)
-        continue_row.addStretch()
-        body_layout.addLayout(continue_row)
-
-        body_layout.addSpacing(16)
-
         self.status_banner = StatusBanner()
         body_layout.addWidget(self.status_banner)
 
         body_layout.addStretch(2)
 
-        nav_row = QHBoxLayout()
-        nav_row.addWidget(self.cancel_button, 0, Qt.AlignLeft)
-        nav_row.addStretch()
-        body_layout.addLayout(nav_row)
+        body_layout.addLayout(nav_row(self.cancel_button, self.continue_button))
 
     def _build_thumbnail_strip(self):
         scroll = QScrollArea()

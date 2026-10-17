@@ -8,7 +8,7 @@ from PyQt5.QtGui import QPixmap, QImage, QTouchEvent
 from .pdf_preview_widget import PDFPreviewWidget
 from ui.icons import icon_path
 from ui.theme import COLORS, RADIUS, FONT
-from ui.widgets import Header, BackButton, PrimaryButton, SecondaryButton
+from ui.widgets import Header, BackButton, PrimaryButton, SecondaryButton, nav_row
 
 try:
     import fitz  # PyMuPDF
@@ -677,13 +677,9 @@ class FileBrowserView(QWidget):
 
         # Row 2: screen navigation — "Back to Input Selection" bottom-left,
         # forward actions bottom-right.
-        nav_actions_row = QHBoxLayout()
-        nav_actions_row.setSpacing(12)
-        nav_actions_row.addWidget(self.back_to_idle_btn, 0, Qt.AlignLeft)
-        nav_actions_row.addStretch(1)
-        nav_actions_row.addWidget(self.rescan_button, 0, Qt.AlignVCenter)
-        nav_actions_row.addWidget(self.add_document_button, 0, Qt.AlignVCenter)
-        nav_actions_row.addWidget(self.continue_btn, 0, Qt.AlignVCenter)
+        nav_actions_row = nav_row(
+            self.back_to_idle_btn, self.rescan_button, self.add_document_button, self.continue_btn
+        )
 
         preview_area_layout = QStackedLayout()
         preview_area_layout.setStackingMode(QStackedLayout.StackAll)

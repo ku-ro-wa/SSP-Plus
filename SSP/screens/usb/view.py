@@ -6,7 +6,7 @@ from PyQt5.QtWidgets import (
 from PyQt5.QtCore import Qt, pyqtSignal, QTimer
 
 from ui.theme import COLORS, FONT
-from ui.widgets import Header, BackButton, StatusBanner
+from ui.widgets import Header, BackButton, StatusBanner, nav_row
 
 STATUS_VARIANT_BY_KEY = {
     'monitoring': 'info',
@@ -90,10 +90,7 @@ class USBScreenView(QWidget):
         fg_layout.addSpacing(20)
         fg_layout.addStretch(4)
 
-        nav_buttons_layout = QHBoxLayout()
-        nav_buttons_layout.addWidget(self.back_button, 0, Qt.AlignLeft)
-        nav_buttons_layout.addStretch()
-        fg_layout.addLayout(nav_buttons_layout)
+        fg_layout.addLayout(nav_row(self.back_button))
 
         # Connect button signals
         self.back_button.clicked.connect(self.back_button_clicked.emit)
