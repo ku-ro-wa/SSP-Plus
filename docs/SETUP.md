@@ -262,8 +262,8 @@ HTTPS, and (if `EMAIL_USER` is set) the email poller starts on a 20s interval.
    more PDFs, and press **Confirm Upload**.
 3. The success page shows a 6-digit code. Type it into the kiosk Wi-Fi screen.
 4. You land on `file_browser` with the uploaded file(s) → pick pages →
-   `print_options` → `payment`. With no `pigpio` on the laptop, the payment
-   screen shows **simulation buttons** — click coins until the total is covered.
+   `print_options` → `payment`. In SIM_MODE the payment screen shows
+   **simulation buttons** — click coins until the total is covered.
 5. The job "prints" (logged to the console in sim mode), a `transactions` row is
    written, and the paper count decrements. `thank_you` screen confirms.
 
@@ -607,6 +607,77 @@ feature/<module> ← your working branch
 
 ---
 
+## pigpio (kiosk)
+
+The coin/bill acceptors and the change hoppers are driven through the `pigpio`
+library, which talks to the `pigpiod` daemon. **With `SIM_MODE` off, the app
+refuses to start without both** and logs a `GPIO` error saying which is missing.
+(Before, it fell back to simulation and showed customers on-screen coin and bill
+buttons, which is free credit.)
+
+### 1. Install the daemon
+
+`pigpio` isn't in Raspberry Pi OS trixie's default install. Build it from source:
+
+```bash
+cd ~ && git clone https://github.com/joan2937/pigpio && cd pigpio
+make && sudo make install          # puts pigpiod and pigs in /usr/local/bin
+```
+
+### 2. Start it at boot
+
+```bash
+sudo tee /etc/systemd/system/pigpiod.service >/dev/null <<'UNIT'
+[Unit]
+Description=pigpio daemon (coin/bill acceptors, hoppers)
+
+[Service]
+Type=forking
+PIDFile=/run/pigpio.pid
+ExecStart=/usr/local/bin/pigpiod -l
+Restart=on-failure
+
+[Install]
+WantedBy=multi-user.target
+UNIT
+sudo systemctl daemon-reload
+sudo systemctl enable --now pigpiod
+```
+
+`-l` makes `pigpiod` accept local connections only. Without it, it listens on port
+8888 on every interface, and anyone who reaches that port can drive the GPIO pins
+(the hoppers and acceptors).
+
+Check that systemd is running this unit and not pigpio's own stock one (`Description=Pigpio
+daemon`, no `-l`). On the rebuilt kiosk card the stock unit was installed:
+
+```bash
+systemctl cat pigpiod | grep ExecStart    # must end in -l
+```
+
+### 3. Install the Python client in the venv
+
+`make run` uses `.venv/bin/python`. `pip install -r requirements.txt` installs
+`pigpio` on Linux. If pip says it's "already satisfied" from
+`/usr/local/lib/python3.13/dist-packages/pigpio-*.egg` (left by the source build's
+`make install`) but `import pigpio` fails, the egg isn't importable on Python 3.13.
+Install a normal copy into the venv:
+
+```bash
+.venv/bin/pip install --ignore-installed pigpio
+```
+
+### 4. Check it
+
+```bash
+pigs t                                                    # prints a tick count
+.venv/bin/python -c "import pigpio; print(pigpio.pi().connected)"   # True
+ss -ltnp | grep 8888        # 127.0.0.1:8888 or [::1]:8888; *:8888 means -l is missing
+```
+
+`make run` should log `SUCCESS: Persistent GPIO initialized successfully`, and the
+payment screen should have no "Simulation Mode" banner.
+
 ## Coin hoppers (kiosk)
 
 **Keep Kiosk Admin's Coin Inventory counts accurate.** Change dispensing only attempts
@@ -652,6 +723,10 @@ install into the same `cv2` folder.
 **Pi over SSH: `make run-sim` aborts with no display**
 An SSH session has no screen. To run the kiosk headless (enough for the Wi-Fi portal and phone
 tests), use `QT_QPA_PLATFORM=offscreen make run-sim`.
+To draw on the kiosk's own screen from SSH instead, use `DISPLAY=:0 make run` (or `run-sim`). It
+renders exactly like a launch from the Pi's desktop terminal: the app pins its Qt environment at
+startup (see the `Render:` line it prints). To see the screens without the kiosk, `make screenshots`
+renders them into `screenshots/` at the panel's 1920×1080.
 
 **Mac: `PyQt5` install fails on Apple Silicon**
 Try: `pip3 install --upgrade pip && pip3 install PyQt5`. The wheels include Qt bundled and support arm64.

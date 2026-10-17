@@ -28,3 +28,6 @@ SSP/database/*.db
 
 # Claude Code worktrees (each is its own checkout; never commit them)
 .claude/worktrees/
+
+# Reference renders from `make screenshots`
+screenshots/

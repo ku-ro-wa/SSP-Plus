@@ -12,6 +12,18 @@ except ImportError:
     PYMUPDF_AVAILABLE = False
 
 
+def parse_printer_alerts(lpstat_output):
+    """Return the alert words from `lpstat -l -p <printer>` output (empty when there are none)."""
+    for line in lpstat_output.split('\n'):
+        line = line.strip()
+        if line.startswith("Alerts:"):
+            alerts_text = line.replace("Alerts:", "").strip()
+            if not alerts_text or alerts_text == "none":
+                return []
+            return alerts_text.split()
+    return []
+
+
 class PrinterThread(QThread):
     print_success = pyqtSignal(str)  # Emits temp_pdf_path for ink analysis
     print_failed = pyqtSignal(str)
@@ -186,15 +198,8 @@ class PrinterThread(QThread):
                     if " now printing " in lpstat_out_lower:
                         printer_actively_printing = True
 
-                    for line in alerts_result.stdout.split('\n'):
-                        line = line.strip()
-                        if not line.startswith("Alerts:"):
-                            continue
-                        alerts_text = line.replace("Alerts:", "").strip()
-                        if not alerts_text or alerts_text == "none":
-                            break
-                        alerts_found = alerts_text.split()
-
+                    alerts_found = parse_printer_alerts(alerts_result.stdout)
+                    if alerts_found:
                         if "cups-waiting-for-job-completed" in alerts_found:
                             printer_actively_printing = True
 
@@ -220,6 +225,11 @@ class PrinterThread(QThread):
                                 except Exception:
                                     pass
                             self.print_failed.emit(f"No paper detected on {target_printer}")
+                            return False
+                        elif "paused" in alerts_found:
+                            # CUPS sets this when it disables the queue (e.g. after a backend
+                            # failure); the job stays queued, so it would never count as complete
+                            self.print_failed.emit(f"Printer {target_printer} is paused (CUPS queue disabled)")
                             return False
                         elif "offline" in alerts_found or "stopped" in alerts_found:
                             self.print_failed.emit(f"Printer {target_printer} is offline")

@@ -3,14 +3,9 @@
 from PyQt5.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit
 from PyQt5.QtCore import Qt, pyqtSignal
 
+from config import get_config
 from ui.theme import COLORS, FONT
 from ui.widgets import Header, BackButton, CodeKeypad, PrimaryButton, SecondaryButton, StatusBanner
-
-try:
-    import pigpio  # noqa: F401
-    PAYMENT_GPIO_AVAILABLE = True
-except ImportError:
-    PAYMENT_GPIO_AVAILABLE = False
 
 
 def _classify_status_variant(status_text: str) -> str:
@@ -105,8 +100,8 @@ class PaymentScreenView(QWidget):
 
         self._add_voucher_entry(body_layout)
 
-        # Add simulation buttons if GPIO not available
-        if not PAYMENT_GPIO_AVAILABLE:
+        # Simulated coins/bills are for SIM_MODE only: on a real kiosk they would be free credit.
+        if get_config().sim_mode:
             self._add_simulation_buttons(body_layout)
 
         body_layout.addStretch(2)
@@ -189,7 +184,7 @@ class PaymentScreenView(QWidget):
         self.voucher_banner.show_message("", "info")
 
     def _add_simulation_buttons(self, layout):
-        """Adds simulation buttons for testing when GPIO is not available."""
+        """Adds on-screen coin and bill buttons for SIM_MODE testing."""
         sim_banner = StatusBanner()
         sim_banner.show_message("Simulation Mode - Test Payment", "warning")
         layout.addWidget(sim_banner)

@@ -11,7 +11,7 @@ was written while rebuilding on a new card, so the next rebuild needs only the r
 | Step | Status |
 |------|--------|
 | 1–7, 9–12 | Done on the new card |
-| 8. Printer (CUPS) | **Not done yet**: no access to the kiosk |
+| 8. Printer (CUPS) | Done 2026-10-16: fixed driverless queue `HP_Smart_Tank` over `ipp-usb` |
 | 13. QR reader | **Not done yet** |
 | 14. Start at boot (systemd) | **Not done yet**: the app is still started by hand with `make run` |
 | 15. Tailscale | **Not done yet**: planned in ADR-0005, not set up |
@@ -135,15 +135,30 @@ Set at least the following. Restore the values from the team's credential store,
 
 The backup image (step 17) contains `.env`, so keep images private.
 
-## 8. Printer (CUPS) — not done yet
+## 8. Printer (CUPS)
 
-1. Add the printer in the CUPS web UI on the Pi (`http://localhost:631` → Administration → Add
-   Printer) or with `lpadmin`. The app prints driverless, so choose the IPP Everywhere /
-   driverless option if offered.
-2. Run `lpstat -p` and copy the printer's name exactly into `PRINTER_NAME`.
-3. Test it: `lp -d <name> test_pdfs/<file>.pdf`.
+The HP Smart Tank 580/590 is on USB. `ipp-usb` (running by default) exposes it as an IPP
+printer on the Pi, and the app prints to it driverless.
 
-Record here how the printer is connected (USB or network) and the exact steps that worked.
+Don't use the queue that appears on its own (`HP_Smart_Tank_580_590_series_5E0E1D_USB`, device
+`implicitclass://…`). cups-browsed creates it, and it only works while cups-browsed is running to
+hand it the printer's address. When that fails, CUPS **disables** the queue (`lpstat -p` says
+`disabled`, `Alerts: paused`) and keeps it disabled across reboots, so nothing prints, paper or not.
+Make a fixed queue instead:
+
+```bash
+sudo lpadmin -x HP_Smart_Tank_580_590_series_5E0E1D_USB   # if cups-browsed made one
+sudo systemctl disable --now cups-browsed                  # so it never comes back
+sudo lpadmin -p HP_Smart_Tank -E -v ipp://localhost:60000/ipp/print -m everywhere
+lpstat -l -p HP_Smart_Tank        # enabled, no Alerts line (or "Alerts: none")
+lp -d HP_Smart_Tank /etc/hostname # should print a page
+```
+
+If `lpadmin` can't reach `localhost:60000`, use the `ipp://…(USB)._ipp._tcp.local/` address that
+`sudo lpinfo -v` lists, in quotes. Then set `PRINTER_NAME=HP_Smart_Tank` in `.env`.
+
+If the queue ever ends up `disabled` again: `sudo cupsenable HP_Smart_Tank`, and clear stuck
+jobs with `cancel -a HP_Smart_Tank`.
 
 ## 9. Display
 
@@ -154,6 +169,11 @@ In `sudo raspi-config`:
 
 `UI_SCALE` in `.env` is blank (auto) for the 1920×1080 panel. Not covered yet: screen rotation and
 hiding the cursor.
+
+The app always draws through X11 (Xwayland under labwc) and ships its own font, so a launch from
+the desktop, from systemd and over SSH (`DISPLAY=:0 make run`) look the same. Each prints a
+`Render:` line at startup; on this panel it should read `platform=xcb screen=1920x1080 scale=1.35
+... font=Inter 18px`.
 
 ## 10. Hotspot
 
@@ -251,8 +271,7 @@ It needs the desktop session, so it's a user service started by the desktop.
 
    The first command passes the display to systemd; without it the GUI has nowhere to draw.
 5. Test: reboot, and the app should open on its own. `pkill -f main_app.py` should bring it back
-   within about 5 s. Logs: `journalctl --user -u ssp-kiosk -f`. If Qt fails on Wayland, add
-   `Environment=QT_QPA_PLATFORM=xcb` under `[Service]`, then reload and restart.
+   within about 5 s. Logs: `journalctl --user -u ssp-kiosk -f`.
 
 ### Admin Dashboard (system service)
 

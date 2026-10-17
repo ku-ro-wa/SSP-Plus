@@ -13,6 +13,7 @@ make lint      # flake8 SSP/ scripts/  (config in .flake8)
 make run-sim   # launches the GUI with SIM_MODE=true (no GPIO/CUPS/modem needed)
 make run       # launches the GUI against real hardware (kiosk only)
 make run-admin-dashboard   # launches the Admin Dashboard (separate process, own port — see below)
+make screenshots   # renders every screen to screenshots/<screen>.png as the 1920×1080 kiosk shows it
 ```
 
 Run a single test: `python -m pytest tests/test_payment_algorithm.py::TestCalculateChangeBreakdown::test_mixed -v`
@@ -66,7 +67,7 @@ reader is unplugged or fails to open, `QrReaderManager` goes `unavailable`, retr
 resumes on its own; each loss and recovery writes one `error_log` row (`QR Reader`), and Kiosk Admin
 shows the status (blank port = "Not configured"). See ADR 0004.
 
-`pigpio` requires the `pigpiod` daemon. All GPIO code degrades gracefully (simulated mode with console warnings) when `pigpio`/`pigpiod` is unavailable, independent of `SIM_MODE`.
+`pigpio` requires the `pigpiod` daemon. With `SIM_MODE` off, `main()` refuses to start if either is missing (`managers/gpio_check.py`), so a kiosk can never show customers the payment screen's simulated coin/bill buttons; those buttons appear only when `SIM_MODE=true`. The GPIO managers' own simulated fallbacks remain for SIM_MODE and tests. Pi install steps: "pigpio (kiosk)" in `docs/SETUP.md`.
 
 **`managers/payment_handler.py` is dead code.** Nothing imports it; `screens/payment/model.py` wires up `managers/persistent_gpio.py`. If you're changing acceptor behavior, edit `persistent_gpio.py`, not `payment_handler.py`.
 
@@ -137,13 +138,15 @@ See `docs/adr/0002-admin-dashboard-auth-and-remote-access-architecture.md` and C
 
 All runtime config comes from `.env` via `config.py`'s `get_config()` (global `Config` singleton). `Config._load_env_file()` uses `os.environ.setdefault`, so a shell-exported var always overrides `.env` (this is how `make run-sim` forces `SIM_MODE=true` without editing `.env`). Accessing an unset key raises `KeyError` (see `Config.get`) — there are no silent defaults except `sim_mode`, which returns `False` if unset.
 
-The touchscreen UI is laid out in fixed pixels for an ~800px-tall screen; `main()` scales all of it with Qt's `QT_SCALE_FACTOR`, set by `ui/scaling.py` from `UI_SCALE` (blank/`auto` = screen height ÷ 800, minimum 1; a number forces that scale). Keep every screen within 800 logical px tall (scan_destination is ~790), or it overflows on the 1080-tall kiosk panel.
+The touchscreen UI is laid out in fixed pixels for an ~800px-tall screen; `main()` scales all of it with Qt's `QT_SCALE_FACTOR`, set by `ui/scaling.py` from `UI_SCALE` (blank/`auto` = screen height ÷ 800, minimum 1; a number forces that scale). Keep every screen within 800 logical px tall (scan_destination is ~785), or it overflows on the 1080-tall kiosk panel; `tests/test_screen_render.py` fails if one doesn't fit.
+
+The UI renders the same however it's launched (desktop terminal, SSH, systemd, a laptop): `main()` calls `ui/scaling.py`'s `pin_render_environment()` first (on Linux forces `QT_QPA_PLATFORM=xcb` and drops the desktop's Qt theme/DPI variables), `apply_theme()` uses the Fusion style and the Inter font bundled in `SSP/assets/fonts/`, and the base font is sized in pixels, never points. Startup prints a `Render:` line (platform, screen, scale, DPI, font); two launches with the same line look the same. `make screenshots` (`scripts/render_screens.py`) is the reference picture for UI changes. Text sizes and colours come from `ui/theme.py`'s `FONT`/`COLORS` (smallest text 16px, body text semibold, secondary/muted greys at WCAG AA contrast); use those tokens rather than hardcoded px.
 
 ### Print job flow
 
 1. `file_browser` (select file) → `printing_options` (set copies/color/pages) → `payment` (insert coins/bills)
 2. `payment` model emits `payment_completed` → `main_app.on_payment_completed()` calls `printer_manager.print_file(...)`
-3. `PrinterThread.run()` builds a temp PDF containing only the selected pages (via PyMuPDF/`fitz`), submits it to CUPS with `lp`, then polls `lpstat -l -p <printer>` for job completion, paper jams, and media-empty alerts (sends SMS on jam/no-paper via `sms_manager`)
+3. `PrinterThread.run()` builds a temp PDF containing only the selected pages (via PyMuPDF/`fitz`), submits it to CUPS with `lp`, then polls `lpstat -l -p <printer>` for job completion, paper jams, and media-empty alerts (sends SMS on jam/no-paper via `sms_manager`). A `paused` alert (CUPS disabled the queue) fails the job, and `check_printer_availability()` refuses a `disabled` queue before submitting. The job counts as printed only once it has left `lpstat -o`, and this thread is the only thing that reports success: the thank-you screen just waits for its signals (`tests/test_printer_completion.py`)
 4. On success, `main_app` decrements paper count and updates coin inventory (received coins added, dispensed change subtracted) directly against the DB, *then* triggers ink analysis
 5. `InkAnalysisThreadManager` uses `pdf2image` + OpenCV on the temp PDF to estimate CMYK consumption and updates `cmyk_ink_levels`
 6. The temp PDF is deleted only after ink analysis completes (`PrinterManager.cleanup_last_temp_pdf`), since analysis needs it even if the original USB drive was removed

@@ -49,9 +49,10 @@ from managers.session_manager import SessionManager
 from database.db_manager import DatabaseManager
 from managers.sms_manager import cleanup_sms
 from managers.persistent_gpio import cleanup_persistent_gpio
+from managers.gpio_check import gpio_problem
 from config import get_config
-from ui.scaling import apply_ui_scale
-from ui.theme import apply_theme, COLORS
+from ui.scaling import apply_ui_scale, pin_render_environment
+from ui.theme import apply_theme, render_summary, COLORS
 
 
 class _QrReadBridge(QObject):
@@ -949,6 +950,19 @@ def main():
         init_db()
         print("✅ Database initialization successful\n")
 
+        pin_render_environment()
+
+        # Without pigpio the payment screen would offer simulated coins and bills
+        # to customers, so a real kiosk refuses to start instead.
+        if not get_config().sim_mode:
+            problem = gpio_problem()
+            if problem:
+                from utils.error_logger import log_error
+                log_error("GPIO", f"Kiosk not started: {problem}", "main_app")
+                print(f"❌ Coin/bill acceptors and hoppers unavailable: {problem}.")
+                print("   Not starting. Fix the above, or set SIM_MODE=true for development.")
+                sys.exit(1)
+
         scale = apply_ui_scale(get_config().ui_scale)
         print(f"🔍 UI scale {scale}")
 
@@ -961,6 +975,7 @@ def main():
 
         # Show window (size and mode determined by _setup_display)
         window.show()
+        print(f"🖌️ {render_summary(app)}")
 
         # Qt's event loop runs in C++, so Python never sees Ctrl+C (SIGINT) or
         # a systemd stop (SIGTERM) while it waits. Close the window on either,

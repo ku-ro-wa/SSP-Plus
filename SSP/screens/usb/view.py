@@ -51,7 +51,6 @@ class USBScreenView(QWidget):
 
         instruction = QLabel("The system will automatically detect your drive.")
         instruction.setAlignment(Qt.AlignCenter)
-        instruction.setWordWrap(True)
         instruction.setStyleSheet(
             f"color: {COLORS['text_secondary']}; font-size: {FONT['size_lg']}px;"
         )
