@@ -88,7 +88,7 @@ class PrinterManager(QObject):
                 return False
 
             output = result.stdout.lower()
-            if 'offline' in output or 'stopped' in output or 'jam' in output:
+            if 'offline' in output or 'stopped' in output or 'disabled' in output or 'jam' in output:
                 print("Printer is in error state")
                 return False
 
