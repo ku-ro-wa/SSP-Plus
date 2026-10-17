@@ -8,7 +8,7 @@ from PyQt5.QtGui import QIntValidator
 
 from ui.theme import COLORS, FONT
 from ui.qr import qr_pixmap
-from ui.widgets import BackButton, Card, Header, PrimaryButton, ReaderHint, StatusBanner
+from ui.widgets import BackButton, Card, Header, PrimaryButton, ReaderHint, StatusBanner, nav_row
 
 
 class EmailScreenView(QWidget):
@@ -54,7 +54,7 @@ class EmailScreenView(QWidget):
         self.guide_text.setStyleSheet(f"color: {COLORS['text_secondary']}; font-size: {FONT['size_md']}px;")
 
         self.address_label = QLabel("")
-        self.address_label.setAlignment(Qt.AlignCenter)
+        self.address_label.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
         self.address_label.setTextInteractionFlags(Qt.TextSelectableByMouse)
         self.address_label.setWordWrap(True)
         self.address_label.setStyleSheet(
@@ -64,14 +64,20 @@ class EmailScreenView(QWidget):
         self.address_qr_label = QLabel("")
         self.address_qr_label.setAlignment(Qt.AlignCenter)
 
+        # QR beside the address, not under it: stacked, the page is taller than the screen
+        address_row = QHBoxLayout()
+        address_row.setSpacing(24)
+        address_row.addStretch()
+        address_row.addWidget(self.address_qr_label)
+        address_row.addWidget(self.address_label)
+        address_row.addStretch()
+
         body_layout.addWidget(guide_title)
         body_layout.addSpacing(8)
         body_layout.addWidget(self.guide_text)
         body_layout.addSpacing(10)
-        body_layout.addWidget(self.address_label)
-        body_layout.addSpacing(8)
-        body_layout.addWidget(self.address_qr_label)
-        body_layout.addSpacing(24)
+        body_layout.addLayout(address_row)
+        body_layout.addSpacing(16)
 
         # QR Code Scan / Enter Code cards
         self.cancel_card = Card('qr', "QR Code Scan", "Scan QR code to access files.", icon_name='qr-code')
@@ -105,6 +111,10 @@ class EmailScreenView(QWidget):
             extra_widget=otp_row_widget,
         )
 
+        # Shorter than the default card, so the page fits with its QR, a status and the nav row
+        for card in (self.cancel_card, self.enter_code_card):
+            card.setFixedHeight(172)
+
         cards_row = QHBoxLayout()
         cards_row.setSpacing(24)
         cards_row.addStretch()
@@ -123,17 +133,14 @@ class EmailScreenView(QWidget):
 
         body_layout.addStretch(2)
 
-        nav_row = QHBoxLayout()
-        nav_row.addWidget(self.back_button, 0, Qt.AlignLeft)
-        nav_row.addStretch()
-        body_layout.addLayout(nav_row)
+        body_layout.addLayout(nav_row(self.back_button))
 
     def set_email_hint(self, address: str, keyword: str):
         """Show the submission address + required subject keyword, and a
         mailto: QR that pre-fills both."""
         if address:
             self.address_label.setText(f'{address}<br>subject must contain: <b>{keyword}</b>')
-            self.address_qr_label.setPixmap(qr_pixmap(f"mailto:{address}?subject={keyword}"))
+            self.address_qr_label.setPixmap(qr_pixmap(f"mailto:{address}?subject={keyword}", size=160))
         else:
             self.address_label.setText(
                 "No email account configured — set EMAIL_USER in .env"

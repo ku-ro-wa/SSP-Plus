@@ -5,7 +5,7 @@ from PyQt5.QtCore import Qt, pyqtSignal
 from PyQt5.QtGui import QPixmap
 
 from ui.theme import COLORS, FONT
-from ui.widgets import BackButton, Card, Header, PrimaryButton, SecondaryButton, StatusBanner
+from ui.widgets import BackButton, Card, Header, PrimaryButton, SecondaryButton, StatusBanner, nav_row
 
 
 class ScannerScreenView(QWidget):
@@ -79,7 +79,7 @@ class ScannerScreenView(QWidget):
         cards_row.addStretch()
         body_layout.addLayout(cards_row)
 
-        body_layout.addSpacing(12)
+        body_layout.addSpacing(16)
 
         self.rescan_button = SecondaryButton("Rescan Last Page")
         self.rescan_button.clicked.connect(self.rescan_clicked.emit)
@@ -89,24 +89,12 @@ class ScannerScreenView(QWidget):
         self.done_button.clicked.connect(self.done_clicked.emit)
         self.done_button.setEnabled(False)
 
-        actions_row = QHBoxLayout()
-        actions_row.addStretch()
-        actions_row.addWidget(self.rescan_button)
-        actions_row.addWidget(self.done_button)
-        actions_row.addStretch()
-        body_layout.addLayout(actions_row)
-
-        body_layout.addSpacing(16)
-
         self.status_banner = StatusBanner()
         body_layout.addWidget(self.status_banner)
 
         body_layout.addStretch(2)
 
-        nav_row = QHBoxLayout()
-        nav_row.addWidget(self.cancel_button, 0, Qt.AlignLeft)
-        nav_row.addStretch()
-        body_layout.addLayout(nav_row)
+        body_layout.addLayout(nav_row(self.cancel_button, self.rescan_button, self.done_button))
 
     def show_status(self, message, is_error=True):
         self.status_banner.show_message(message, variant="error" if is_error else "success")

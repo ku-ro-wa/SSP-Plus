@@ -3,16 +3,23 @@
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QButtonGroup, QLabel, QPushButton
 )
-from PyQt5.QtCore import Qt, pyqtSignal
+from PyQt5.QtCore import QElapsedTimer, Qt, pyqtSignal
 
 from ui.theme import COLORS, RADIUS, FONT
-from ui.widgets import Header, BackButton, PrimaryButton, StatusBanner
+from ui.widgets import Header, BackButton, PrimaryButton, StatusBanner, nav_row
+
+# Big enough to hit reliably on the touchscreen panel
+STEPPER_SIZE = 64
+# Taps closer together than this are one touch the panel reported several times
+# (on the kiosk a few taps jumped copies straight to 10)
+STEPPER_REPEAT_MS = 150
 
 STEPPER_BUTTON_QSS = f"""
 QPushButton {{
     background-color: {COLORS["primary"]}; color: {COLORS["bg"]}; border: none;
-    border-radius: {RADIUS["sm"]}px; font-size: 22px; font-weight: 700;
-    min-width: 44px; max-width: 44px; min-height: 44px; max-height: 44px; padding: 0;
+    border-radius: {RADIUS["sm"]}px; font-size: 30px; font-weight: 700;
+    min-width: {STEPPER_SIZE}px; max-width: {STEPPER_SIZE}px; min-height: {STEPPER_SIZE}px;
+    max-height: {STEPPER_SIZE}px; padding: 0;
 }}
 QPushButton:hover {{ background-color: {COLORS["primary_hover"]}; }}
 QPushButton:pressed {{ background-color: {COLORS["primary_pressed"]}; }}
@@ -85,8 +92,9 @@ class PrintOptionsScreenView(QWidget):
 
         self.copies_minus_btn = _stepper_button("−")
         self.copies_plus_btn = _stepper_button("+")
-        self.copies_minus_btn.clicked.connect(self.copies_decreased.emit)
-        self.copies_plus_btn.clicked.connect(self.copies_increased.emit)
+        self._last_step = QElapsedTimer()
+        self.copies_minus_btn.clicked.connect(lambda: self._step(self.copies_decreased))
+        self.copies_plus_btn.clicked.connect(lambda: self._step(self.copies_increased))
 
         copies_row.addSpacing(20)
         copies_row.addWidget(self.copies_minus_btn)
@@ -94,8 +102,8 @@ class PrintOptionsScreenView(QWidget):
         self.copies_count_label = QLabel("1")
         self.copies_count_label.setAlignment(Qt.AlignCenter)
         self.copies_count_label.setStyleSheet(
-            f"color: {COLORS['text']}; font-size: 22px; font-weight: 700; "
-            f"min-width: 40px; max-width: 40px;"
+            f"color: {COLORS['text']}; font-size: 26px; font-weight: 700; "
+            f"min-width: 56px; max-width: 56px;"
         )
         copies_row.addWidget(self.copies_count_label)
         copies_row.addWidget(self.copies_plus_btn)
@@ -147,15 +155,9 @@ class PrintOptionsScreenView(QWidget):
         layout.addStretch(2)
 
         # ---- Buttons ----
-        buttons_layout = QHBoxLayout()
         self.continue_btn = PrimaryButton("Continue to Payment →")
-        self.continue_btn.setMinimumHeight(44)
         self.continue_btn.clicked.connect(self.continue_button_clicked.emit)
-
-        buttons_layout.addWidget(self.back_btn, 0, Qt.AlignLeft)
-        buttons_layout.addStretch()
-        buttons_layout.addWidget(self.continue_btn)
-        layout.addLayout(buttons_layout)
+        layout.addLayout(nav_row(self.back_btn, self.continue_btn))
 
         # Don't set layout here - let the controller handle it
         self.main_layout = main_layout
@@ -164,6 +166,12 @@ class PrintOptionsScreenView(QWidget):
 
     def _refresh_status_banner(self, variant):
         self.status_banner.show_message(f"{self._cost_text}\n{self._details_text}", variant)
+
+    def _step(self, signal):
+        if self._last_step.isValid() and self._last_step.elapsed() < STEPPER_REPEAT_MS:
+            return
+        self._last_step.start()
+        signal.emit()
 
     def update_copies_display(self, copies):
         """Updates the copies count display."""
@@ -223,5 +231,5 @@ class PrintOptionsScreenView(QWidget):
 def _stepper_button(text):
     btn = QPushButton(text)
     btn.setStyleSheet(STEPPER_BUTTON_QSS)
-    btn.setFixedSize(44, 44)
+    btn.setFixedSize(STEPPER_SIZE, STEPPER_SIZE)
     return btn

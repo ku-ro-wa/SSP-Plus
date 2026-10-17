@@ -59,13 +59,26 @@ def prepare_environment():
     db_manager.DatabaseManager.__init__ = init_on_temp_db
 
 
+def fill_live_content(name, screen):
+    """Show what on_enter() and a failed code would add, so the screen is checked
+    at its tallest: an empty address and QR hid the bottom being cut off."""
+    if name == "wifi":
+        screen.view.set_portal_hint("https://10.3.141.1:8000/upload")
+    elif name == "email":
+        screen.view.set_email_hint("aiospark.uploads@gmail.com", "PRINT")
+    if name in ("wifi", "email"):
+        screen.view.show_status("Invalid or expired code. Please try again.")
+
+
 def build_screen(name):
     """The real controller for `name`, wired to a stand-in main app."""
     import importlib
     from unittest.mock import MagicMock
 
     module = importlib.import_module(f"screens.{name}")
-    return getattr(module, SCREENS[name])(MagicMock())
+    screen = getattr(module, SCREENS[name])(MagicMock())
+    fill_live_content(name, screen)
+    return screen
 
 
 def main():

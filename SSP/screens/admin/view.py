@@ -8,7 +8,7 @@ from PyQt5.QtCore import Qt, pyqtSignal
 from PyQt5.QtGui import QDoubleValidator
 
 from ui.theme import COLORS, FONT, GROUPBOX_QSS, INPUT_QSS, RADIUS, severity_color
-from ui.widgets import BackButton, Header, PrimaryButton, SecondaryButton
+from ui.widgets import BackButton, Header, PrimaryButton, SecondaryButton, nav_row
 
 # Thresholds mirror screens/admin/model.py's own display logic.
 PAPER_WARN, PAPER_CRIT = 50, 20
@@ -91,11 +91,7 @@ class AdminScreenView(QWidget):
         self.view_logs_button.setMinimumHeight(44)
         self.view_logs_button.clicked.connect(self.view_data_logs_clicked.emit)
 
-        nav_row = QHBoxLayout()
-        nav_row.addWidget(self.back_button, 0)
-        nav_row.addStretch()
-        nav_row.addWidget(self.view_logs_button, 0)
-        body_layout.addLayout(nav_row)
+        body_layout.addLayout(nav_row(self.back_button, self.view_logs_button))
 
     def _section_label(self, text):
         label = QLabel(text)

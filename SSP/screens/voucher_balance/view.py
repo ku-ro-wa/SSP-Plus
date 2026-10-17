@@ -7,7 +7,7 @@ from PyQt5.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit
 from PyQt5.QtCore import Qt, pyqtSignal
 
 from ui.theme import COLORS, FONT
-from ui.widgets import BackButton, CodeKeypad, Header, PrimaryButton, StatusBanner
+from ui.widgets import BackButton, CodeKeypad, Header, PrimaryButton, StatusBanner, nav_row
 
 
 class VoucherBalanceScreenView(QWidget):
@@ -115,10 +115,7 @@ class VoucherBalanceScreenView(QWidget):
         body.addWidget(self.status_banner)
         body.addStretch(2)
 
-        nav_row = QHBoxLayout()
-        nav_row.addWidget(self.back_button, 0, Qt.AlignLeft)
-        nav_row.addStretch()
-        body.addLayout(nav_row)
+        body.addLayout(nav_row(self.back_button))
 
     def _emit_check(self):
         self.check_clicked.emit(self.code_input.text())
