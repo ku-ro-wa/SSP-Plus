@@ -194,12 +194,13 @@ SCANNER_DEVICE=escl:http://localhost:60000
 
 The app checks that this exact name is in `scanimage -L`'s output before it scans. The `airscan:`
 name works too (copy it whole, in quotes, into `.env`), but it contains the model and an ID, so it
-has to be updated whenever the printer changes. The kiosk used it until 2026-10-20; the 17 s scan
-time below was measured with it. Try it if the `escl:` driver misbehaves.
+has to be updated whenever the printer changes. The kiosk used it with the 580/590 until
+2026-10-20. Try it if the `escl:` driver misbehaves.
 `SCANNER_DPI` (200) and `SCANNER_TIMEOUT` (60 s) can stay at their defaults.
 
 Check it with a real page on the glass. This is the same scan the app runs, so the time it prints
-is what a customer waits per page (about 17 s on 2026-10-20):
+is what a customer waits per page (about 20 s with `escl:` on the 660-670, 2026-10-20; the 580/590 took about 17 s with
+`airscan:`):
 
 ```bash
 time scanimage -d 'escl:http://localhost:60000' \
