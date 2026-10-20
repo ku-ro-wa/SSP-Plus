@@ -124,7 +124,7 @@ class PrintOptionsModel(QObject):
 
         self.selected_pdf = None
         self.selected_pages = None
-        self._copies = 1
+        self._copies = config.min_copies
         self._color_mode = config.default_color_mode
 
     def set_pdf_data(self, pdf_data, selected_pages):
@@ -134,8 +134,8 @@ class PrintOptionsModel(QObject):
         print(f"🔍 Selected pages: {selected_pages}")
         self.selected_pdf = pdf_data
         self.selected_pages = selected_pages
-        self._copies = 1
         config = get_config()
+        self._copies = config.min_copies
         self._color_mode = config.default_color_mode
         print("🔍 Triggering analysis...")
         self.trigger_analysis()

@@ -1,7 +1,7 @@
 """
-The copies stepper on the print options screen (offscreen Qt). On the kiosk's
-touchscreen a few taps jumped copies straight to 10, as if the panel reported
-one touch several times, so taps closer together than STEPPER_REPEAT_MS count once.
+The copies stepper on the print options screen (offscreen Qt). The kiosk's touch
+panel sometimes reports one press as several taps, so taps closer together than
+STEPPER_REPEAT_MS count once.
 """
 import os
 

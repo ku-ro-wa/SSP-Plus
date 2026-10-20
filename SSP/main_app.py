@@ -52,6 +52,7 @@ from managers.persistent_gpio import cleanup_persistent_gpio
 from managers.gpio_check import gpio_problem
 from config import get_config
 from ui.scaling import apply_ui_scale, pin_render_environment
+from ui.tap_guard import ScreenChangeTapGuard
 from ui.theme import apply_theme, render_summary, COLORS
 
 
@@ -136,6 +137,10 @@ class PrintingSystemApp(QMainWindow):
 
         self.countdown_timer = QTimer(self)
         self.countdown_timer.timeout.connect(self._update_countdown)
+
+        # Drops the panel's doubled tap that would land on the next screen (ui/tap_guard.py)
+        self.tap_guard = ScreenChangeTapGuard(parent=self)
+        QApplication.instance().installEventFilter(self.tap_guard)
 
         self.remaining_seconds = 0
 
@@ -491,6 +496,7 @@ class PrintingSystemApp(QMainWindow):
         # Switch to the new screen
         target_index = self.SCREEN_MAP[screen_name]
         self.stacked_widget.setCurrentIndex(target_index)
+        self.tap_guard.arm()
 
         if screen_name == "idle":
             self.stop_global_countdown()

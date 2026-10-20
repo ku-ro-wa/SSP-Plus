@@ -11,7 +11,6 @@ from ui.widgets import Header, BackButton, PrimaryButton, StatusBanner, nav_row
 # Big enough to hit reliably on the touchscreen panel
 STEPPER_SIZE = 64
 # Taps closer together than this are one touch the panel reported several times
-# (on the kiosk a few taps jumped copies straight to 10)
 STEPPER_REPEAT_MS = 150
 
 STEPPER_BUTTON_QSS = f"""
