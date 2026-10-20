@@ -80,7 +80,7 @@ class AdminScreenView(QWidget):
         body_layout.addWidget(self._create_paper_management_group())
         body_layout.addWidget(self._create_coin_management_group())
         body_layout.addWidget(self._create_cmyk_management_group())
-        body_layout.addWidget(self._create_qr_reader_group())
+        body_layout.addWidget(self._create_device_status_group())
         body_layout.addStretch(1)
 
         self.back_button = BackButton("Back to Main Screen")
@@ -198,7 +198,7 @@ class AdminScreenView(QWidget):
         return col, field
 
     def _create_cmyk_management_group(self):
-        group = QGroupBox("CMYK Ink Levels")
+        group = QGroupBox("CMYK Ink Levels (Estimated)")
         group.setStyleSheet(GROUPBOX_QSS)
         layout = QVBoxLayout(group)
         layout.setSpacing(10)
@@ -240,15 +240,25 @@ class AdminScreenView(QWidget):
         layout.addLayout(button_row)
         return group
 
-    def _create_qr_reader_group(self):
-        group = QGroupBox("QR Reader")
-        group.setStyleSheet(GROUPBOX_QSS)
-        layout = QHBoxLayout(group)
-        layout.addWidget(self._section_label("Status:"))
-        self.qr_reader_status_label = QLabel("")
-        self.qr_reader_status_label.setStyleSheet(
+    def _status_value_label(self):
+        label = QLabel("")
+        label.setStyleSheet(
             f"color: {COLORS['text']}; font-size: {FONT['size_md']}px; font-weight: 700;"
         )
+        return label
+
+    def _create_device_status_group(self):
+        # One row for both devices, so the printer status doesn't make the
+        # screen any taller (it must fit 800 logical px).
+        group = QGroupBox("Device Status")
+        group.setStyleSheet(GROUPBOX_QSS)
+        layout = QHBoxLayout(group)
+        layout.addWidget(self._section_label("Printer:"))
+        self.printer_status_label = self._status_value_label()
+        layout.addWidget(self.printer_status_label)
+        layout.addSpacing(40)
+        layout.addWidget(self._section_label("QR Reader:"))
+        self.qr_reader_status_label = self._status_value_label()
         layout.addWidget(self.qr_reader_status_label)
         layout.addStretch(1)
         return group
@@ -257,6 +267,14 @@ class AdminScreenView(QWidget):
 
     def update_qr_reader_status(self, text):
         self.qr_reader_status_label.setText(text)
+
+    def update_printer_status(self, text, level):
+        """Printer status from CUPS, tinted by level: 'success' | 'warning' | 'error'."""
+        tint = {"success": COLORS["success"], "warning": COLORS["warning"]}.get(level, COLORS["danger"])
+        self.printer_status_label.setText(text)
+        self.printer_status_label.setStyleSheet(
+            f"color: {tint}; font-size: {FONT['size_md']}px; font-weight: 700;"
+        )
 
     def update_paper_count_display(self, count, color=None):
         """Updates the paper count label, tinted by remaining level."""
