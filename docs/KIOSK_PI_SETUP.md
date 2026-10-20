@@ -11,7 +11,7 @@ was written while rebuilding on a new card, so the next rebuild needs only the r
 | Step | Status |
 |------|--------|
 | 1–7, 9–12 | Done on the new card |
-| 8. Printer (CUPS) and scanner | Printer done 2026-10-16: fixed driverless queue `HP_Smart_Tank` over `ipp-usb`. Scanner done 2026-10-20: sane-airscan over `ipp-usb` |
+| 8. Printer (CUPS) and scanner | Printer done 2026-10-16: fixed driverless queue `HP_Smart_Tank` over `ipp-usb`. Scanner done 2026-10-20: sane-airscan over `ipp-usb`. Printer swapped to a Smart Tank 660-670 on 2026-10-20; both now use the model-independent `localhost:60000` addresses |
 | 13. QR reader | **Not done yet** |
 | 14. Start at boot (systemd) | **Not done yet**: the app is still started by hand with `make run` |
 | 15. Tailscale | **Not done yet**: planned in ADR-0005, not set up |
@@ -139,17 +139,20 @@ The backup image (step 17) contains `.env`, so keep images private.
 
 ## 8. Printer (CUPS) and scanner
 
-The HP Smart Tank 580/590 is on USB. `ipp-usb` (running by default) exposes it as an IPP
-printer on the Pi, and the app prints to it driverless.
+The printer is an HP Smart Tank on USB (a 580/590 until 2026-10-20, now a 660-670). `ipp-usb`
+(running by default) exposes whichever printer is plugged in as an IPP printer at
+`localhost:60000`, and the app prints to it driverless. Both the print queue and the scanner point
+at that address rather than at the model or serial number, so a printer swap needs no `.env` change.
 
-Don't use the queue that appears on its own (`HP_Smart_Tank_580_590_series_5E0E1D_USB`, device
-`implicitclass://…`). cups-browsed creates it, and it only works while cups-browsed is running to
+Don't use the queue that appears on its own (named after the model, e.g.
+`HP_Smart_Tank_580_590_series_5E0E1D_USB`, device `implicitclass://…`). cups-browsed creates it, and it only works while cups-browsed is running to
 hand it the printer's address. When that fails, CUPS **disables** the queue (`lpstat -p` says
 `disabled`, `Alerts: paused`) and keeps it disabled across reboots, so nothing prints, paper or not.
 Make a fixed queue instead:
 
 ```bash
-sudo lpadmin -x HP_Smart_Tank_580_590_series_5E0E1D_USB   # if cups-browsed made one
+lpstat -p                                                  # find the auto-made queue's name, if any
+sudo lpadmin -x <that queue name>                          # if cups-browsed made one
 sudo systemctl disable --now cups-browsed                  # so it never comes back
 sudo lpadmin -p HP_Smart_Tank -E -v ipp://localhost:60000/ipp/print -m everywhere
 lpstat -l -p HP_Smart_Tank        # enabled, no Alerts line (or "Alerts: none")
@@ -161,6 +164,9 @@ If `lpadmin` can't reach `localhost:60000`, use the `ipp://…(USB)._ipp._tcp.lo
 
 If the queue ever ends up `disabled` again: `sudo cupsenable HP_Smart_Tank`, and clear stuck
 jobs with `cancel -a HP_Smart_Tank`.
+
+`HP_Smart_Tank` is only the queue's name, chosen when it was made. It says nothing about which
+printer is attached.
 
 ### Scanner
 
@@ -175,31 +181,56 @@ scanimage -L
 It shows up twice, once per SANE driver:
 
 ```
-device `escl:http://localhost:60000' is a HP Smart Tank 580-590 series [5E0E1D] (USB) platen scanner
-device `airscan:e0:HP Smart Tank 580-590 series [5E0E1D] (USB)' is a eSCL HP Smart Tank 580-590 series [5E0E1D] (USB) ip=127.0.0.1, ::1
+device `escl:http://localhost:60000' is a HP Smart Tank 660-670 series [1074DB] (USB) platen scanner
+device `airscan:e0:HP Smart Tank 660-670 series [1074DB] (USB)' is a eSCL HP Smart Tank 660-670 series [1074DB] (USB) ip=127.0.0.1, ::1
 ```
 
-Use the `airscan:` line. Copy the whole name between the quote marks, spaces, brackets and all,
-into `.env`:
+Use the `escl:` address. It's the same `ipp-usb` port the print queue uses, with no model name in
+it, so it keeps working after a printer swap:
 
 ```env
-SCANNER_DEVICE="airscan:e0:HP Smart Tank 580-590 series [5E0E1D] (USB)"
+SCANNER_DEVICE=escl:http://localhost:60000
 ```
 
-The app checks that this exact name is in `scanimage -L`'s output before it scans. If scans start
-failing after a reboot or a printer swap, run `scanimage -L` again and compare. If the `airscan:`
-device misbehaves, `SCANNER_DEVICE=escl:http://localhost:60000` uses the other driver.
+The app checks that this exact name is in `scanimage -L`'s output before it scans. The `airscan:`
+name works too (copy it whole, in quotes, into `.env`), but it contains the model and an ID, so it
+has to be updated whenever the printer changes. The kiosk used it until 2026-10-20; the 17 s scan
+time below was measured with it. Try it if the `escl:` driver misbehaves.
 `SCANNER_DPI` (200) and `SCANNER_TIMEOUT` (60 s) can stay at their defaults.
 
 Check it with a real page on the glass. This is the same scan the app runs, so the time it prints
 is what a customer waits per page (about 17 s on 2026-10-20):
 
 ```bash
-time scanimage -d 'airscan:e0:HP Smart Tank 580-590 series [5E0E1D] (USB)' \
+time scanimage -d 'escl:http://localhost:60000' \
     --format=png --mode=Color --resolution 200 -p > ~/scan-test.png
 ```
 
 To look at the result from a laptop: `scp <user>@aio-spark-kiosk.local:~/scan-test.png .`
+
+### Finding the actual printer and scanner
+
+To see which printer is really attached (after a swap, or when printing or scanning stops):
+
+```bash
+lsusb | grep -i hp           # what's plugged in, e.g. "HP, Inc Smart Tank 660-670 series"
+lpstat -v                    # where the queue sends jobs (device-uri), should be ipp://localhost:60000/ipp/print
+sudo lpinfo -v               # every device CUPS can see now, with model and serial
+lpoptions -p HP_Smart_Tank | tr ' ' '\n' | grep -i -E 'make|model|uri'
+scanimage -L                 # scanner names, including the model
+```
+
+In `lpoptions`, `device-uri` is the printer the queue sends to. `printer-uri-supported` is just
+the queue's own address (`ipp://localhost/printers/HP_Smart_Tank`) and says nothing about the
+hardware.
+
+If `lpstat -v` shows anything other than `ipp://localhost:60000/ipp/print` (for example a
+`usb://…?serial=…` URI left over from an older printer), make the queue again with the `lpadmin`
+commands above. Its name stays `HP_Smart_Tank`, so `.env` needs no change.
+
+If more than one IPP-over-USB printer is ever plugged in, `ipp-usb` gives the second one
+`localhost:60001`, and which one gets which port depends on which it finds first. The kiosk has
+only one, so this doesn't come up.
 
 ## 9. Display
 
