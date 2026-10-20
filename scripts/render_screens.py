@@ -68,6 +68,20 @@ def fill_live_content(name, screen):
         screen.view.set_email_hint("aiospark.uploads@gmail.com", "PRINT")
     if name in ("wifi", "email"):
         screen.view.show_status("Invalid or expired code. Please try again.")
+    if name == "scanner":
+        screen.view.update_page_count(2)
+        screen.view.show_preview(sample_page_image(), 2)
+        screen.view.show_status("Scan timed out after 60s — check the scanner connection.")
+
+
+def sample_page_image():
+    """A scanned-page stand-in: the first page of a test PDF as a PNG."""
+    import fitz
+
+    path = os.path.join(tempfile.mkdtemp(prefix="ssp-screens-"), "page.png")
+    with fitz.open(os.path.join(SSP_DIR, "..", "test_pdfs", "Rootlocus-Plotting-1.pdf")) as doc:
+        doc[0].get_pixmap(dpi=100).save(path)
+    return path
 
 
 def build_screen(name):

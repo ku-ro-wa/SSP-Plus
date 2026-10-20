@@ -57,7 +57,7 @@ class ScannerController(QWidget):
 
     def _handle_page_scanned(self, page_number, image_path):
         self.view.update_page_count(page_number)
-        self.view.show_thumbnail(image_path)
+        self.view.show_preview(image_path, page_number)
         self.view.show_status(f"Page {page_number} scanned.", is_error=False)
 
     def _handle_scan_failed(self, message):
