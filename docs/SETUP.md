@@ -164,10 +164,11 @@ make run-sim   # opens the kiosk GUI on your Mac
 
 **`make lint`** checks Python style: line length, unused imports, undefined names. It won't catch logic bugs, but it's a quick sanity check before pushing.
 
-**SIM_MODE** disables three hardware interfaces:
+**SIM_MODE** disables four hardware interfaces:
 - GPIO (coin/bill acceptors, hoppers) — simulated with console output
 - CUPS printer — print jobs are logged but not sent
 - GSM modem — SMS alerts are logged but not sent
+- Flatbed scanner — each scan returns the next placeholder page from `SIM_SCANNER_DIR` (seeded on first run)
 
 ---
 
