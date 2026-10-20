@@ -5,7 +5,7 @@ from PyQt5.QtCore import Qt, pyqtSignal
 
 from config import get_config
 from ui.theme import COLORS, FONT
-from ui.widgets import Header, BackButton, CodeKeypad, PrimaryButton, SecondaryButton, StatusBanner
+from ui.widgets import Header, BackButton, CodeKeypad, PrimaryButton, SecondaryButton, StatusBanner, NAV_EDGE_INSET, nav_button
 
 
 def _classify_status_variant(status_text: str) -> str:
@@ -48,8 +48,8 @@ class PaymentScreenView(QWidget):
         main_layout.addWidget(body, 1)
 
         top_row = QHBoxLayout()
-        self.back_btn = BackButton("Back to Options")
-        self.back_btn.setMinimumHeight(44)
+        top_row.setContentsMargins(NAV_EDGE_INSET, NAV_EDGE_INSET, NAV_EDGE_INSET, 0)
+        self.back_btn = nav_button(BackButton("Back to Options"))
         self.back_btn.clicked.connect(self.back_button_clicked.emit)
         top_row.addWidget(self.back_btn)
         top_row.addStretch()

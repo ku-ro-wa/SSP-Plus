@@ -1,13 +1,13 @@
 # screens/data_viewer/view.py
 
 from PyQt5.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QTabWidget,
+    QWidget, QVBoxLayout, QTabWidget,
     QTableWidget, QTableWidgetItem, QHeaderView
 )
 from PyQt5.QtCore import pyqtSignal
 
 from ui.theme import COLORS, TABLE_QSS, TAB_QSS
-from ui.widgets import BackButton, Header, SecondaryButton
+from ui.widgets import BackButton, Header, SecondaryButton, nav_row
 
 
 class DataViewerScreenView(QWidget):
@@ -53,11 +53,7 @@ class DataViewerScreenView(QWidget):
         self.refresh_data_button.setMinimumHeight(44)
         self.refresh_data_button.clicked.connect(self._on_refresh_clicked)
 
-        nav_row = QHBoxLayout()
-        nav_row.addWidget(self.back_button, 0)
-        nav_row.addStretch()
-        nav_row.addWidget(self.refresh_data_button, 0)
-        body_layout.addLayout(nav_row)
+        body_layout.addLayout(nav_row(self.back_button, self.refresh_data_button))
 
     def _on_refresh_clicked(self):
         """Handle refresh button click based on current tab."""

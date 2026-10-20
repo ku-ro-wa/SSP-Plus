@@ -156,6 +156,38 @@ class BackButton(SecondaryButton):
         self.setIcon(icon('back'))
 
 
+# The touchscreen registers taps poorly near its edges, so the Back/Continue buttons
+# in a screen's corners are bigger than ordinary buttons and kept in from the edge.
+NAV_BUTTON_HEIGHT = 56
+NAV_BUTTON_MIN_WIDTH = 200
+NAV_EDGE_INSET = 16  # on top of the screen's own margins
+
+
+def nav_button(button):
+    """Size `button` as a corner navigation button (bigger touch target and text)."""
+    button.setFixedHeight(NAV_BUTTON_HEIGHT)
+    button.setMinimumWidth(NAV_BUTTON_MIN_WIDTH)
+    button.setStyleSheet(
+        button.styleSheet()
+        + f"QPushButton#{button.objectName()} {{ font-size: {FONT['size_md']}px; font-weight: 600; }}"
+    )
+    return button
+
+
+def nav_row(left=None, *right):
+    """A screen's bottom row: `left` in the bottom-left corner, `right` buttons in the
+    bottom-right, all sized by nav_button() and inset from the screen edges."""
+    row = QHBoxLayout()
+    row.setContentsMargins(NAV_EDGE_INSET, 0, NAV_EDGE_INSET, NAV_EDGE_INSET)
+    row.setSpacing(12)
+    if left is not None:
+        row.addWidget(nav_button(left), 0, Qt.AlignLeft)
+    row.addStretch()
+    for button in right:
+        row.addWidget(nav_button(button))
+    return row
+
+
 class DangerButton(QPushButton):
     """Filled red button for genuinely destructive / override actions only.
     Same footprint as PrimaryButton."""
