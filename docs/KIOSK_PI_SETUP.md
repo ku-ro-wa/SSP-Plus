@@ -12,7 +12,7 @@ was written while rebuilding on a new card, so the next rebuild needs only the r
 |------|--------|
 | 1–7, 9–12 | Done on the new card |
 | 8. Printer (CUPS) and scanner | Printer done 2026-10-16: fixed driverless queue `HP_Smart_Tank` over `ipp-usb`. Scanner done 2026-10-20: sane-airscan over `ipp-usb`. Printer swapped to a Smart Tank 660-670 on 2026-10-20; both now use the model-independent `localhost:60000` addresses |
-| 13. QR reader | **Not done yet** |
+| 13. QR reader | **In progress**: reads over serial and `QR_READER_PORT` set, 2026-10-20. udev rule, settings barcodes and the issue #38 checks not done |
 | 14. Start at boot (systemd) | **Not done yet**: the app is still started by hand with `make run` |
 | 15. Tailscale | **Not done yet**: planned in ADR-0005, not set up |
 | 16–17. Checks and backup image | Baseline image taken 2026-10-15, before steps 8 and 13–15 |
@@ -282,9 +282,28 @@ Then:
   PYTHONPATH=SSP .venv/bin/python -m admin_dashboard.cli create-account --username <name> --password <pw> --role admin
   ```
 
-## 13. QR reader — not done yet
+## 13. QR reader — in progress
 
-Follow `SETUP.md` → "QR reader (kiosk)": udev rule (vendor/product ID from `lsusb`),
+Done on 2026-10-20: the reader shows up as `ttyACM0`, scans come through as text, and `.env` points
+at its by-id path:
+
+```bash
+ls -l /dev/serial/by-id/
+# usb-NetChip_USB_Serial_Gadget_20080411-if00 -> ../../ttyACM0
+cat /dev/ttyACM0             # scan a code: its text prints. Ctrl+C before starting the app
+```
+
+```
+QR_READER_PORT=/dev/serial/by-id/usb-NetChip_USB_Serial_Gadget_20080411-if00
+```
+
+Use the by-id path, not `/dev/ttyACM0`, because the `ttyACM` number can change with USB order at
+boot. The serial `20080411` is the chip's generic default, so two of these readers on one Pi would
+get the same by-id name. In that case, use `/dev/serial/by-path/` instead. The user running the app
+must be in `dialout` (step 5). If nothing new appears under `/dev/tty*` when the reader is
+plugged in, it's in keyboard mode. Scan the manual's USB COM settings barcode to switch it back.
+
+Still to do: follow `SETUP.md` → "QR reader (kiosk)": udev rule (vendor/product ID from `lsusb`),
 `QR_READER_PORT`, the settings barcodes, and the miniterm check. Then finish issue #38: a phone's
 Wi-Fi and email Session QRs open the right flow, and unplugging and replugging the reader shows
 in Kiosk Admin without a restart.
