@@ -11,7 +11,7 @@ was written while rebuilding on a new card, so the next rebuild needs only the r
 | Step | Status |
 |------|--------|
 | 1–7, 9–12 | Done on the new card |
-| 8. Printer (CUPS) | Done 2026-10-16: fixed driverless queue `HP_Smart_Tank` over `ipp-usb` |
+| 8. Printer (CUPS) and scanner | Printer done 2026-10-16: fixed driverless queue `HP_Smart_Tank` over `ipp-usb`. Scanner done 2026-10-20: sane-airscan over `ipp-usb` |
 | 13. QR reader | **Not done yet** |
 | 14. Start at boot (systemd) | **Not done yet**: the app is still started by hand with `make run` |
 | 15. Tailscale | **Not done yet**: planned in ADR-0005, not set up |
@@ -88,13 +88,15 @@ read-only deploy key for the kiosk (`ssh-keygen -t ed25519`, add the public key 
 
 ```bash
 sudo apt install -y cups libcups2-dev poppler-utils python3-venv python3-dev
+sudo apt install -y sane-utils sane-airscan
 sudo apt install -y pigpio
 sudo systemctl enable --now cups pigpiod
 sudo usermod -aG lpadmin,dialout <user>
 ```
 
 Log out and back in for the groups to apply. `lpadmin` lets you manage printers; `dialout` lets
-the app open serial ports (QR reader, GSM modem).
+the app open serial ports (QR reader, GSM modem). `sane-utils` and `sane-airscan` are for the
+scanner (step 8).
 
 pigpio doesn't support the Pi 5. If the `pigpio` package isn't available, build it from source
 (github.com/joan2937/pigpio).
@@ -131,11 +133,11 @@ Set at least the following. Restore the values from the team's credential store,
 | `KIOSK_ID`, `WIFI_HOTSPOT_*`, `PORTAL_HOSTNAME` | see step 10 |
 | `QR_READER_PORT` | from step 13 |
 | `COIN_PIN`, `BILL_PIN`, `*_INHIBIT_PIN` | the defaults unless the wiring changed |
-| `SCANNER_DEVICE` | `scanimage -L` once the scanner is set up |
+| `SCANNER_DEVICE` | from step 8 |
 
 The backup image (step 17) contains `.env`, so keep images private.
 
-## 8. Printer (CUPS)
+## 8. Printer (CUPS) and scanner
 
 The HP Smart Tank 580/590 is on USB. `ipp-usb` (running by default) exposes it as an IPP
 printer on the Pi, and the app prints to it driverless.
@@ -159,6 +161,45 @@ If `lpadmin` can't reach `localhost:60000`, use the `ipp://…(USB)._ipp._tcp.lo
 
 If the queue ever ends up `disabled` again: `sudo cupsenable HP_Smart_Tank`, and clear stuck
 jobs with `cancel -a HP_Smart_Tank`.
+
+### Scanner
+
+The printer's flatbed scanner goes through the same `ipp-usb` connection. The app runs
+`scanimage` (from `sane-utils`, step 5) with the `sane-airscan` driver, so there's no HP driver to
+install. List the scanner:
+
+```bash
+scanimage -L
+```
+
+It shows up twice, once per SANE driver:
+
+```
+device `escl:http://localhost:60000' is a HP Smart Tank 580-590 series [5E0E1D] (USB) platen scanner
+device `airscan:e0:HP Smart Tank 580-590 series [5E0E1D] (USB)' is a eSCL HP Smart Tank 580-590 series [5E0E1D] (USB) ip=127.0.0.1, ::1
+```
+
+Use the `airscan:` line. Copy the whole name between the quote marks, spaces, brackets and all,
+into `.env`:
+
+```env
+SCANNER_DEVICE="airscan:e0:HP Smart Tank 580-590 series [5E0E1D] (USB)"
+```
+
+The app checks that this exact name is in `scanimage -L`'s output before it scans. If scans start
+failing after a reboot or a printer swap, run `scanimage -L` again and compare. If the `airscan:`
+device misbehaves, `SCANNER_DEVICE=escl:http://localhost:60000` uses the other driver.
+`SCANNER_DPI` (200) and `SCANNER_TIMEOUT` (60 s) can stay at their defaults.
+
+Check it with a real page on the glass. This is the same scan the app runs, so the time it prints
+is what a customer waits per page (about 17 s on 2026-10-20):
+
+```bash
+time scanimage -d 'airscan:e0:HP Smart Tank 580-590 series [5E0E1D] (USB)' \
+    --format=png --mode=Color --resolution 200 -p > ~/scan-test.png
+```
+
+To look at the result from a laptop: `scp <user>@aio-spark-kiosk.local:~/scan-test.png .`
 
 ## 9. Display
 
