@@ -562,12 +562,13 @@ class PrintingSystemApp(QMainWindow):
         self._update_paper_count_after_print()
         self._update_coin_inventory_after_print()
 
+        # Trigger ink analysis for the printed job (if print job info available).
+        # It reads current_print_job, so this must run before the job is cleared.
+        self._trigger_ink_analysis()
+
         # Clear the print job after successful completion to prevent re-printing
         print("DEBUG: Clearing current_print_job after successful completion")
         self.current_print_job = None
-
-        # Trigger ink analysis for the printed job (if print job info available)
-        self._trigger_ink_analysis()
 
         current_screen = self.stacked_widget.currentWidget()
 
