@@ -59,13 +59,40 @@ def prepare_environment():
     db_manager.DatabaseManager.__init__ = init_on_temp_db
 
 
+def fill_live_content(name, screen):
+    """Show what on_enter() and a failed code would add, so the screen is checked
+    at its tallest: an empty address and QR hid the bottom being cut off."""
+    if name == "wifi":
+        screen.view.set_portal_hint("https://10.3.141.1:8000/upload")
+    elif name == "email":
+        screen.view.set_email_hint("aiospark.uploads@gmail.com", "PRINT")
+    if name in ("wifi", "email"):
+        screen.view.show_status("Invalid or expired code. Please try again.")
+    if name == "scanner":
+        screen.view.update_page_count(2)
+        screen.view.show_preview(sample_page_image(), 2)
+        screen.view.show_status("Scan timed out after 60s — check the scanner connection.")
+
+
+def sample_page_image():
+    """A scanned-page stand-in: the first page of a test PDF as a PNG."""
+    import fitz
+
+    path = os.path.join(tempfile.mkdtemp(prefix="ssp-screens-"), "page.png")
+    with fitz.open(os.path.join(SSP_DIR, "..", "test_pdfs", "Rootlocus-Plotting-1.pdf")) as doc:
+        doc[0].get_pixmap(dpi=100).save(path)
+    return path
+
+
 def build_screen(name):
     """The real controller for `name`, wired to a stand-in main app."""
     import importlib
     from unittest.mock import MagicMock
 
     module = importlib.import_module(f"screens.{name}")
-    return getattr(module, SCREENS[name])(MagicMock())
+    screen = getattr(module, SCREENS[name])(MagicMock())
+    fill_live_content(name, screen)
+    return screen
 
 
 def main():

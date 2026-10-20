@@ -7,7 +7,8 @@ TLS is enabled only when WIFI_TLS_CERTFILE and WIFI_TLS_KEYFILE both point at
 files that exist on disk; anything else falls back to plain HTTP so a
 zero-setup `make run-sim` still serves the portal.
 """
-from managers.webapp_thread import WebAppThreadManager, wifi_portal_url
+from managers import webapp_thread
+from managers.webapp_thread import WebAppThreadManager, scan_redeem_portal_url, wifi_portal_url
 
 
 def _write(path, text="x"):
@@ -80,3 +81,33 @@ class TestWifiPortalUrl:
     def test_resolves_a_host_when_none_given(self, tmp_path, monkeypatch):
         url = wifi_portal_url(tls=False)
         assert url.startswith("http://") and url.endswith(":8000/upload")
+
+
+class TestPortalHost:
+    # Phones join the kiosk's own hotspot, so a hotspot kiosk must show the
+    # hotspot address, not the upstream LAN one _lan_ip() finds.
+    def test_hotspot_kiosk_shows_the_hotspot_address(self, monkeypatch):
+        monkeypatch.setenv("SIM_MODE", "false")
+        monkeypatch.setenv("WIFI_HOTSPOT_ENABLED", "true")
+        monkeypatch.setenv("WIFI_HOTSPOT_ADDRESS", "10.3.141.1/24")
+        assert wifi_portal_url(tls=False) == "http://10.3.141.1:8000/upload"
+        assert scan_redeem_portal_url(tls=False) == "http://10.3.141.1:8000/redeem"
+
+    def test_sim_mode_shows_the_lan_address(self, monkeypatch):
+        monkeypatch.setenv("SIM_MODE", "true")
+        monkeypatch.setenv("WIFI_HOTSPOT_ENABLED", "true")
+        monkeypatch.setattr(webapp_thread, "_lan_ip", lambda: "192.168.1.20")
+        assert wifi_portal_url(tls=False) == "http://192.168.1.20:8000/upload"
+
+    def test_kiosk_without_hotspot_shows_the_lan_address(self, monkeypatch):
+        monkeypatch.setenv("SIM_MODE", "false")
+        monkeypatch.setenv("WIFI_HOTSPOT_ENABLED", "false")
+        monkeypatch.setattr(webapp_thread, "_lan_ip", lambda: "192.168.1.20")
+        assert wifi_portal_url(tls=False) == "http://192.168.1.20:8000/upload"
+
+    def test_bad_hotspot_address_falls_back_to_lan(self, monkeypatch):
+        monkeypatch.setenv("SIM_MODE", "false")
+        monkeypatch.setenv("WIFI_HOTSPOT_ENABLED", "true")
+        monkeypatch.setenv("WIFI_HOTSPOT_ADDRESS", "nonsense")
+        monkeypatch.setattr(webapp_thread, "_lan_ip", lambda: "192.168.1.20")
+        assert wifi_portal_url(tls=False) == "http://192.168.1.20:8000/upload"
