@@ -47,6 +47,7 @@ class PersistentGPIO(QObject):
         # GPIO pins and coin noise filter, from .env (see config.py for defaults)
         from config import get_config
         cfg = get_config()
+        self.KIOSK_MODEL = cfg.kiosk_model
         self.COIN_PIN = cfg.coin_pin
         self.BILL_PIN = cfg.bill_pin
         self.INHIBIT_PIN = cfg.bill_inhibit_pin
@@ -98,7 +99,7 @@ class PersistentGPIO(QObject):
                 self.pi.set_glitch_filter(self.COIN_PIN, 0)
                 edge = pigpio.FALLING_EDGE
             self.coin_callback = self.pi.callback(self.COIN_PIN, edge, self._coin_pulse_detected)
-            print(f"Coin acceptor: pulses on GPIO {self.COIN_PIN}, inhibit on GPIO {self.COIN_INHIBIT_PIN}, "
+            print(f"Coin acceptor ({self.KIOSK_MODEL} kiosk model): pulses on GPIO {self.COIN_PIN}, inhibit on GPIO {self.COIN_INHIBIT_PIN}, "
                   + (f"filter {self.COIN_GLITCH_FILTER_US}us glitch / "
                      f"{self.COIN_PULSE_MIN_MS:g}-{self.COIN_PULSE_MAX_MS:g}ms pulses"
                      if self.coin_filter else "filter OFF"))
