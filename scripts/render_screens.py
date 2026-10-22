@@ -42,6 +42,9 @@ def prepare_environment():
     anything from SSP/."""
     os.environ["QT_QPA_PLATFORM"] = "offscreen"
     os.environ["SIM_MODE"] = "true"
+    # The kiosk has a QR reader, so its hint shows whatever this machine's .env says.
+    # Never opened: the reader is started by main_app, which isn't run here.
+    os.environ["QR_READER_PORT"] = "/dev/render-screens-reader"
     sys.modules["pigpio"] = None  # `import pigpio` fails, so GPIO code runs simulated
     if SSP_DIR not in sys.path:
         sys.path.insert(0, SSP_DIR)

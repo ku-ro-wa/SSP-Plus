@@ -12,6 +12,7 @@ from PyQt5.QtWidgets import (
     QVBoxLayout, QWidget,
 )
 
+from config import get_config
 from managers.voucher_manager import MSG_UNGIVEN_CHANGE
 from ui.icons import icon, icon_path, svg_widget
 from ui.theme import (
@@ -203,13 +204,16 @@ READER_HINT = "Hold your QR code up to the reader, or type your code."
 
 
 class ReaderHint(QLabel):
-    """The kiosk QR reader's one-line hint, shown on idle, the homepage and both code screens."""
+    """The kiosk QR reader's one-line hint, shown on idle, the homepage and both code screens.
+    Hidden when QR_READER_PORT is blank: with no reader, nothing reads the QR code it asks for."""
 
     def __init__(self, parent=None):
         super().__init__(READER_HINT, parent)
         self.setAlignment(Qt.AlignCenter)
         self.setWordWrap(True)
         self.setStyleSheet(f"color: {COLORS['text_secondary']}; font-size: {FONT['size_md']}px; font-weight: 600;")
+        if not get_config().qr_reader_port:
+            self.hide()  # only ever hide: showing an unparented label opens it as a window
 
 
 class StatusBanner(QFrame):

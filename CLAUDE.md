@@ -53,7 +53,7 @@ Two persistent `QThread` managers are started in `PrintingSystemApp.__init__` an
 | SMS alerts | `managers/sms_manager.py` | `pyserial` (AT commands to GSM modem) |
 | QR reader (kiosk 2D reader) | `managers/qr_reader.py` | `pyserial` (USB serial, CR-terminated reads) |
 
-The QR reader is on when `QR_READER_PORT` is set in `.env` (blank = off, typed codes only). Reads are
+The QR reader is on when `QR_READER_PORT` is set in `.env` (blank = off, typed codes only, and the screens' `ReaderHint` is hidden). Reads are
 classified and decided in `managers/qr_reader.py` (`classify_payload`, `decide_qr_read`), then
 `main_app._on_qr_read` acts on them via `open_session_files()` — the same path a typed OTP takes.
 Accepting screens are idle, homepage, wifi and email (each has `show_qr_message()` for the reply).
