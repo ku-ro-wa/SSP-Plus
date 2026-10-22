@@ -29,7 +29,7 @@ import screens.payment.model as payment_module  # noqa: E402
 from database.db_manager import DatabaseManager  # noqa: E402
 from database.models import init_db  # noqa: E402
 from managers.voucher_manager import VoucherManager  # noqa: E402
-from screens.payment.model import PaymentModel, ShortfallCause  # noqa: E402
+from screens.payment.model import PaymentModel, ShortfallCause, redirect_for_carried_credit  # noqa: E402
 from screens.print_options.model import PrintOptionsModel  # noqa: E402
 from screens.voucher.controller import VoucherController  # noqa: E402
 
@@ -66,9 +66,11 @@ class FakeMainApp:
         self.voucher_screen = VoucherController(self)
 
     def show_screen(self, name):
-        # Like PrintingSystemApp.show_screen: leave, start the 60s countdown, enter.
+        # Like PrintingSystemApp.show_screen: leave, (abandoned payment -> voucher),
+        # start the 60s countdown, enter.
         if self.screens and self.screens[-1] == 'voucher':
             self.voucher_screen.on_leave()
+        name = redirect_for_carried_credit(self, name)
         self.screens.append(name)
         self.countdown = 60
         if name == 'voucher':
@@ -814,3 +816,156 @@ class TestDashboardReflectsVouchers:
         assert [a['amount'] for a in applications(db.db_path)] == [applied]
         usb = {r["source"]: r for r in after["sources"]}["usb"]
         assert (usb["revenue"], usb["transaction_count"]) == (2 * cost, 2)
+
+
+# ---- Cash put in for a payment that wasn't completed --------------------------
+
+PRICE = 50  # dearer than the test PDF's ₱3, so cash can go in without paying in full
+
+
+def start_priced_payment(model, total_cost=PRICE):
+    payment_data = job()
+    payment_data['total_cost'] = total_cost  # e.g. more pages or copies
+    model.set_payment_data(payment_data)
+    model.on_enter()
+
+
+def leave_payment(main_app, model, to):
+    """The customer leaves the payment screen without paying in full: Back goes to
+    print options (PaymentController._go_back), a timeout anywhere else."""
+    if to == 'printing_options':
+        model.go_back()
+    else:
+        model.on_leave()  # what PaymentController._on_timeout does before show_screen
+    main_app.show_screen(to)
+
+
+class TestCarriedCredit:
+    def test_back_keeps_the_cash_for_when_payment_reopens(self, kiosk, db):
+        main_app, model = kiosk
+        start_priced_payment(model)
+        main_app.acceptors.coin_inserted.emit(5)
+
+        leave_payment(main_app, model, 'printing_options')
+        assert main_app.screens == ['printing_options']
+        assert db.get_transaction_history() == []  # nothing recorded as cancelled
+
+        start_priced_payment(model, 60)  # options changed, payment reopens
+        assert model.amount_received == 5
+        assert model.amount_owed == 55
+        stock_hoppers(db, ones=20, fives=20)
+        finish_with_cash(main_app, model, 55)
+
+        row = row_for(db, model.payment_ref)
+        assert (row['status'], row['amount_paid'], row['change_given']) == ('completed', 60, 0)
+        assert voucher_rows(db.db_path) == []
+
+    def test_carried_cash_covering_a_cheaper_job_completes_with_change(self, kiosk, db):
+        main_app, model = kiosk
+        start_priced_payment(model)
+        main_app.acceptors.bill_inserted.emit(20)
+        leave_payment(main_app, model, 'printing_options')
+
+        stock_hoppers(db, ones=20, fives=20)
+        main_app.show_screen('payment')
+        start_priced_payment(model, 13)  # e.g. fewer pages: already paid for
+        wait_for(lambda: {'voucher', 'thank_you'} & set(main_app.screens), "payment to finish")
+        finish(main_app, model)
+
+        row = row_for(db, model.payment_ref)
+        assert (row['amount_paid'], row['change_given'], row['change_dispensed']) == (20, 7, 7)
+
+    def test_leaving_print_options_turns_the_cash_into_a_voucher(self, kiosk, db):
+        main_app, model = kiosk
+        start_priced_payment(model)
+        main_app.acceptors.coin_inserted.emit(5)
+        main_app.acceptors.bill_inserted.emit(20)
+        leave_payment(main_app, model, 'printing_options')
+
+        main_app.show_screen('homepage')
+
+        assert main_app.screens[-1] == 'voucher'
+        shown = displayed(main_app)
+        assert shown.title == "Here's your voucher" and shown.code_visible
+        assert VoucherManager(db).balance(shown.code).remaining == 25
+        [row] = db.get_transaction_history()
+        assert (row['status'], row['amount_paid'], row['voucher_issued'], row['change_given']) \
+            == ('cancelled_partial_payment', 25, 25, 0)
+        inventory = {(i['type'], i['denomination']): i['count'] for i in db.get_cash_inventory()}
+        assert inventory[('coin', 5)] >= 1 and inventory[('bill', 20)] >= 1
+
+        main_app.voucher_screen.view.continue_button.click()
+        assert main_app.screens[-1] == 'homepage'  # where they were going; nothing printed
+        assert 'thank_you' not in main_app.screens
+        assert model.carried_credit is None
+
+    def test_payment_timeout_turns_the_cash_into_a_voucher(self, kiosk, db):
+        main_app, model = kiosk
+        start_priced_payment(model)
+        main_app.acceptors.bill_inserted.emit(20)
+
+        leave_payment(main_app, model, 'idle')
+
+        assert main_app.screens == ['voucher']
+        assert VoucherManager(db).balance(displayed(main_app).code).remaining == 20
+        main_app.voucher_screen.timeout_timer.start(1)  # nobody taps: it still moves on
+        wait_for(lambda: main_app.screens[-1] == 'idle', "the voucher screen to time out")
+
+    def test_the_voucher_can_pay_for_the_next_job(self, kiosk, db):
+        main_app, model = kiosk
+        start_priced_payment(model)
+        main_app.acceptors.bill_inserted.emit(20)
+        leave_payment(main_app, model, 'idle')
+        code = displayed(main_app).code
+        main_app.voucher_screen.view.continue_button.click()
+        main_app.screens.clear()
+
+        start_priced_payment(model, 30)
+        assert model.apply_voucher(code)
+        stock_hoppers(db, ones=20, fives=20)
+        finish_with_cash(main_app, model, 10)
+        assert row_for(db, model.payment_ref)['voucher_applied'] == 20
+
+    def test_no_cash_in_means_no_voucher(self, kiosk, db):
+        main_app, model = kiosk
+        start_payment(model)
+        leave_payment(main_app, model, 'printing_options')
+        main_app.show_screen('homepage')
+        assert main_app.screens == ['printing_options', 'homepage']
+        assert db.get_transaction_history() == []
+
+    def test_a_completed_payment_leaves_nothing_to_carry(self, kiosk, db):
+        main_app, model = kiosk
+        stock_hoppers(db, ones=20, fives=20)
+        pay_with_change(main_app, model, 3)
+        model.on_leave()
+        main_app.show_screen('idle')
+        assert main_app.screens[-1] == 'idle'
+        assert model.carried_credit is None
+        assert voucher_rows(db.db_path) == []
+
+    def test_vouchers_off_records_the_cash_without_a_voucher(self, kiosk, db):
+        main_app, model = kiosk
+        db.update_setting('vouchers_enabled', 0)
+        start_priced_payment(model)
+        main_app.acceptors.bill_inserted.emit(20)
+        leave_payment(main_app, model, 'idle')
+
+        assert main_app.screens == ['idle']
+        [row] = db.get_transaction_history()
+        assert (row['status'], row['amount_paid'], row['voucher_issued']) == ('cancelled_partial_payment', 20, 0)
+
+    def test_voucher_save_failure_tells_the_customer_and_alerts(self, kiosk, db, sms, monkeypatch):
+        main_app, model = kiosk
+        monkeypatch.setattr(db, 'create_voucher', lambda **kwargs: False)
+        start_priced_payment(model)
+        main_app.acceptors.bill_inserted.emit(20)
+        leave_payment(main_app, model, 'idle')
+
+        shown = displayed(main_app)
+        assert "couldn't issue" in shown.title.lower() and not shown.code_visible
+        assert [e['error_type'] for e in db.get_error_log()] == ["Voucher Issue Failed"]
+        assert len(sms) == 1 and "P20" in sms[0]
+        assert db.get_transaction_history()[0]['voucher_issued'] == 0
+        main_app.voucher_screen.view.continue_button.click()
+        assert main_app.screens[-1] == 'idle'

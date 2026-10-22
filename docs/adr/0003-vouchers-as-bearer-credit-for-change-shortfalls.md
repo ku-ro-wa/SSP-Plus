@@ -1,5 +1,7 @@
 # Vouchers: bearer credit for change the kiosk couldn't dispense
 
+_Amended by ADR 0008: a Voucher is also issued for an abandoned payment's Carried Credit._
+
 The hoppers only dispense ₱1 and ₱5 coins, and the acceptors can't refuse a bill, so a customer
 can always pay more than the kiosk can give back in change. Today that difference is silently
 lost: `ChangeDispenser` (`managers/hopper_manager.py`) stops at the first failed coin, dispenses

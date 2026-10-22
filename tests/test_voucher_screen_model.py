@@ -95,3 +95,25 @@ def test_expiry_month_is_english_whatever_the_locale():
         assert "November 1, 2026" in model.footnote()
     finally:
         locale.setlocale(locale.LC_TIME, saved)
+
+
+class TestUnspentCash:
+    """A Voucher for cash put in for a payment that wasn't completed."""
+
+    def test_issued_copy_says_the_payment_was_not_finished(self, model):
+        model.set_voucher(make_voucher(value=20), VoucherModel.UNSPENT)
+        assert model.title() == "Here's your voucher"
+        assert "wasn't finished" in model.body() and f"{PESO}20" in model.body()
+        assert "change" not in model.body()
+        assert "shown only once" in model.footnote()
+
+    def test_failure_copy_names_the_amount_and_the_attendant(self, model):
+        model.set_failure(20, VoucherModel.UNSPENT)
+        assert model.title() == "We couldn't issue your voucher"
+        assert f"{PESO}20" in model.body() and "attendant" in model.body()
+
+    def test_clear_goes_back_to_change_wording(self, model):
+        model.set_voucher(make_voucher(), VoucherModel.UNSPENT)
+        model.clear()
+        model.set_voucher(make_voucher())
+        assert model.title() == "Here's your change voucher"

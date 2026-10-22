@@ -65,6 +65,34 @@ class AppliedVoucher:
         return f"Voucher \u2022\u2022\u2022\u2022-{self.code[-4:]}"
 
 
+@dataclass
+class CarriedCredit:
+    """Cash a customer put in without completing the payment, held while they are on
+    print options (e.g. after Back to change the page count) and counted again when
+    payment reopens. Anywhere else, it becomes a Voucher (redirect_for_carried_credit)."""
+    amount: int
+    cash: Dict[int, int]  # denomination -> count, for cash inventory
+    payment_data: dict    # the job it was put in for, for the cancelled transaction row
+    total_cost: float
+
+
+# Screens a customer can be on while their Carried Credit is kept. Navigating
+# anywhere else abandons the payment.
+CREDIT_KEPT_ON = {'payment', 'printing_options', 'voucher'}
+
+
+def redirect_for_carried_credit(main_app, screen_name):
+    """Called by show_screen() after the current screen's on_leave(). If the customer
+    is leaving an unfinished payment with cash in, issue a Voucher for it and show
+    the voucher screen first (it continues to screen_name). Returns the screen to show."""
+    if screen_name in CREDIT_KEPT_ON:
+        return screen_name
+    model = main_app.payment_screen.model
+    if model.issue_voucher_for_carried_credit(continue_to=screen_name):
+        return 'voucher'
+    return screen_name
+
+
 def shortfall_cause(result, shortfall):
     """The ShortfallCause for a dispense result, or None if there was no Shortfall."""
     if shortfall <= 0:
@@ -263,6 +291,8 @@ class PaymentModel(QObject):
         self.change_owed = 0
         self.change_dispensed = {}
         self.applied_vouchers = []
+        self.carried_credit = None
+        self._cash_committed = False  # True once complete_payment has taken the cash
 
     @property
     def voucher_total(self):
@@ -707,6 +737,7 @@ class PaymentModel(QObject):
         self.outcome = ShortfallOutcome()
         self.change_owed = 0
         self.change_dispensed = {}
+        self._cash_committed = False
         self._clear_vouchers()
 
         self.amount_received_updated.emit(0)
@@ -715,12 +746,80 @@ class PaymentModel(QObject):
         # Automatically enable payment mode
         print("DEBUG: About to call enable_payment_mode()")
         self.enable_payment_mode()
+        self._restore_carried_credit()
         print("=== PAYMENT MODEL ON_ENTER END ===")
+
+    def _carry_unspent_cash(self):
+        """Leaving with cash in and the payment not completed: hold the cash as
+        Carried Credit rather than dropping it."""
+        if self.amount_received <= 0 or self._cash_committed or not self.payment_data:
+            return
+        self.carried_credit = CarriedCredit(
+            amount=int(self.amount_received), cash=dict(self.cash_received),
+            payment_data=self.payment_data, total_cost=self.total_cost)
+        print(f"Payment left unfinished: P{self.amount_received} kept as carried credit")
+        self.amount_received = 0
+        self.cash_received = {}
+
+    def _restore_carried_credit(self):
+        """Count the customer's Carried Credit toward this payment. Completes it
+        straight away if it already covers the (possibly changed) price."""
+        credit, self.carried_credit = self.carried_credit, None
+        if not credit:
+            return
+        self.amount_received = credit.amount
+        self.cash_received = dict(credit.cash)
+        print(f"Carried credit restored: P{credit.amount}")
+        self.amount_received_updated.emit(self.amount_received)
+        self.payment_status_updated.emit(f"P{credit.amount} you already put in is counted")
+        self._update_payment_status()
+
+    def issue_voucher_for_carried_credit(self, continue_to):
+        """The customer abandoned an unfinished payment with cash in: issue a Voucher
+        for all of it, record the cancelled payment, and set up the voucher screen to
+        continue to `continue_to`. Returns True if the voucher screen should be shown.
+        With vouchers turned off, the cash is only recorded."""
+        credit, self.carried_credit = self.carried_credit, None
+        if not credit:
+            return False
+        payment_ref = uuid.uuid4().hex
+        voucher, failed = None, False
+        if self.db_manager.get_setting('vouchers_enabled', 1):
+            try:
+                voucher = VoucherManager(self.db_manager).issue(credit.amount, payment_ref=payment_ref)
+            except Exception as e:
+                failed = True
+                print(f"CRITICAL: could not issue voucher for P{credit.amount} of unspent cash: {e}")
+                try:
+                    log_error("Voucher Issue Failed",
+                              f"Could not issue a P{credit.amount} voucher for an abandoned payment "
+                              f"(payment_ref={payment_ref}): {e}", "payment_model")
+                except Exception:
+                    pass
+                try:
+                    send_operator_alert(f"Kiosk could not save a P{credit.amount} voucher for an "
+                                        f"unfinished payment. Customer was told to see the attendant. "
+                                        f"Ref {payment_ref[:8]}")
+                except Exception as e2:
+                    print(f"WARNING: could not send operator alert: {e2}")
+        self._log_partial_payment(credit, voucher.value if voucher else 0, payment_ref)
+        if not voucher and not failed:
+            return False  # vouchers are off
+
+        def continue_on():
+            self.main_app.show_screen(continue_to)
+        screen = self.main_app.voucher_screen
+        if voucher:
+            screen.show_issued(voucher, reason='unspent', on_continue=continue_on)
+        else:
+            screen.show_failure(credit.amount, reason='unspent', on_continue=continue_on)
+        return True
 
     def on_leave(self):
         """Called when leaving the payment screen."""
         print("=== PAYMENT MODEL ON_LEAVE START ===")
         print("Payment screen leaving")
+        self._carry_unspent_cash()
 
         # Stop coin timeout timer
         if hasattr(self, 'coin_timeout_timer') and self.coin_timeout_timer is not None:
@@ -767,18 +866,18 @@ class PaymentModel(QObject):
                 finally:
                     self.change_dispenser = None
 
-    def _log_partial_payment(self):
-        """Log partial payment when user cancels transaction."""
+    def _log_partial_payment(self, credit, voucher_value, payment_ref):
+        """Record an abandoned payment's cash: a cancelled transaction (with the
+        Voucher issued for it) and the cash added to inventory."""
         try:
-            if not (self.amount_received and self.payment_data):
-                return
+            payment_data = credit.payment_data or {}
 
             # Defensive guards for keys
-            pdf_data = self.payment_data.get('pdf_data') or {}
+            pdf_data = payment_data.get('pdf_data') or {}
             file_path = pdf_data.get('path') or "unknown.pdf"
-            selected_pages = self.payment_data.get('selected_pages') or []
-            copies = int(self.payment_data.get('copies') or 1)
-            color_mode = self.payment_data.get('color_mode') or 'Color'
+            selected_pages = payment_data.get('selected_pages') or []
+            copies = int(payment_data.get('copies') or 1)
+            color_mode = payment_data.get('color_mode') or 'Color'
 
             # Log cancelled transaction with partial payment
             transaction_data = {
@@ -786,11 +885,14 @@ class PaymentModel(QObject):
                 'pages': len(selected_pages),
                 'copies': copies,
                 'color_mode': color_mode,
-                'total_cost': float(self.total_cost or 0),
-                'amount_paid': float(self.amount_received or 0),
+                'total_cost': float(credit.total_cost or 0),
+                'amount_paid': float(credit.amount),
                 'change_given': 0,  # No change given since transaction cancelled
                 'status': 'cancelled_partial_payment',
-                'source': self.payment_data.get('source')
+                'source': payment_data.get('source'),
+                'change_dispensed': 0,
+                'voucher_issued': voucher_value,
+                'payment_ref': payment_ref,
             }
             try:
                 self.db_manager.log_transaction(transaction_data)
@@ -804,7 +906,7 @@ class PaymentModel(QObject):
                     if item.get('type') == 'coin' or item.get('type') == 'bill':
                         current_inventory[(item.get('type'), int(item.get('denomination')))] = int(item.get('count') or 0)
 
-                for denomination, count in (self.cash_received or {}).items():
+                for denomination, count in (credit.cash or {}).items():
                     if not count:
                         continue
                     is_bill = denomination >= 20
@@ -818,7 +920,8 @@ class PaymentModel(QObject):
             except Exception as inv_err:
                 print(f"WARNING: Failed to update cash inventory on cancel: {inv_err}")
 
-            print(f"Logged cancelled transaction: {self.amount_received} received, {self.total_cost} required")
+            print(f"Logged cancelled transaction: {credit.amount} received, {credit.total_cost} required, "
+                  f"voucher P{voucher_value}")
         except Exception as e:
             print(f"WARNING: _log_partial_payment encountered an error but will not block navigation: {e}")
 
@@ -857,6 +960,7 @@ class PaymentModel(QObject):
             voucher_applied = self._commit_vouchers()
             if voucher_applied is None:
                 return False, "Could not apply your voucher. Please pay the rest in cash."
+            self._cash_committed = True  # the cash now pays for this job, not Carried Credit
 
             # NOTE: payment_algorithm.validate_payment() is deliberately NOT
             # called here. With vouchers (ADR 0003) a sale must never be
@@ -1095,9 +1199,7 @@ class PaymentModel(QObject):
             return
         print("Payment screen: going back to print options")
 
-        # Log partial payment if user received cash but cancelled
-        self._log_partial_payment()
-
+        # on_leave() keeps any cash put in as Carried Credit for when payment reopens.
         self.on_leave()
         self.reset_payment_state()
         self.go_back_requested.emit()

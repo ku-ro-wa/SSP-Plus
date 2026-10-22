@@ -124,10 +124,16 @@ _Avoid_: copy job, scan job (ambiguous with the non-print scan destinations).
 ### Vouchers
 
 **Voucher**:
-Kiosk-issued store credit for change the kiosk owed but did not physically dispense. Its
-value is always a **Shortfall**, never the full change amount; whatever coins the hoppers
-can give are still given.
+Kiosk-issued store credit for money the kiosk took but couldn't give back: a **Shortfall**
+(never the full change amount; whatever coins the hoppers can give are still given), or
+**Carried Credit** from an abandoned payment.
 _Avoid_: credit note, IOU, change ticket, balance.
+
+**Carried Credit**:
+Cash a customer put in for a payment they haven't completed, kept while they adjust their
+job on print options and counted when payment reopens. Leaving for anywhere else, or timing
+out, abandons the payment and the Carried Credit becomes a Voucher. Never refunded as cash.
+_Avoid_: balance, partial payment, refund.
 
 **Shortfall**:
 The change owed on a transaction minus the change actually dispensed. Nonzero whether the
