@@ -47,6 +47,7 @@ class PersistentGPIO(QObject):
         # GPIO pins and coin noise filter, from .env (see config.py for defaults)
         from config import get_config
         cfg = get_config()
+        self.KIOSK_MODEL = cfg.kiosk_model
         self.COIN_PIN = cfg.coin_pin
         self.BILL_PIN = cfg.bill_pin
         self.INHIBIT_PIN = cfg.bill_inhibit_pin
@@ -55,6 +56,10 @@ class PersistentGPIO(QObject):
         self.COIN_GLITCH_FILTER_US = cfg.coin_glitch_filter_us
         self.COIN_PULSE_MIN_MS = cfg.coin_pulse_min_ms
         self.COIN_PULSE_MAX_MS = cfg.coin_pulse_max_ms
+        self.bill_filter = cfg.bill_pulse_filter
+        self.BILL_GLITCH_FILTER_US = cfg.bill_glitch_filter_us
+        self.BILL_PULSE_MIN_MS = cfg.bill_pulse_min_ms
+        self.BILL_PULSE_MAX_MS = cfg.bill_pulse_max_ms
 
         # Timing constants (matching original GPIOPaymentThread)
         self.DEBOUNCE_TIME = 0.1   # Minimum time between pulses
@@ -67,6 +72,7 @@ class PersistentGPIO(QObject):
         self.coin_pulse_start_tick = None  # pigpio tick of the current low pulse's falling edge
         self.bill_pulse_count = 0
         self.bill_last_pulse_time = 0
+        self.bill_pulse_start_tick = None  # pigpio tick of the current low pulse's falling edge
 
         # Callbacks
         self.coin_callback = None
@@ -98,7 +104,7 @@ class PersistentGPIO(QObject):
                 self.pi.set_glitch_filter(self.COIN_PIN, 0)
                 edge = pigpio.FALLING_EDGE
             self.coin_callback = self.pi.callback(self.COIN_PIN, edge, self._coin_pulse_detected)
-            print(f"Coin acceptor: pulses on GPIO {self.COIN_PIN}, inhibit on GPIO {self.COIN_INHIBIT_PIN}, "
+            print(f"Coin acceptor ({self.KIOSK_MODEL} kiosk model): pulses on GPIO {self.COIN_PIN}, inhibit on GPIO {self.COIN_INHIBIT_PIN}, "
                   + (f"filter {self.COIN_GLITCH_FILTER_US}us glitch / "
                      f"{self.COIN_PULSE_MIN_MS:g}-{self.COIN_PULSE_MAX_MS:g}ms pulses"
                      if self.coin_filter else "filter OFF"))
@@ -112,7 +118,18 @@ class PersistentGPIO(QObject):
             self.pi.set_pull_up_down(self.BILL_PIN, pigpio.PUD_UP)
             self.pi.set_mode(self.INHIBIT_PIN, pigpio.OUTPUT)
             self._set_acceptor_state(False)  # Start disabled
-            self.bill_callback = self.pi.callback(self.BILL_PIN, pigpio.FALLING_EDGE, self._bill_pulse_detected)
+            if self.bill_filter:
+                # Same as the coin line: drop spikes in pigpiod, count bill-width pulses.
+                self.pi.set_glitch_filter(self.BILL_PIN, self.BILL_GLITCH_FILTER_US)
+                edge = pigpio.EITHER_EDGE
+            else:
+                self.pi.set_glitch_filter(self.BILL_PIN, 0)
+                edge = pigpio.FALLING_EDGE
+            self.bill_callback = self.pi.callback(self.BILL_PIN, edge, self._bill_pulse_detected)
+            print(f"Bill acceptor: pulses on GPIO {self.BILL_PIN}, inhibit on GPIO {self.INHIBIT_PIN}, "
+                  + (f"filter {self.BILL_GLITCH_FILTER_US}us glitch / "
+                     f"{self.BILL_PULSE_MIN_MS:g}-{self.BILL_PULSE_MAX_MS:g}ms pulses"
+                     if self.bill_filter else "filter OFF"))
 
             self.running = True
             self.payment_status.emit("Persistent GPIO ready - Coin and bill acceptors disabled")
@@ -157,12 +174,29 @@ class PersistentGPIO(QObject):
         if not self.enabled:
             return
 
-        current_time = time.time()
+        if not self.bill_filter:
+            current_time = time.time()
+            with self._state_lock:
+                if current_time - self.bill_last_pulse_time > self.DEBOUNCE_TIME:
+                    self.bill_pulse_count += 1
+                    self.bill_last_pulse_time = current_time
+                    print(f"Bill pulse detected: {self.bill_pulse_count}")
+            return
+
         with self._state_lock:
-            if current_time - self.bill_last_pulse_time > self.DEBOUNCE_TIME:
-                self.bill_pulse_count += 1
-                self.bill_last_pulse_time = current_time
-                print(f"Bill pulse detected: {self.bill_pulse_count}")
+            if level == 0:  # falling edge: a low pulse starts
+                self.bill_pulse_start_tick = tick
+                return
+            if level != 1 or self.bill_pulse_start_tick is None:
+                return
+            # Rising edge: the pulse ends. Ticks are µs and wrap at 2**32.
+            width_ms = ((tick - self.bill_pulse_start_tick) & 0xFFFFFFFF) / 1000
+            self.bill_pulse_start_tick = None
+            if not self.BILL_PULSE_MIN_MS <= width_ms <= self.BILL_PULSE_MAX_MS:
+                return
+            self.bill_pulse_count += 1
+            self.bill_last_pulse_time = time.time()
+            print(f"Bill pulse detected: {self.bill_pulse_count} ({width_ms:.1f}ms)")
 
     def _set_acceptor_state(self, enable):
         """Enable or disable the bill acceptor."""
@@ -188,9 +222,11 @@ class PersistentGPIO(QObject):
 
     def enable_payment(self):
         """Enable payment processing."""
-        with self._state_lock:  # drop any half-counted coin from before
+        with self._state_lock:  # drop any half-counted coin or bill from before
             self.coin_pulse_count = 0
             self.coin_pulse_start_tick = None
+            self.bill_pulse_count = 0
+            self.bill_pulse_start_tick = None
         self.enabled = True
         self._set_acceptor_state(True)  # Enable bill acceptor
         self._set_coin_acceptor_state(True)  # Enable coin acceptor
@@ -232,6 +268,8 @@ class PersistentGPIO(QObject):
                 if bill_value > 0:
                     self.bill_inserted.emit(bill_value)
                     print(f"Bill processed: ₱{bill_value}")
+                else:
+                    print(f"WARNING: Bill ignored: {self.bill_pulse_count} pulses match no bill")
                 self.bill_pulse_count = 0
 
     def _get_coin_value(self, pulse_count):

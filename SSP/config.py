@@ -17,6 +17,23 @@ from typing import TypeVar, cast
 
 ValueType = TypeVar("ValueType", str, int, float, bool)
 
+# GPIO pins per kiosk model (KIOSK_MODEL in .env). 'old' is the kiosk tested so far,
+# found by watching every GPIO while coins went in and each hopper ran (2026-10-15).
+# 'new' was checked the same way on that kiosk (2026-10-22); its coin pin and hopper
+# sensor pins differ from 'old' (hopper A/B sensors swapped).
+KIOSK_MODEL_PINS = {
+    'old': {
+        'COIN_PIN': 12, 'BILL_PIN': 18, 'COIN_INHIBIT_PIN': 22, 'BILL_INHIBIT_PIN': 23,
+        'HOPPER_A_SIGNAL_PIN': 9, 'HOPPER_A_ENABLE_PIN': 24,
+        'HOPPER_B_SIGNAL_PIN': 26, 'HOPPER_B_ENABLE_PIN': 25,
+    },
+    'new': {
+        'COIN_PIN': 17, 'BILL_PIN': 18, 'COIN_INHIBIT_PIN': 22, 'BILL_INHIBIT_PIN': 23,
+        'HOPPER_A_SIGNAL_PIN': 26, 'HOPPER_A_ENABLE_PIN': 24,
+        'HOPPER_B_SIGNAL_PIN': 9, 'HOPPER_B_ENABLE_PIN': 25,
+    },
+}
+
 
 class Config:
     """
@@ -187,38 +204,47 @@ class Config:
         """Get admin phone number for SMS alerts."""
         return self.get('PHONE_NUMBER', str)
 
-    # Pin defaults match .env.example and this kiosk's wiring (coin pulses on GPIO 12).
+    # Acceptor and hopper pins. KIOSK_MODEL picks a pin set from KIOSK_MODEL_PINS;
+    # a pin set in .env (e.g. COIN_PIN) overrides the model's value.
+
+    @property
+    def kiosk_model(self) -> str:
+        """Kiosk model whose wiring to use: 'old' (default) or 'new'."""
+        try:
+            model = self.get('KIOSK_MODEL', str).strip().lower() or 'old'
+        except KeyError:
+            return 'old'
+        if model not in KIOSK_MODEL_PINS:
+            raise ValueError(f"Unknown KIOSK_MODEL '{model}' "
+                             f"(expected one of: {', '.join(KIOSK_MODEL_PINS)})")
+        return model
+
+    def _pin(self, key: str) -> int:
+        """GPIO pin from .env if set, else from the kiosk model's pin set."""
+        try:
+            return self.get(key, int)
+        except KeyError:
+            return KIOSK_MODEL_PINS[self.kiosk_model][key]
+
     @property
     def coin_pin(self) -> int:
         """Get GPIO pin number for coin acceptor pulse input."""
-        try:
-            return self.get('COIN_PIN', int)
-        except KeyError:
-            return 12
+        return self._pin('COIN_PIN')
 
     @property
     def bill_pin(self) -> int:
         """Get GPIO pin number for bill acceptor pulse input."""
-        try:
-            return self.get('BILL_PIN', int)
-        except KeyError:
-            return 18
+        return self._pin('BILL_PIN')
 
     @property
     def coin_inhibit_pin(self) -> int:
         """Get GPIO pin number for coin acceptor inhibit/enable (active high)."""
-        try:
-            return self.get('COIN_INHIBIT_PIN', int)
-        except KeyError:
-            return 22
+        return self._pin('COIN_INHIBIT_PIN')
 
     @property
     def bill_inhibit_pin(self) -> int:
         """Get GPIO pin number for bill acceptor inhibit/enable (active low)."""
-        try:
-            return self.get('BILL_INHIBIT_PIN', int)
-        except KeyError:
-            return 23
+        return self._pin('BILL_INHIBIT_PIN')
 
     # Coin pulse noise filtering (managers/persistent_gpio.py). The coin line picks
     # up sub-millisecond spikes; real pulses are ~15 ms (Fast) to ~100 ms (Slow).
@@ -255,40 +281,62 @@ class Config:
         except KeyError:
             return 150.0
 
-    # Coin hoppers (managers/hopper_manager.py). Defaults match this kiosk's wiring,
-    # found by watching every GPIO while each hopper ran (2026-10-15).
+    # Bill pulse noise filtering, as for coins. The bill line picks up sub-0.1 ms
+    # spikes (in and between bills); real pulses are ~50 ms (new kiosk, 2026-10-22).
+
+    @property
+    def bill_pulse_filter(self) -> bool:
+        """Filter bill pulses by width. False = legacy falling-edge counting (diagnostics)."""
+        try:
+            return self.get('BILL_PULSE_FILTER', bool)
+        except KeyError:
+            return True
+
+    @property
+    def bill_glitch_filter_us(self) -> int:
+        """pigpio glitch filter on the bill pin: ignore level changes shorter than this (µs)."""
+        try:
+            return self.get('BILL_GLITCH_FILTER_US', int)
+        except KeyError:
+            return 5000
+
+    @property
+    def bill_pulse_min_ms(self) -> float:
+        """Shortest low pulse on the bill pin counted as a bill pulse (ms)."""
+        try:
+            return self.get('BILL_PULSE_MIN_MS', float)
+        except KeyError:
+            return 20.0
+
+    @property
+    def bill_pulse_max_ms(self) -> float:
+        """Longest low pulse on the bill pin counted as a bill pulse (ms)."""
+        try:
+            return self.get('BILL_PULSE_MAX_MS', float)
+        except KeyError:
+            return 150.0
+
+    # Coin hoppers (managers/hopper_manager.py), pins from the kiosk model as above.
 
     @property
     def hopper_a_signal_pin(self) -> int:
         """Get GPIO pin number for hopper A's (₱1) coin-out sensor."""
-        try:
-            return self.get('HOPPER_A_SIGNAL_PIN', int)
-        except KeyError:
-            return 9
+        return self._pin('HOPPER_A_SIGNAL_PIN')
 
     @property
     def hopper_a_enable_pin(self) -> int:
         """Get GPIO pin number for hopper A's (₱1) motor enable (active low)."""
-        try:
-            return self.get('HOPPER_A_ENABLE_PIN', int)
-        except KeyError:
-            return 24
+        return self._pin('HOPPER_A_ENABLE_PIN')
 
     @property
     def hopper_b_signal_pin(self) -> int:
         """Get GPIO pin number for hopper B's (₱5) coin-out sensor."""
-        try:
-            return self.get('HOPPER_B_SIGNAL_PIN', int)
-        except KeyError:
-            return 26
+        return self._pin('HOPPER_B_SIGNAL_PIN')
 
     @property
     def hopper_b_enable_pin(self) -> int:
         """Get GPIO pin number for hopper B's (₱5) motor enable (active low)."""
-        try:
-            return self.get('HOPPER_B_ENABLE_PIN', int)
-        except KeyError:
-            return 25
+        return self._pin('HOPPER_B_ENABLE_PIN')
 
     # Admin access
 
