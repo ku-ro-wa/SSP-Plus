@@ -55,11 +55,15 @@ def _lan_ip() -> str:
 
 def _portal_host() -> str:
     """The address phones reach the portal at. On a kiosk running its own
-    hotspot (ADR 0007) that's the Pi's hotspot address: phones join the
-    hotspot, and _lan_ip() would give the upstream interface they can't
-    reach. Laptops (SIM_MODE) and hotspot-less kiosks use the LAN address."""
+    hotspot (ADR 0007) that's PORTAL_HOSTNAME, which the hotspot's dnsmasq
+    answers with the Pi's hotspot address — the same name the setup script
+    prints and the sticker carries. Falls back to the bare hotspot address
+    if the name is blank; _lan_ip() would give the upstream interface phones
+    can't reach. Laptops (SIM_MODE) and hotspot-less kiosks use the LAN address."""
     config = get_config()
     if config.wifi_hotspot_enabled and not config.sim_mode:
+        if config.portal_hostname:
+            return config.portal_hostname
         try:
             return str(ipaddress.IPv4Interface(config.wifi_hotspot_address).ip)
         except ValueError:

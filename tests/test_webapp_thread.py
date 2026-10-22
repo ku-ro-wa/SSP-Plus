@@ -85,12 +85,20 @@ class TestWifiPortalUrl:
 
 class TestPortalHost:
     # Phones join the kiosk's own hotspot, so a hotspot kiosk must show the
-    # hotspot address, not the upstream LAN one _lan_ip() finds.
-    def test_hotspot_kiosk_shows_the_hotspot_address(self, monkeypatch):
+    # portal's name (dnsmasq answers it with the hotspot address), not the
+    # upstream LAN address _lan_ip() finds.
+    def test_hotspot_kiosk_shows_the_portal_hostname(self, monkeypatch):
         monkeypatch.setenv("SIM_MODE", "false")
         monkeypatch.setenv("WIFI_HOTSPOT_ENABLED", "true")
+        monkeypatch.setenv("PORTAL_HOSTNAME", "print.aio-spark.example")
+        assert wifi_portal_url(tls=False) == "http://print.aio-spark.example:8000/upload"
+        assert scan_redeem_portal_url(tls=False) == "http://print.aio-spark.example:8000/redeem"
+
+    def test_blank_hostname_falls_back_to_the_hotspot_address(self, monkeypatch):
+        monkeypatch.setenv("SIM_MODE", "false")
+        monkeypatch.setenv("WIFI_HOTSPOT_ENABLED", "true")
+        monkeypatch.setenv("PORTAL_HOSTNAME", "")
         monkeypatch.setenv("WIFI_HOTSPOT_ADDRESS", "10.3.141.1/24")
-        assert wifi_portal_url(tls=False) == "http://10.3.141.1:8000/upload"
         assert scan_redeem_portal_url(tls=False) == "http://10.3.141.1:8000/redeem"
 
     def test_sim_mode_shows_the_lan_address(self, monkeypatch):
@@ -108,6 +116,7 @@ class TestPortalHost:
     def test_bad_hotspot_address_falls_back_to_lan(self, monkeypatch):
         monkeypatch.setenv("SIM_MODE", "false")
         monkeypatch.setenv("WIFI_HOTSPOT_ENABLED", "true")
+        monkeypatch.setenv("PORTAL_HOSTNAME", "")
         monkeypatch.setenv("WIFI_HOTSPOT_ADDRESS", "nonsense")
         monkeypatch.setattr(webapp_thread, "_lan_ip", lambda: "192.168.1.20")
         assert wifi_portal_url(tls=False) == "http://192.168.1.20:8000/upload"
