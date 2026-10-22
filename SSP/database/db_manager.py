@@ -674,18 +674,22 @@ class DatabaseManager(VoucherDBMixin):
     def get_change_and_voucher_totals(self, since=None):
         """Change actually dispensed, Voucher value issued and Voucher value
         Applied (issue #28), summed over the same completed transactions as
-        get_accounting_summary, optionally scoped to timestamp >= `since`.
-        Rows logged before #23 have a NULL change_dispensed and count as 0."""
+        get_accounting_summary; Voucher value issued also counts abandoned
+        payments (cancelled_partial_payment), whose cash became a Voucher.
+        Optionally scoped to timestamp >= `since`. Rows logged before #23 have
+        a NULL change_dispensed and count as 0."""
         empty = {"change_dispensed": 0, "voucher_issued": 0, "voucher_applied": 0}
         if not self.conn:
             return empty
         try:
             cursor = self.conn.cursor()
             query = (
-                "SELECT COALESCE(SUM(change_dispensed), 0) AS change_dispensed, "
+                "SELECT COALESCE(SUM(CASE WHEN status = 'completed' THEN change_dispensed END), 0) "
+                "AS change_dispensed, "
                 "COALESCE(SUM(voucher_issued), 0) AS voucher_issued, "
-                "COALESCE(SUM(voucher_applied), 0) AS voucher_applied "
-                "FROM transactions WHERE status = 'completed'"
+                "COALESCE(SUM(CASE WHEN status = 'completed' THEN voucher_applied END), 0) "
+                "AS voucher_applied "
+                "FROM transactions WHERE status IN ('completed', 'cancelled_partial_payment')"
             )
             params = []
             if since is not None:

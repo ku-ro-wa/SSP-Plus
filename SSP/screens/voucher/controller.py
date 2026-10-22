@@ -4,7 +4,9 @@
 # hands it an IssuedVoucher (or a failure amount) via show_issued() /
 # show_failure(), navigates here, and this screen calls
 # PaymentModel.continue_to_thank_you() when the customer is done, which is
-# what actually starts the print job. The print therefore waits for the
+# what actually starts the print job. A Voucher for an abandoned payment's cash
+# (reason 'unspent') passes on_continue instead, to go where the customer was
+# going; nothing is printed. The print therefore waits for the
 # customer to see their code, and main_app's "print finished on the wrong
 # screen" redirect can't yank them off it.
 
@@ -36,18 +38,21 @@ class VoucherController(QWidget):
         layout.addWidget(self.view, 0, 0)
 
         self._continuing = False
+        self._on_continue = None
         self.view.continue_clicked.connect(self._continue)
 
     # --- Public API for the payment model ---
 
-    def show_issued(self, voucher):
+    def show_issued(self, voucher, reason=VoucherModel.CHANGE, on_continue=None):
         self._continuing = False
-        self.model.set_voucher(voucher)
+        self._on_continue = on_continue
+        self.model.set_voucher(voucher, reason)
         self.view.render(self.model)
 
-    def show_failure(self, amount):
+    def show_failure(self, amount, reason=VoucherModel.CHANGE, on_continue=None):
         self._continuing = False
-        self.model.set_failure(amount)
+        self._on_continue = on_continue
+        self.model.set_failure(amount, reason)
         self.view.render(self.model)
 
     # --- Lifecycle (called by main_app.show_screen) ---
@@ -76,4 +81,8 @@ class VoucherController(QWidget):
         self._continuing = True
         self.timeout_timer.stop()
         self.view.set_busy()
-        self.main_app.payment_screen.model.continue_to_thank_you()
+        on_continue, self._on_continue = self._on_continue, None
+        if on_continue:
+            on_continue()
+        else:
+            self.main_app.payment_screen.model.continue_to_thank_you()

@@ -21,6 +21,7 @@ from PyQt5.QtWidgets import QApplication, QMainWindow, QStackedWidget, QInputDia
 from PyQt5.QtCore import QObject, QTimer, pyqtSignal
 from PyQt5.QtGui import QKeySequence
 from screens.idle import IdleController
+from screens.payment.model import redirect_for_carried_credit
 from screens.usb import USBController
 from screens.wifi import WifiController
 from screens.email import EmailController
@@ -483,6 +484,10 @@ class PrintingSystemApp(QMainWindow):
         current_widget = self.stacked_widget.currentWidget()
         if current_widget is not None and hasattr(current_widget, 'on_leave'):
             current_widget.on_leave()
+
+        # Leaving an unfinished payment with cash in (anywhere but print options):
+        # its Voucher is shown first, then the voucher screen continues here.
+        screen_name = redirect_for_carried_credit(self, screen_name)
 
         # Check paper and ink before switching to most screens (except admin and thank_you)
         if screen_name not in ['admin', 'thank_you', 'voucher']:
