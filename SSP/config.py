@@ -255,6 +255,41 @@ class Config:
         except KeyError:
             return 150.0
 
+    # Bill pulse noise filtering, as for coins. The bill line picks up sub-0.1 ms
+    # spikes (in and between bills); real pulses are ~50 ms (new kiosk, 2026-10-22).
+
+    @property
+    def bill_pulse_filter(self) -> bool:
+        """Filter bill pulses by width. False = legacy falling-edge counting (diagnostics)."""
+        try:
+            return self.get('BILL_PULSE_FILTER', bool)
+        except KeyError:
+            return True
+
+    @property
+    def bill_glitch_filter_us(self) -> int:
+        """pigpio glitch filter on the bill pin: ignore level changes shorter than this (µs)."""
+        try:
+            return self.get('BILL_GLITCH_FILTER_US', int)
+        except KeyError:
+            return 5000
+
+    @property
+    def bill_pulse_min_ms(self) -> float:
+        """Shortest low pulse on the bill pin counted as a bill pulse (ms)."""
+        try:
+            return self.get('BILL_PULSE_MIN_MS', float)
+        except KeyError:
+            return 20.0
+
+    @property
+    def bill_pulse_max_ms(self) -> float:
+        """Longest low pulse on the bill pin counted as a bill pulse (ms)."""
+        try:
+            return self.get('BILL_PULSE_MAX_MS', float)
+        except KeyError:
+            return 150.0
+
     # Coin hoppers (managers/hopper_manager.py). Defaults match this kiosk's wiring,
     # found by watching every GPIO while each hopper ran (2026-10-15).
 
