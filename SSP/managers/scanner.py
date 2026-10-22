@@ -30,12 +30,13 @@ class ScannerInterface(ABC):
 
 
 class SaneAirscanScanner(ScannerInterface):
-    """Talks to the HP Smart Tank 580 over sane-airscan (eSCL/AirScan,
-    driverless) via the `scanimage` CLI. Flatbed only — no ADF flags, one
-    page per call, matching project_objectives.txt #8. The device string is
-    operator-obtained by running `scanimage -L` on the kiosk once
-    sane-airscan is installed — eSCL device indices aren't stable across
-    reboots, so it's never auto-discovered here."""
+    """Talks to the kiosk's HP Smart Tank over eSCL (driverless) via the
+    `scanimage` CLI. Flatbed only — no ADF flags, one page per call,
+    matching project_objectives.txt #8. The device string comes from .env;
+    on the kiosk it's `escl:http://localhost:60000` (the ipp-usb port, the
+    same for any model), and `scanimage -L` lists the alternatives. eSCL
+    device indices aren't stable across reboots, so it's never
+    auto-discovered here."""
 
     def __init__(self, device: str, timeout: int):
         self.device = device

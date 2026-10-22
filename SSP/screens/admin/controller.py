@@ -3,6 +3,7 @@
 from PyQt5.QtWidgets import QWidget, QGridLayout
 
 from config import get_config
+from managers.printer_status import read_printer_status
 
 from .model import AdminModel
 from .view import AdminScreenView
@@ -86,6 +87,7 @@ class AdminController(QWidget):
         self.model.load_coin_counts()
         self.model.load_cmyk_levels()
         self.view.update_qr_reader_status(self.main_app.qr_reader_status_text())
+        self.view.update_printer_status(*read_printer_status())
         # Debug: Show what paper count is loaded
         print(f"Admin on_enter: Paper count loaded as {self.model.paper_count}")
         print(f"Admin on_enter: Fresh DB value: {self.model.db_manager.get_setting('paper_count', default=100)}")
