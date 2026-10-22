@@ -73,7 +73,7 @@ shows the status (blank port = "Not configured"). See ADR 0004.
 
 Acceptor and hopper pins come from the kiosk model: `KIOSK_MODEL` in `.env` (`old`, the default, or `new`) picks a pin set from `KIOSK_MODEL_PINS` in `config.py`. Any of `COIN_PIN`, `COIN_INHIBIT_PIN`, `BILL_PIN`, `BILL_INHIBIT_PIN`, `HOPPER_A_SIGNAL_PIN`, `HOPPER_A_ENABLE_PIN`, `HOPPER_B_SIGNAL_PIN`, `HOPPER_B_ENABLE_PIN` set in `.env` overrides the model's value (`tests/test_kiosk_model_pins.py`). The startup `Coin acceptor (...)` line names the model. The idle/payment controllers' "manual disable" backups and `main_app`'s startup disable still hardcode inhibit pins 22/23 (the same on both models).
 
-The `new` model differs in coin input GPIO 17 and swapped hopper sensors (A on 26, B on 9), taken from wiring notes and not yet checked on that kiosk. Check a kiosk's real wiring with `scripts/gpio_scan.py` (on the kiosk, app stopped: `baseline`, `coins`, `hopper A|B`), which counts low pulses on every non-output GPIO. The `old` model's pins, found that way:
+The `new` model differs in coin input GPIO 17 and swapped hopper sensors (A on 26, B on 9), taken from wiring notes and not yet checked on that kiosk. Check a kiosk's real wiring with `scripts/gpio_scan.py` (on the kiosk, app stopped: `baseline`, `coins`, `hopper A|B`, and `empty A|B` to run a hopper until Ctrl+C), which counts low pulses on every non-output GPIO. The `old` model's pins, found that way:
 - Coin acceptor input: GPIO 12; inhibit (active high, HIGH=enabled): GPIO 22
 - Bill acceptor input: GPIO 18; inhibit (active low, LOW=enabled): GPIO 23
 - Hopper A (₱1 coins): coin-out sensor GPIO 9, enable GPIO 24 (active low)

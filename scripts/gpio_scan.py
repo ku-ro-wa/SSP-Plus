@@ -10,6 +10,11 @@ from the repo root with the kiosk app stopped (it shares pigpiod's pins):
     python scripts/gpio_scan.py coins                 # acceptors on; insert coins/bills
     python scripts/gpio_scan.py hopper A              # runs hopper A's motor for 1 s
     python scripts/gpio_scan.py hopper B --seconds 2
+    python scripts/gpio_scan.py empty B               # runs hopper B until Ctrl+C (max 180 s)
+
+`empty` runs the motor whatever the sensor says, so it works with a miswired sensor:
+watch the hopper and press Ctrl+C once coins stop. It prints the sensor's running
+pulse count each second; compare the total with the coins that came out.
 
 On the old kiosk (2026-10-15) coins showed 3/5/8/11 pulses for ₱1/₱5/₱10/₱20, each
 ~66-74 ms wide; a hopper shows one 43-183 ms pulse per coin out (~5 coins/s).
@@ -23,7 +28,8 @@ import time
 sys.path.insert(0, os.path.normpath(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'SSP')))
 
 GLITCH_FILTER_US = 5000  # same as the app's coin and hopper-sensor filters
-MAX_MOTOR_SECONDS = 3.0  # ~15 coins; the motor never runs longer than this
+MAX_MOTOR_SECONDS = 3.0  # ~15 coins; a `hopper` run never runs the motor longer
+MAX_EMPTY_SECONDS = 180  # an `empty` run stops here even without Ctrl+C
 BCM_PINS = range(2, 28)
 
 
@@ -54,19 +60,21 @@ class PulseRecorder:
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument('mode', choices=['baseline', 'coins', 'hopper'])
-    parser.add_argument('hopper', nargs='?', choices=['A', 'B'], help="hopper to run (hopper mode)")
+    parser.add_argument('mode', choices=['baseline', 'coins', 'hopper', 'empty'])
+    parser.add_argument('hopper', nargs='?', choices=['A', 'B'], help="hopper to run (hopper and empty modes)")
     parser.add_argument('--seconds', type=float,
-                        help="how long to listen (baseline 10, coins 30) or run the motor (hopper 1, max 3)")
+                        help="how long to listen (baseline 10, coins 30) or run the motor "
+                             f"(hopper 1, max {MAX_MOTOR_SECONDS:g}; empty {MAX_EMPTY_SECONDS})")
     args = parser.parse_args()
-    if args.mode == 'hopper' and not args.hopper:
-        parser.error("hopper mode needs A or B")
+    if args.mode in ('hopper', 'empty') and not args.hopper:
+        parser.error(f"{args.mode} mode needs A or B")
 
     import pigpio
     from config import get_config
     cfg = get_config()
 
     enables = {'A': cfg.hopper_a_enable_pin, 'B': cfg.hopper_b_enable_pin}
+    signals = {'A': cfg.hopper_a_signal_pin, 'B': cfg.hopper_b_signal_pin}
     outputs = {cfg.coin_inhibit_pin: 'coin inhibit', cfg.bill_inhibit_pin: 'bill inhibit',
                enables['A']: 'hopper A enable', enables['B']: 'hopper B enable'}
     labels = {
@@ -104,6 +112,17 @@ def main():
             pi.write(pin, 1)
             print(f"Hopper {args.hopper} motor OFF")
             time.sleep(1)  # catch the last coin's pulse
+        elif args.mode == 'empty':
+            seconds = min(args.seconds or MAX_EMPTY_SECONDS, MAX_EMPTY_SECONDS)
+            pin, sensor = enables[args.hopper], signals[args.hopper]
+            print(f"Hopper {args.hopper} motor ON (GPIO {pin}) until Ctrl+C, at most {seconds:g} s")
+            pi.write(pin, 0)  # active low
+            started = time.monotonic()
+            while time.monotonic() - started < seconds:
+                time.sleep(1)
+                print(f"  {time.monotonic() - started:4.0f} s  pulses on GPIO {sensor}: "
+                      f"{len(recorder.widths.get(sensor, []))}")
+            print("Time limit reached")
         else:
             seconds = args.seconds or (30 if args.mode == 'coins' else 10)
             if args.mode == 'coins':
@@ -118,6 +137,8 @@ def main():
     finally:
         for pin in enables.values():
             pi.write(pin, 1)
+        if args.mode == 'empty':
+            print(f"Hopper {args.hopper} motor OFF")
         if args.mode == 'coins':
             pi.write(cfg.coin_inhibit_pin, 0)
             pi.write(cfg.bill_inhibit_pin, 1)
