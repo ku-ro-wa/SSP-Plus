@@ -19,8 +19,8 @@ ValueType = TypeVar("ValueType", str, int, float, bool)
 
 # GPIO pins per kiosk model (KIOSK_MODEL in .env). 'old' is the kiosk tested so far,
 # found by watching every GPIO while coins went in and each hopper ran (2026-10-15).
-# 'new' is from the wiring notes and hasn't been checked on that kiosk yet; note its
-# coin pin and hopper sensor pins differ from 'old' (hopper A/B sensors swapped).
+# 'new' was checked the same way on that kiosk (2026-10-22); its coin pin and hopper
+# sensor pins differ from 'old' (hopper A/B sensors swapped).
 KIOSK_MODEL_PINS = {
     'old': {
         'COIN_PIN': 12, 'BILL_PIN': 18, 'COIN_INHIBIT_PIN': 22, 'BILL_INHIBIT_PIN': 23,
