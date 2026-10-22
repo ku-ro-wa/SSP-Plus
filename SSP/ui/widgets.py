@@ -5,11 +5,11 @@ No imports from managers/, database/, or any model — these are part of the
 view layer, just factored out of per-screen duplication.
 """
 
-from PyQt5.QtCore import Qt, pyqtSignal
-from PyQt5.QtGui import QColor
+from PyQt5.QtCore import QRegularExpression, Qt, pyqtSignal
+from PyQt5.QtGui import QColor, QRegularExpressionValidator
 from PyQt5.QtWidgets import (
-    QFrame, QGraphicsDropShadowEffect, QGridLayout, QHBoxLayout, QLabel, QPushButton, QVBoxLayout,
-    QWidget,
+    QFrame, QGraphicsDropShadowEffect, QGridLayout, QHBoxLayout, QLabel, QLineEdit, QPushButton,
+    QVBoxLayout, QWidget,
 )
 
 from managers.voucher_manager import MSG_UNGIVEN_CHANGE
@@ -262,30 +262,95 @@ BACKSPACE_KEY = "\u232b"  # ⌫
 
 class CodeKeypad(QWidget):
     """On-screen keypad that types into a QLineEdit, for kiosk code entry
-    (the touchscreen has no physical or OS keyboard). `keys` is the set of
-    characters offered, laid out `columns` per row with a backspace key last.
+    (the touchscreen has no physical or OS keyboard). `target` is the entry,
+    or a callable returning the entry to type into (None types nowhere).
+    `keys` is the set of characters offered, laid out `columns` per row with a
+    backspace key last unless `keys` places BACKSPACE_KEY itself. A `submit`
+    button, if given, takes the cell after the last key.
     Emits `pressed` on every key so the screen can reset its timeout."""
 
     pressed = pyqtSignal()
 
-    def __init__(self, target, keys: str, columns: int = 11, parent=None):
+    def __init__(self, target, keys: str, columns: int = 11, key_size: int = 48, submit=None, parent=None):
         super().__init__(parent)
         self._target = target
         layout = QGridLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(6)
+        values = list(keys) if BACKSPACE_KEY in keys else list(keys) + [BACKSPACE_KEY]
         self.key_buttons = {}
-        for i, value in enumerate(list(keys) + [BACKSPACE_KEY]):
+        for i, value in enumerate(values):
             button = SecondaryButton(value)
-            button.setMinimumSize(48, 48)
+            button.setMinimumSize(key_size, key_size)
             button.setFocusPolicy(Qt.NoFocus)  # keep the cursor in the target entry
             button.clicked.connect(lambda _, v=value: self._press(v))
             layout.addWidget(button, i // columns, i % columns)
             self.key_buttons[value] = button
+        if submit is not None:
+            submit.setMinimumSize(key_size, key_size)
+            submit.setFocusPolicy(Qt.NoFocus)
+            layout.addWidget(submit, len(values) // columns, len(values) % columns)
 
     def _press(self, value):
+        target = self._target() if callable(self._target) else self._target
+        if target is None:
+            return
         if value == BACKSPACE_KEY:
-            self._target.backspace()
+            target.backspace()
         else:
-            self._target.insert(value)
+            target.insert(value)
         self.pressed.emit()
+
+
+class OtpEntryPanel(QWidget):
+    """The wifi/email screens' 6-digit code entry: a field over a phone-style
+    keypad whose last key is Send. Emits `submitted` with the field's text
+    (Send or Enter) and `activity` on every key, for the screen's timeout."""
+
+    submitted = pyqtSignal(str)
+    activity = pyqtSignal()
+
+    KEY_SIZE = 72
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(12)
+
+        title = QLabel("Enter your code")
+        title.setAlignment(Qt.AlignCenter)
+        title.setStyleSheet(f"color: {COLORS['text']}; font-size: {FONT['size_lg']}px; font-weight: 700;")
+
+        self.input = QLineEdit()
+        self.input.setPlaceholderText("6-digit code")
+        self.input.setMaxLength(6)
+        # Not QIntValidator: a code may start with 0
+        self.input.setValidator(QRegularExpressionValidator(QRegularExpression(r"\d{0,6}")))
+        self.input.setAlignment(Qt.AlignCenter)
+        self.input.setStyleSheet(
+            f"QLineEdit {{ border: 1px solid {COLORS['border_strong']}; border-radius: 6px; padding: 8px; "
+            f"font-size: {FONT['size_xl']}px; font-weight: 700; color: {COLORS['text']}; }}"
+            f"QLineEdit:focus {{ border: 1px solid {COLORS['primary']}; }}"
+        )
+        self.input.returnPressed.connect(self._submit)
+
+        self.send_button = PrimaryButton("Send")
+        self.send_button.clicked.connect(self._submit)
+
+        self.keypad = CodeKeypad(
+            self.input, "123456789" + BACKSPACE_KEY + "0", columns=3,
+            key_size=self.KEY_SIZE, submit=self.send_button,
+        )
+        self.keypad.pressed.connect(self.activity.emit)
+        self.input.setFixedWidth(self.keypad.sizeHint().width())
+
+        layout.addWidget(title)
+        layout.addWidget(self.input, alignment=Qt.AlignCenter)
+        layout.addWidget(self.keypad, alignment=Qt.AlignCenter)
+
+    def _submit(self):
+        self.submitted.emit(self.input.text())
+
+    def clear(self):
+        self.input.clear()

@@ -8,7 +8,7 @@ from PyQt5.QtCore import Qt, pyqtSignal
 from PyQt5.QtGui import QDoubleValidator
 
 from ui.theme import COLORS, FONT, GROUPBOX_QSS, INPUT_QSS, RADIUS, severity_color
-from ui.widgets import BackButton, Header, PrimaryButton, SecondaryButton, nav_row
+from ui.widgets import BackButton, CodeKeypad, Header, PrimaryButton, SecondaryButton, nav_row
 
 # Thresholds mirror screens/admin/model.py's own display logic.
 PAPER_WARN, PAPER_CRIT = 50, 20
@@ -203,13 +203,16 @@ class AdminScreenView(QWidget):
         layout = QVBoxLayout(group)
         layout.setSpacing(10)
 
+        fields = QVBoxLayout()
+        fields.setSpacing(10)
+
         cm_row = QHBoxLayout()
         cm_row.setSpacing(20)
         cyan_col, self.cyan_input = self._cmyk_field("Cyan")
         magenta_col, self.magenta_input = self._cmyk_field("Magenta")
         cm_row.addLayout(cyan_col)
         cm_row.addLayout(magenta_col)
-        layout.addLayout(cm_row)
+        fields.addLayout(cm_row)
 
         yk_row = QHBoxLayout()
         yk_row.setSpacing(20)
@@ -217,7 +220,17 @@ class AdminScreenView(QWidget):
         black_col, self.black_input = self._cmyk_field("Black")
         yk_row.addLayout(yellow_col)
         yk_row.addLayout(black_col)
-        layout.addLayout(yk_row)
+        fields.addLayout(yk_row)
+
+        # The touchscreen has no keyboard: tap a field, then type on this keypad.
+        # Two rows beside the fields, so the screen gets no taller (it must fit 800 logical px).
+        self.ink_keypad = CodeKeypad(self._focused_ink_field, "0123456789.", columns=6, key_size=44)
+
+        fields_row = QHBoxLayout()
+        fields_row.setSpacing(20)
+        fields_row.addLayout(fields, 1)
+        fields_row.addWidget(self.ink_keypad, alignment=Qt.AlignVCenter)
+        layout.addLayout(fields_row)
 
         button_row = QHBoxLayout()
         button_row.addStretch()
@@ -239,6 +252,12 @@ class AdminScreenView(QWidget):
 
         layout.addLayout(button_row)
         return group
+
+    def _focused_ink_field(self):
+        """The ink field the keypad types into: whichever one has focus, else none."""
+        fields = (self.cyan_input, self.magenta_input, self.yellow_input, self.black_input)
+        focused = self.focusWidget()
+        return focused if focused in fields else None
 
     def _status_value_label(self):
         label = QLabel("")

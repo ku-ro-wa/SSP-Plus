@@ -33,8 +33,7 @@ class EmailController(QWidget):
         self.view.back_button_clicked.connect(self._go_back)
         self.view.back_button_clicked.connect(self._reset_timeout)
 
-        self.view.cancel_card_clicked.connect(self._cancel_upload)
-        self.view.cancel_card_clicked.connect(self._reset_timeout)
+        self.view.otp_entry_activity.connect(self._reset_timeout)
 
         self.view.send_otp_clicked.connect(self._handle_send_otp)
         self.view.send_otp_clicked.connect(self._reset_timeout)
@@ -94,6 +93,3 @@ class EmailController(QWidget):
         self.timeout_timer.start(60000)
         if hasattr(self.main_app, "start_global_countdown"):
             self.main_app.start_global_countdown(60)
-
-    def _cancel_upload(self):
-        print("QR card clicked")

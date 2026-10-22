@@ -1,21 +1,18 @@
 # screens/wifi/view.py
 
-from PyQt5.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit
-)
+from PyQt5.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QLabel
 from PyQt5.QtCore import Qt, pyqtSignal
-from PyQt5.QtGui import QIntValidator
 
 from ui.theme import COLORS, FONT
 from ui.qr import qr_pixmap
-from ui.widgets import BackButton, Card, Header, PrimaryButton, ReaderHint, StatusBanner, nav_row
+from ui.widgets import BackButton, Header, OtpEntryPanel, ReaderHint, StatusBanner, nav_row
 
 
 class WifiScreenView(QWidget):
     """The user interface for the WiFi Upload screen. Contains no logic."""
-    cancel_card_clicked = pyqtSignal()
     back_button_clicked = pyqtSignal()
     send_otp_clicked = pyqtSignal(str)  # otp_text
+    otp_entry_activity = pyqtSignal()  # a keypad key was pressed
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -41,16 +38,17 @@ class WifiScreenView(QWidget):
         body_layout.addStretch(1)
 
         guide_title = QLabel("Usage Guide")
-        guide_title.setAlignment(Qt.AlignCenter)
+        guide_title.setAlignment(Qt.AlignLeft)
         guide_title.setStyleSheet(f"color: {COLORS['text']}; font-size: {FONT['size_xl']}px; font-weight: 700;")
 
         self.guide_text = QLabel(
             '1. Connect your phone to the same network as this kiosk.<br>'
             '2. Open the address below in a browser and upload your PDF file(s).<br>'
-            '3. Enter the 6-digit code shown after the upload.'
+            '3. Type the 6-digit code shown after the upload on the keypad.'
         )
-        self.guide_text.setAlignment(Qt.AlignCenter)
+        self.guide_text.setAlignment(Qt.AlignLeft)
         self.guide_text.setWordWrap(True)
+        self.guide_text.setFixedWidth(600)
         self.guide_text.setStyleSheet(f"color: {COLORS['text_secondary']}; font-size: {FONT['size_md']}px;")
 
         self.portal_url_label = QLabel("")
@@ -80,61 +78,35 @@ class WifiScreenView(QWidget):
         # QR beside the address, not under it: stacked, the page is taller than the screen
         portal_row = QHBoxLayout()
         portal_row.setSpacing(24)
-        portal_row.addStretch()
         portal_row.addWidget(self.portal_qr_label)
         portal_row.addLayout(url_column)
         portal_row.addStretch()
 
-        body_layout.addWidget(guide_title)
-        body_layout.addSpacing(8)
-        body_layout.addWidget(self.guide_text)
-        body_layout.addSpacing(10)
-        body_layout.addLayout(portal_row)
-        body_layout.addSpacing(16)
+        guide_column = QVBoxLayout()
+        guide_column.setSpacing(0)
+        guide_column.addStretch()  # centred beside the taller keypad, not spread to its height
+        guide_column.addWidget(guide_title)
+        guide_column.addSpacing(8)
+        guide_column.addWidget(self.guide_text)
+        guide_column.addSpacing(16)
+        guide_column.addLayout(portal_row)
+        guide_column.addStretch()
 
-        # QR Code Scan / Enter Code cards
-        self.cancel_card = Card('qr', "QR Code Scan", "Scan QR code to access files.", icon_name='qr-code')
-        self.cancel_card.clicked.connect(lambda _key: self.cancel_card_clicked.emit())
+        # The touchscreen has no keyboard, so the code is typed on this keypad.
+        # Beside the guide, not under it: stacked, the page is taller than the screen.
+        self.otp_entry = OtpEntryPanel()
+        self.otp_entry.submitted.connect(self.send_otp_clicked.emit)
+        self.otp_entry.activity.connect(self.otp_entry_activity.emit)
+        self.otp_input = self.otp_entry.input
+        self.send_button = self.otp_entry.send_button
 
-        otp_row_widget = QWidget()
-        otp_row = QHBoxLayout(otp_row_widget)
-        otp_row.setContentsMargins(0, 0, 0, 0)
-        otp_row.setSpacing(6)
-
-        self.otp_input = QLineEdit()
-        self.otp_input.setPlaceholderText("6-digit code")
-        self.otp_input.setMaxLength(6)
-        self.otp_input.setValidator(QIntValidator(0, 999999))
-        self.otp_input.setAlignment(Qt.AlignCenter)
-        self.otp_input.setStyleSheet(
-            f"QLineEdit {{ border: 1px solid {COLORS['border_strong']}; border-radius: 6px; padding: 6px; "
-            f"font-size: {FONT['size_sm']}px; color: {COLORS['text']}; }}"
-            f"QLineEdit:focus {{ border: 1px solid {COLORS['primary']}; }}"
-        )
-
-        self.send_button = PrimaryButton("Send")
-        self.send_button.clicked.connect(lambda: self.send_otp_clicked.emit(self.otp_input.text()))
-        self.otp_input.returnPressed.connect(lambda: self.send_otp_clicked.emit(self.otp_input.text()))
-
-        otp_row.addWidget(self.otp_input)
-        otp_row.addWidget(self.send_button)
-
-        self.enter_code_card = Card(
-            'otp', "Enter Code", "Alternatively, enter the OTP that was provided to you.",
-            extra_widget=otp_row_widget,
-        )
-
-        # Shorter than the default card, so the page fits with its QR, a status and the nav row
-        for card in (self.cancel_card, self.enter_code_card):
-            card.setFixedHeight(172)
-
-        cards_row = QHBoxLayout()
-        cards_row.setSpacing(24)
-        cards_row.addStretch()
-        cards_row.addWidget(self.cancel_card)
-        cards_row.addWidget(self.enter_code_card)
-        cards_row.addStretch()
-        body_layout.addLayout(cards_row)
+        columns = QHBoxLayout()
+        columns.setSpacing(80)
+        columns.addStretch()
+        columns.addLayout(guide_column)
+        columns.addWidget(self.otp_entry, alignment=Qt.AlignVCenter)
+        columns.addStretch()
+        body_layout.addLayout(columns)
 
         body_layout.addSpacing(12)
         self.reader_hint = ReaderHint()
@@ -157,4 +129,4 @@ class WifiScreenView(QWidget):
         self.status_banner.show_message(message, variant="error" if is_error else "success")
 
     def clear_otp_input(self):
-        self.otp_input.clear()
+        self.otp_entry.clear()
