@@ -412,18 +412,21 @@ ADR-0007). They are planned, not all created yet. Rules for whoever sets them up
 ## Kiosk hotspot (hostapd + dnsmasq)
 
 The kiosk Pi runs its own open Wi-Fi network for the **Portal**: `hostapd` broadcasts it,
-`dnsmasq` hands out addresses and answers `PORTAL_HOSTNAME` with the Pi's hotspot address, and an
-nftables table on the hotspot interface allows only DHCP, DNS and `WIFI_PORTAL_PORT`. Nothing is
-forwarded to or from the router: phones' attempts to reach the internet are refused straight away
-(TCP reset or ICMP), not silently dropped, so nothing on a phone waits for a timeout. There is no
-captive portal. See `docs/adr/0007-own-hotspot-replaces-raspap-captive-portal.md`.
+`dnsmasq` hands out addresses and answers every name with the Pi's hotspot address, and an
+nftables table on the hotspot interface allows only DHCP, DNS, `WIFI_PORTAL_PORT` and
+`WIFI_CAPTIVE_PORT`. Port 80 to the Pi is redirected to `WIFI_CAPTIVE_PORT`, where the probe
+responder answers the OSes' connectivity checks, so a phone or laptop opens the upload page by
+itself when it joins. There's no splash page. Nothing is forwarded to or from the router: phones'
+attempts to reach the internet are refused straight away (TCP reset or ICMP), not silently dropped,
+so nothing on a phone waits for a timeout. See `docs/adr/0007-own-hotspot-replaces-raspap-captive-portal.md`
+and `docs/adr/0008-captive-portal-detection-without-a-splash-page.md`.
 
 Portal pages must load nothing from the internet (no CDN fonts, icons or scripts): phones on the
 hotspot can't reach it. Icons are inline SVGs in `SSP/webapp/templates/icons/` (Font Awesome Free
 6.5.0, CC BY 4.0; the credit is kept in each file). `tests/test_webapp.py` fails if a template
 references an outside URL.
 
-Everything comes from `.env` (`WIFI_HOTSPOT_*`, `PORTAL_HOSTNAME`, `WIFI_PORTAL_PORT`, `KIOSK_ID`;
+Everything comes from `.env` (`WIFI_HOTSPOT_*`, `PORTAL_HOSTNAME`, `WIFI_PORTAL_PORT`, `WIFI_CAPTIVE_PORT`, `KIOSK_ID`;
 see `.env.example`). Nothing is configured by hand on the Pi.
 
 ### On the Pi
