@@ -203,6 +203,12 @@ def init_db(db_path=None):
     _add_column_if_missing(cursor, 'transactions', 'voucher_issued', 'REAL NOT NULL DEFAULT 0')
     _add_column_if_missing(cursor, 'transactions', 'voucher_applied', 'REAL NOT NULL DEFAULT 0')
     _add_column_if_missing(cursor, 'transactions', 'payment_ref', 'TEXT')
+    # One transactions row per payment: settlement and the print outcome find it by payment_ref.
+    try:
+        cursor.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_transactions_payment_ref "
+                       "ON transactions(payment_ref) WHERE payment_ref IS NOT NULL")
+    except sqlite3.Error as e:
+        print(f"WARNING: could not create unique payment_ref index: {e}")
 
     # Create Email Intake Log table (for tracking email intake processing outcomes)
     cursor.execute('''

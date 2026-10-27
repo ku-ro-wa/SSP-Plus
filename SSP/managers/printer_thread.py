@@ -90,6 +90,9 @@ class PrinterThread(QThread):
 
             self.print_waiting.emit()
             if not self.wait_for_print_completion(job_id):
+                # The job was reported failed (and the customer refunded), so
+                # it must not print later once the fault is cleared.
+                self._cancel_cups_job(job_id)
                 return
 
             self._print_succeeded = True
@@ -100,6 +103,13 @@ class PrinterThread(QThread):
         finally:
             if not hasattr(self, '_print_succeeded'):
                 self.cleanup_temp_pdf()
+
+    def _cancel_cups_job(self, job_id):
+        try:
+            subprocess.run(['cancel', job_id], capture_output=True, text=True, timeout=10)
+            print(f"Cancelled CUPS job {job_id}")
+        except Exception as e:
+            print(f"Could not cancel CUPS job {job_id}: {e}")
 
     def _extract_job_id(self, cups_output):
         try:

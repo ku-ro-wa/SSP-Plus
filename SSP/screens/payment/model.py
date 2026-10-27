@@ -630,16 +630,38 @@ class PaymentModel(QObject):
         """Get payment suggestions for the current total cost."""
         return self.payment_algorithm.find_optimal_payment_amounts(self.total_cost)
 
-    def log_transaction_after_print_success(self):
-        """Log the transaction to database after successful printing."""
-        if hasattr(self, 'transaction_data') and self.transaction_data:
-            try:
-                self.db_manager.log_transaction(self.transaction_data)
-                print(f"✅ Transaction logged successfully: {self.transaction_data['file_name']}")
-            except Exception as e:
-                print(f"❌ Error logging transaction: {e}")
-        else:
-            print("⚠️ No transaction data available to log")
+    def settle_transaction(self):
+        """Money is settled once change has been dispensed (cash taken, coins
+        out, Shortfall Voucher saved, Applied Vouchers decremented), whatever
+        the printer does next. Logs the transactions row as `paid` and applies
+        the cash_inventory change, exactly once per payment_ref (#59). main_app
+        later moves the row to `completed` or `print_failed`."""
+        td = getattr(self, 'transaction_data', None)
+        if not td:
+            print("WARNING: No transaction data available to settle")
+            return
+        ref = td.get('payment_ref')
+        if ref and ref == getattr(self, '_settled_ref', None):
+            return
+        td['status'] = 'paid'
+        try:
+            if not self.db_manager.log_transaction(td):
+                print(f"ERROR: Transaction {ref} was not logged; skipping inventory update")
+                return
+            self._settled_ref = ref
+            print(f"Transaction settled: {td['file_name']}")
+        except Exception as e:
+            print(f"ERROR: Error logging transaction: {e}")
+            return
+        try:
+            for denom, count in (self.cash_received or {}).items():
+                if count > 0:
+                    self.db_manager.adjust_cash_inventory(denom, count, 'bill' if denom >= 20 else 'coin')
+            for denom, count in (self.change_dispensed or {}).items():
+                if count > 0:
+                    self.db_manager.adjust_cash_inventory(denom, -count, 'bill' if denom >= 20 else 'coin')
+        except Exception as e:
+            print(f"ERROR: Error updating cash inventory: {e}")
 
     # Print job signals are now handled by the thank you screen
     # No need to connect them here since the thank you screen will manage the entire print lifecycle
@@ -970,7 +992,7 @@ class PaymentModel(QObject):
             self.change_dispensed = {}
             print(f"Change to dispense: P{change_amount:.2f}")
 
-            # Logged by main_app via log_transaction_after_print_success();
+            # Logged as 'paid' by settle_transaction() once change is out;
             # _issue_shortfall_voucher fills in change_dispensed / voucher_issued.
             self.transaction_data = {
                 'file_name': os.path.basename(self.payment_data['pdf_data']['path']),
@@ -1095,6 +1117,10 @@ class PaymentModel(QObject):
         """Start the printing process."""
         print("Starting printing process...")
 
+        # The customer has paid and their change is out: settle now, before
+        # anything about printing can go wrong.
+        self.settle_transaction()
+
         try:
             # Validate payment data exists
             if not hasattr(self, 'payment_data') or not self.payment_data:
@@ -1119,7 +1145,10 @@ class PaymentModel(QObject):
                 'file_path': self.payment_data['pdf_data']['path'],
                 'selected_pages': self.payment_data.get('selected_pages', [1]),
                 'copies': self.payment_data.get('copies', 1),
-                'color_mode': self.payment_data.get('color_mode', 'Color')
+                'color_mode': self.payment_data.get('color_mode', 'Color'),
+                # The print is async and the model resets, so the outcome is
+                # recorded against this ref (#59).
+                'payment_ref': (getattr(self, 'transaction_data', None) or {}).get('payment_ref'),
             }
             self.main_app.current_print_job = print_job_details
             print(f"SUCCESS: Print job details stored: {print_job_details}")
