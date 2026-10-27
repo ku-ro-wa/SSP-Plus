@@ -90,6 +90,14 @@ SQLite at `SSP/database/ssp_database.db` (path is derived from `models.py`'s own
 `users`, `dashboard_login_log` (the last two are Admin Dashboard accounts/login-audit, unrelated
 to the touchscreen's own `ADMIN_PIN`).
 
+`main_app` writes two kiosk-liveness facts to the `settings` table for the Admin Dashboard to read
+(`managers/kiosk_status.py`, issue #42): `kiosk_last_seen` (an ISO 8601 heartbeat, written at
+startup and refreshed ~every 60 s by a `QTimer`) and `qr_reader_status` (the same one-line text
+Kiosk Admin shows — `describe_reader_status`: "Connected"/"Not connected"/"Not configured"/
+"Starting" — written at startup and on every reader status change). Both go through
+`DatabaseThreadManager.update_setting` (the QR write fires on the reader thread); a failed write is
+logged and never disturbs the kiosk.
+
 All DB access goes through `DatabaseManager` (`database/db_manager.py`). Writes triggered from non-main threads must go through `DatabaseThreadManager` (`db_threader`) to avoid SQLite's same-thread restriction.
 
 ### Admin Dashboard (`SSP/admin_dashboard/`)
