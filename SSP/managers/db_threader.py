@@ -113,6 +113,8 @@ class DatabaseThreadManager(QObject):
                     self._handle_update_coin_counts(operation)
                 elif operation.operation_type == "update_coin_inventory":
                     self._handle_update_coin_inventory(operation)
+                elif operation.operation_type == "update_setting":
+                    self._handle_update_setting(operation)
                 else:
                     operation.error = f"Unknown operation type: {operation.operation_type}"
 
@@ -255,6 +257,15 @@ class DatabaseThreadManager(QObject):
             operation.error = str(e)
             print(f"❌ Error updating coin inventory: {e}")
 
+    def _handle_update_setting(self, operation):
+        """Write one settings key (e.g. kiosk heartbeat or QR status). A failed
+        write is logged by kiosk_status and never raised."""
+        from managers.kiosk_status import write_setting_safely
+        key = operation.data['key']
+        value = operation.data['value']
+        operation.result = write_setting_safely(self.db_manager, key, value)
+        self.operation_completed.emit("update_setting", bool(operation.result))
+
     # Public methods for queuing operations
 
     def get_cmyk_levels(self, callback=None):
@@ -368,5 +379,22 @@ class DatabaseThreadManager(QObject):
         operation = DatabaseOperation("update_coin_counts", {
             'denomination': denomination, 'count': count, 'type': coin_type
         }, callback)
+        self.operation_queue.put(operation)
+        return operation
+
+    def update_setting(self, key, value, callback=None):
+        """Queue a write of one settings key, serialized with every other DB
+        write (used for the kiosk heartbeat and QR reader status, which are
+        written from the main and reader threads).
+
+        Args:
+            key: settings key
+            value: value to store
+            callback: Optional callback function(operation)
+
+        Returns:
+            DatabaseOperation object
+        """
+        operation = DatabaseOperation("update_setting", {'key': key, 'value': value}, callback)
         self.operation_queue.put(operation)
         return operation

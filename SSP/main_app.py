@@ -46,6 +46,7 @@ from managers.webapp_thread import WebAppThreadManager
 from managers.email_poller_thread import EmailPollerThreadManager
 from managers.qr_reader import (CONNECTED, DuplicateReadFilter, QrReaderManager, classify_payload, decide_qr_read,
                                 describe_reader_status, should_log_status_change)
+from managers.kiosk_status import SETTING_LAST_SEEN, SETTING_QR_STATUS, heartbeat_timestamp
 from managers.session_manager import SessionManager
 from database.db_manager import DatabaseManager
 from managers.sms_manager import cleanup_sms
@@ -175,6 +176,7 @@ class PrintingSystemApp(QMainWindow):
         self._connect_thread_managers()
 
         self._setup_qr_reader()
+        self._setup_kiosk_status()
 
         # Initialize printer manager (no dependencies)
         self.printer_manager = PrinterManager()
@@ -301,13 +303,34 @@ class PrintingSystemApp(QMainWindow):
             self._qr_inject_shortcut = QShortcut(QKeySequence("Ctrl+Shift+Q"), self)
             self._qr_inject_shortcut.activated.connect(self._inject_qr_read)
 
+    def _setup_kiosk_status(self):
+        """Write the kiosk heartbeat and QR reader status to the DB for the Admin
+        Dashboard, then refresh the heartbeat about once a minute. Writes go
+        through db_threader so they're serialized with every other DB write and
+        a failure never disturbs the kiosk (issue #42)."""
+        self._write_heartbeat()
+        self._write_qr_reader_status()
+        self._heartbeat_timer = QTimer(self)
+        self._heartbeat_timer.timeout.connect(self._write_heartbeat)
+        self._heartbeat_timer.start(60_000)
+
+    def _write_heartbeat(self):
+        self.db_threader.update_setting(SETTING_LAST_SEEN, heartbeat_timestamp())
+
+    def _write_qr_reader_status(self):
+        """Persist the same one-line status Kiosk Admin shows."""
+        self.db_threader.update_setting(SETTING_QR_STATUS, self.qr_reader_status_text())
+
     def _on_qr_reader_status(self, status, previous, detail):
-        """Runs on the reader thread. Loss and recovery each get one error_log entry."""
+        """Runs on the reader thread. Loss and recovery each get one error_log entry;
+        every change refreshes qr_reader_status for the dashboard."""
         if should_log_status_change(status, previous):
             from utils.error_logger import log_error
             message = ("QR reader recovered" if status == CONNECTED
                        else f"QR reader unavailable, typed codes only ({detail})")
             log_error("QR Reader", message, "qr_reader")
+        # db_threader is thread-safe (queue-backed), so this reader-thread call is fine.
+        self.db_threader.update_setting(SETTING_QR_STATUS, describe_reader_status(self.qr_reader))
 
     def _on_qr_reader_config_error(self, detail):
         """Runs on the reader thread, once per port open where a code was NAKed or unanswered."""
@@ -879,6 +902,9 @@ class PrintingSystemApp(QMainWindow):
             # Hoppers first: a motor running now would keep running after we exit
             self._stop_hoppers()
 
+            if hasattr(self, '_heartbeat_timer'):
+                print("🔄 Stopping heartbeat timer...")
+                self._heartbeat_timer.stop()
             # Stop database operations first to prevent SQLite thread errors
             if hasattr(self, 'db_threader'):
                 print("🔄 Stopping database threader...")
