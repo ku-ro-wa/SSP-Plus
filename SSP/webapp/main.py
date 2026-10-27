@@ -2,6 +2,7 @@
 from pathlib import Path
 
 from fastapi import FastAPI, Request
+from fastapi.responses import RedirectResponse
 from fastapi.staticfiles import StaticFiles
 
 from config import get_config
@@ -30,6 +31,12 @@ app.mount("/static", StaticFiles(directory=BASE_DIR / "static"), name="static")
 async def release_captive_client(request: Request, call_next):
     captive_clients.release(request.client.host if request.client else None)
     return await call_next(request)
+
+
+@app.get("/", include_in_schema=False)
+def root():
+    # Someone typing the bare address (or the sticker's name) gets the upload page.
+    return RedirectResponse("/upload", status_code=302)
 
 
 app.include_router(health.router)
