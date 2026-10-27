@@ -20,6 +20,13 @@ def test_health_returns_ok():
     assert response.json() == {"status": "ok"}
 
 
+def test_bare_address_redirects_to_upload():
+    # Typing the portal's hostname or IP with no path used to 404.
+    response = client.get("/", follow_redirects=False)
+    assert response.status_code == 302
+    assert response.headers["location"] == "/upload"
+
+
 def test_docs_availability_matches_config():
     # app.docs_url is fixed at import time from config.docs_enabled, so
     # rather than fake a different .env mid-test, just assert the live
