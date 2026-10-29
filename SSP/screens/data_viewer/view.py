@@ -4,7 +4,7 @@ from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QTabWidget,
     QTableWidget, QTableWidgetItem, QHeaderView
 )
-from PyQt5.QtCore import pyqtSignal
+from PyQt5.QtCore import Qt, pyqtSignal
 
 from ui.theme import COLORS, TABLE_QSS, TAB_QSS
 from ui.widgets import BackButton, Header, SecondaryButton, nav_row
@@ -71,7 +71,29 @@ class DataViewerScreenView(QWidget):
         table.setAlternatingRowColors(True)
         table.verticalHeader().setVisible(False)
         table.setEditTriggers(QTableWidget.NoEditTriggers)
+        table.setWordWrap(True)
+        table.setTextElideMode(Qt.ElideNone)
+        # Rows grow to fit wrapped text, and re-fit whenever a column width changes.
+        table.verticalHeader().setSectionResizeMode(QHeaderView.ResizeToContents)
         return table
+
+    @staticmethod
+    def _fit_columns(table, stretch_column):
+        """Short columns size to their content; the long-text column takes the rest
+        and wraps, so messages and file names are never cut off."""
+        header = table.horizontalHeader()
+        header.setStretchLastSection(False)
+        for col in range(table.columnCount()):
+            mode = QHeaderView.Stretch if col == stretch_column else QHeaderView.ResizeToContents
+            header.setSectionResizeMode(col, mode)
+
+    @staticmethod
+    def _item(text):
+        """Table cell that also shows its full text as a tooltip."""
+        text = str(text)
+        item = QTableWidgetItem(text)
+        item.setToolTip(text)
+        return item
 
     def create_transactions_tab(self):
         """Creates the transactions tab."""
@@ -114,20 +136,17 @@ class DataViewerScreenView(QWidget):
         self.transactions_table.setRowCount(len(transactions))
 
         for i, trans in enumerate(transactions):
-            self.transactions_table.setItem(i, 0, QTableWidgetItem(str(trans['id'])))
-            self.transactions_table.setItem(i, 1, QTableWidgetItem(str(trans['timestamp'])))
-            self.transactions_table.setItem(i, 2, QTableWidgetItem(trans['file_name']))
-            self.transactions_table.setItem(i, 3, QTableWidgetItem(str(trans['pages'])))
-            self.transactions_table.setItem(i, 4, QTableWidgetItem(str(trans['copies'])))
-            self.transactions_table.setItem(i, 5, QTableWidgetItem(trans['color_mode']))
-            self.transactions_table.setItem(i, 6, QTableWidgetItem(f"₱{trans['total_cost']:.2f}"))
-            self.transactions_table.setItem(i, 7, QTableWidgetItem(f"₱{trans['amount_paid']:.2f}"))
-            self.transactions_table.setItem(i, 8, QTableWidgetItem(trans['status']))
+            self.transactions_table.setItem(i, 0, self._item(str(trans['id'])))
+            self.transactions_table.setItem(i, 1, self._item(str(trans['timestamp'])))
+            self.transactions_table.setItem(i, 2, self._item(trans['file_name']))
+            self.transactions_table.setItem(i, 3, self._item(str(trans['pages'])))
+            self.transactions_table.setItem(i, 4, self._item(str(trans['copies'])))
+            self.transactions_table.setItem(i, 5, self._item(trans['color_mode']))
+            self.transactions_table.setItem(i, 6, self._item(f"₱{trans['total_cost']:.2f}"))
+            self.transactions_table.setItem(i, 7, self._item(f"₱{trans['amount_paid']:.2f}"))
+            self.transactions_table.setItem(i, 8, self._item(trans['status']))
 
-        header = self.transactions_table.horizontalHeader()
-        header.setStretchLastSection(True)
-        for i in range(9):
-            header.setSectionResizeMode(i, QHeaderView.Stretch)
+        self._fit_columns(self.transactions_table, stretch_column=2)
 
     def update_cash_inventory_table(self, inventory):
         """Updates the cash inventory table with new data."""
@@ -137,15 +156,12 @@ class DataViewerScreenView(QWidget):
         self.cash_inventory_table.setRowCount(len(inventory))
 
         for i, item in enumerate(inventory):
-            self.cash_inventory_table.setItem(i, 0, QTableWidgetItem(f"₱{item['denomination']}"))
-            self.cash_inventory_table.setItem(i, 1, QTableWidgetItem(str(item['count'])))
-            self.cash_inventory_table.setItem(i, 2, QTableWidgetItem(item['type']))
-            self.cash_inventory_table.setItem(i, 3, QTableWidgetItem(str(item['last_updated'])))
+            self.cash_inventory_table.setItem(i, 0, self._item(f"₱{item['denomination']}"))
+            self.cash_inventory_table.setItem(i, 1, self._item(str(item['count'])))
+            self.cash_inventory_table.setItem(i, 2, self._item(item['type']))
+            self.cash_inventory_table.setItem(i, 3, self._item(str(item['last_updated'])))
 
-        header = self.cash_inventory_table.horizontalHeader()
-        header.setStretchLastSection(True)
-        for i in range(4):
-            header.setSectionResizeMode(i, QHeaderView.Stretch)
+        self._fit_columns(self.cash_inventory_table, stretch_column=3)
 
     def update_error_log_table(self, errors):
         """Updates the error log table with new data."""
@@ -155,12 +171,9 @@ class DataViewerScreenView(QWidget):
         self.error_log_table.setRowCount(len(errors))
 
         for i, error in enumerate(errors):
-            self.error_log_table.setItem(i, 0, QTableWidgetItem(str(error['timestamp'])))
-            self.error_log_table.setItem(i, 1, QTableWidgetItem(error['error_type']))
-            self.error_log_table.setItem(i, 2, QTableWidgetItem(error['error_message']))
-            self.error_log_table.setItem(i, 3, QTableWidgetItem(error['screen_name']))
+            self.error_log_table.setItem(i, 0, self._item(str(error['timestamp'])))
+            self.error_log_table.setItem(i, 1, self._item(error['error_type']))
+            self.error_log_table.setItem(i, 2, self._item(error['error_message']))
+            self.error_log_table.setItem(i, 3, self._item(error['screen_name']))
 
-        header = self.error_log_table.horizontalHeader()
-        header.setStretchLastSection(True)
-        for i in range(4):
-            header.setSectionResizeMode(i, QHeaderView.Stretch)
+        self._fit_columns(self.error_log_table, stretch_column=2)

@@ -11,14 +11,18 @@ COLORS = {
     "bg_subtle": "#F7F7F5",
     "border": "#E9E9E7",
     "border_strong": "#DFDFDD",
-    "text": "#37352F",
+    "text": "#313533",
     # Secondary/muted text sits on white at >= 7:1 / >= 4.5:1 contrast (WCAG AA),
     # so small print stays readable for every customer, not just good eyesight.
-    "text_secondary": "#55544F",
-    "text_muted": "#6F6E69",
-    "primary": "#2F7D5C",
-    "primary_hover": "#256B4D",
-    "primary_pressed": "#1E5A40",
+    # All three text colours are tinted toward the header green (hue 155) at their
+    # original lightness: 3% saturation for text, 6% for secondary and muted, so contrast is unchanged.
+    "text_secondary": "#4D5753",
+    "text_muted": "#66726D",
+    "primary": "#3B8C66",
+    "primary_hover": "#327A58",
+    "primary_pressed": "#286A4B",
+    # Banner and accents: white text on it is about 6.6:1.
+    "header": "#37634C",
     "danger": "#EB5757",
     "danger_bg": "#FDEDED",
     "success": "#2F7D5C",
@@ -134,9 +138,9 @@ QPushButton#DangerButton:disabled {{
 
 HEADER_QSS = f"""
 QFrame#Header {{
-    background-color: {COLORS["text"]};
+    background-color: {COLORS["header"]};
     border: none;
-    border-bottom: 1px solid {COLORS["primary"]};
+    border-bottom: 1px solid {COLORS["primary_pressed"]};
 }}
 QFrame#Header QLabel {{
     background: transparent;

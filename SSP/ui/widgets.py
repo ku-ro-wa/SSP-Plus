@@ -27,12 +27,16 @@ class LogoMark(QFrame):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setFixedSize(38, 38)
-        # Header is now dark, so the tile keeps its dark fill and gains a light
-        # border for contrast rather than being inverted like the rest of the bar.
+        # Inverted against the green header: white tile, charcoal lettering, soft shadow.
         self.setStyleSheet(
-            f"background-color: {COLORS['text']}; border-radius: {RADIUS['sm']}px; "
-            f"border: 1px solid {COLORS['border_strong']};"
+            f"background-color: {COLORS['bg']}; border-radius: {RADIUS['sm']}px; "
+            f"border: none;"
         )
+        shadow = QGraphicsDropShadowEffect(self)
+        shadow.setBlurRadius(8)
+        shadow.setOffset(0, 2)
+        shadow.setColor(QColor(0, 0, 0, 70))
+        self.setGraphicsEffect(shadow)
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -40,7 +44,7 @@ class LogoMark(QFrame):
         mark_label = QLabel("AIO")
         mark_label.setAlignment(Qt.AlignCenter)
         mark_label.setStyleSheet(
-            f"color: {COLORS['bg']}; font-size: 10px; font-weight: 700; "
+            f"color: {COLORS['text']}; font-size: 10px; font-weight: 700; "
             f"background: transparent; border: none;"
         )
         layout.addWidget(mark_label)
