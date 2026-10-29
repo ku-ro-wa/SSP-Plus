@@ -122,8 +122,14 @@ Login issues a signed cookie session with a 10-hour sliding inactivity timeout
 `/accounting` (HTML) and `/accounting/data?range=today|week|month|all` (JSON) show per-Source
 (`usb`/`wifi`/`email`/`scanner`) revenue and transaction-count aggregates via
 `DatabaseManager.get_accounting_summary()` — a `scanner`-sourced row only exists when the scan's
-destination was print (a Photocopy); scan-to-email/session-download never produce a
-transactions row. Both also carry `vouchers`: change dispensed and Voucher value issued / Applied
+destination was print (a Photocopy) and/or a paid Digital Copy (`copies` = 0 when it's the
+Digital Copy alone). The scan's digital copy (download/email) costs a flat fee
+(`managers/digital_fee.py`: Kiosk Admin's `scan_digital_fee` setting, else `SCAN_DIGITAL_FEE`),
+and nothing is delivered before payment: `scan_destination` routes print-only to
+`printing_options`, print + digital to `printing_options` with the fee added, and digital-only
+straight to `payment` (`print_job: False`). `PaymentModel._prepare_digital_copy()` creates the
+session once paid, then `scan_result` shows the OTP (before `thank_you` starts the print); a
+failed session becomes a refund Voucher. Both also carry `vouchers`: change dispensed and Voucher value issued / Applied
 summed from the same completed transactions (`get_change_and_voucher_totals()`), plus the
 outstanding Voucher liability — remaining value of unexpired Vouchers as of now, ignoring the
 filter (`get_voucher_liability()`). `/paper-reset` (the SMS fuzzy-match reset fallback) is `admin`-only.

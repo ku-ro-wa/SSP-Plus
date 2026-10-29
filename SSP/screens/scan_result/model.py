@@ -4,18 +4,17 @@ from PyQt5.QtCore import QObject
 
 
 class ScanResultModel(QObject):
-    """Holds the session created for a scanned document sent via Wi-Fi, plus
-    an optional pending print leg when Print Now was also selected alongside
-    it on scan_destination."""
+    """Holds the session created for a scanned document's paid-for digital copy,
+    plus whether a paid-for print follows (the print starts on thank_you)."""
 
     def __init__(self):
         super().__init__()
         self.session = None
-        self.pending_print = None  # None, or {'pdf_data': ..., 'selected_pages': ...}
+        self.then_print = False
 
-    def set_session(self, session, pending_print=None):
+    def set_session(self, session, then_print=False):
         self.session = session
-        self.pending_print = pending_print
+        self.then_print = then_print
 
     def has_pending_print(self) -> bool:
-        return self.pending_print is not None
+        return self.then_print

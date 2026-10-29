@@ -134,10 +134,11 @@ class PrintOptionsController(QWidget):
 
     # --- Public API for main_app ---
 
-    def set_pdf_data(self, pdf_data, selected_pages, source=None):
-        """Sets the PDF data and selected pages for printing."""
+    def set_pdf_data(self, pdf_data, selected_pages, source=None, digital_fee=0):
+        """Sets the PDF data and selected pages for printing. digital_fee adds a
+        scan's digital-copy fee to the total (see ScanDestinationController)."""
         self.source = source
-        self.model.set_pdf_data(pdf_data, selected_pages)
+        self.model.set_pdf_data(pdf_data, selected_pages, digital_fee=digital_fee)
         self.view.update_copies_display(self.model.get_copies())
         self.view.set_bw_mode()
         # Clear any existing warnings when setting new PDF data

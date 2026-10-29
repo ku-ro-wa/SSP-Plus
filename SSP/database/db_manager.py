@@ -643,10 +643,8 @@ class DatabaseManager(VoucherDBMixin):
         the window, in a fixed order — so the accounting page's table
         shape never depends on which sources happen to have data.
 
-        A `scanner`-sourced row is counted the same as any other: per
-        CONTEXT.md's Photocopy term, scan-to-email/download never produce
-        a transactions row at all, so any `scanner` row here already
-        represents a printed Photocopy."""
+        A `scanner`-sourced row is counted the same as any other: it is a
+        Photocopy, a paid Digital Copy (copies = 0) or both (see CONTEXT.md)."""
         if not self.conn:
             return []
         try:

@@ -64,6 +64,17 @@ class FakeMainApp:
         self.countdown = None
         self.payment_screen = SimpleNamespace(model=None)
         self.voucher_screen = VoucherController(self)
+        self.scan_result_screen = SimpleNamespace(
+            session=None, then_print=None,
+            set_session=lambda session, then_print=False: self._set_scan_session(session, then_print))
+        self.current_print_job = 'stale'
+
+    def _set_scan_session(self, session, then_print):
+        self.scan_result_screen.session = session
+        self.scan_result_screen.then_print = then_print
+
+    def finish_digital_only_payment(self):
+        self.payment_screen.model.log_transaction_after_print_success()
 
     def show_screen(self, name):
         # Like PrintingSystemApp.show_screen: leave, (abandoned payment -> voucher),
@@ -969,3 +980,93 @@ class TestCarriedCredit:
         assert db.get_transaction_history()[0]['voucher_issued'] == 0
         main_app.voucher_screen.view.continue_button.click()
         assert main_app.screens[-1] == 'idle'
+
+
+# --- Scan digital copy: paid for before anything is delivered ---
+
+@pytest.fixture
+def scan(kiosk, db, tmp_path, monkeypatch):
+    import shutil
+    import screens.scan_destination.model as sdm
+    monkeypatch.setattr(sdm, 'DatabaseManager', lambda *a, **k: db)
+    monkeypatch.setenv('SCAN_UPLOAD_DIR', str(tmp_path / 'uploads'))
+    stock_hoppers(db, ones=20, fives=20)
+    scan_dir = tmp_path / 'scan_session'
+    scan_dir.mkdir()
+    pdf = str(scan_dir / 'scan.pdf')
+    shutil.copy(PDF, pdf)
+    destination = sdm.ScanDestinationModel()
+    destination.set_scan_result(pdf, 1)
+    main_app, model = kiosk
+    return main_app, model, destination, scan_dir
+
+
+def test_digital_only_scan_pays_the_flat_fee_before_a_session_exists(scan, db):
+    main_app, model, destination, scan_dir = scan
+    db.update_setting('scan_digital_fee', 7)
+    payment_data = destination.get_digital_only_payment_data()
+    assert payment_data['total_cost'] == 7 and payment_data['print_job'] is False
+
+    model.set_payment_data(payment_data)
+    model.on_enter()
+    assert model.is_print_job() is False
+    assert main_app.scan_result_screen.session is None  # nothing delivered yet
+    main_app.acceptors.bill_inserted.emit(20)
+    wait_for(lambda: 'scan_result' in main_app.screens, "the OTP screen")
+
+    assert main_app.screens[-1] == 'scan_result' and 'thank_you' not in main_app.screens
+    assert main_app.scan_result_screen.session.otp
+    assert main_app.scan_result_screen.then_print is False
+    row = logged_row(db)
+    assert (row['total_cost'], row['copies'], row['source']) == (7, 0, 'scanner')
+    assert main_app.current_print_job is None
+    assert not scan_dir.exists()  # the scan was copied for the session, then cleaned up
+
+
+def test_scan_print_plus_digital_adds_the_fee_and_shows_the_otp_after_payment(scan, db):
+    main_app, model, destination, scan_dir = scan
+    options = PrintOptionsModel()
+    options.set_color_mode("Black and White")
+    options.set_pdf_data({'path': PDF}, [1])
+    print_only = options.get_payment_data()
+    options.set_pdf_data({'path': PDF}, [1], digital_fee=5)
+    both = options.get_payment_data()
+    assert both['total_cost'] == print_only['total_cost'] + 5
+    both['source'] = 'scanner'
+
+    model.set_payment_data(both)
+    model.on_enter()
+    assert main_app.scan_result_screen.session is None
+    main_app.acceptors.bill_inserted.emit(int(both['total_cost']))
+    wait_for(lambda: 'scan_result' in main_app.screens, "the OTP screen")
+
+    assert main_app.scan_result_screen.session.otp
+    assert main_app.scan_result_screen.then_print is True
+    assert 'thank_you' not in main_app.screens  # the print starts after the OTP screen
+    assert scan_dir.exists()                    # the print still needs the scan
+
+
+def test_failed_digital_copy_is_refunded_as_a_voucher(scan, db, monkeypatch):
+    import managers.adapters.scan_adapter as adapter
+    monkeypatch.setattr(adapter.ScanAdapter, 'handle_scan', lambda self, path, **k: (False, "disk full", None))
+    main_app, model, destination, _ = scan
+    model.set_payment_data(destination.get_digital_only_payment_data())
+    model.on_enter()
+    main_app.acceptors.bill_inserted.emit(5)
+    wait_for(lambda: 'voucher' in main_app.screens, "the refund voucher")
+
+    assert main_app.scan_result_screen.session is None
+    assert main_app.voucher_screen.model.reason == 'refund'
+    main_app.voucher_screen.view.continue_button.click()
+    assert main_app.screens[-1] == 'homepage'
+    assert logged_row(db)['voucher_issued'] == 5
+
+
+def test_digital_fee_defaults_to_env_and_admin_overrides_it(db, monkeypatch):
+    from managers.digital_fee import get_digital_fee, set_digital_fee
+    monkeypatch.setenv('SCAN_DIGITAL_FEE', '10')
+    assert get_digital_fee(db) == 10
+    set_digital_fee(db, 3)
+    assert get_digital_fee(db) == 3
+    set_digital_fee(db, -4)
+    assert get_digital_fee(db) == 0
