@@ -169,6 +169,8 @@ The UI renders the same however it's launched (desktop terminal, SSH, systemd, a
 
 `main` is protected — PRs require one review before merge. Branch as `feature/<module>`. Hardware-dependent PRs (GPIO, printer, SMS) need a confirmed run on actual kiosk hardware before merge, since `make run-sim`/CI only exercise the simulated paths.
 
+Commit trailers: a `Co-Authored-By:` line is fine. Never add a `Claude-Session:` trailer or any other link to a chat or session. Those links are private and mean nothing to reviewers.
+
 ## Agent skills
 
 ### Issue tracker
