@@ -18,11 +18,11 @@ COLORS = {
     # original lightness: 3% saturation for text, 6% for secondary and muted, so contrast is unchanged.
     "text_secondary": "#4D5753",
     "text_muted": "#66726D",
-    "primary": "#3B8C66",
-    "primary_hover": "#327A58",
-    "primary_pressed": "#286A4B",
+    "primary": "#0F8558",
+    "primary_hover": "#0D744D",
+    "primary_pressed": "#0B6443",
     # Banner and accents: white text on it is about 4.65:1.
-    "header": "#0F8558",
+    "header": "#0F8558",  # same green as the buttons
     "danger": "#EB5757",
     "danger_bg": "#FDEDED",
     "success": "#2F7D5C",
