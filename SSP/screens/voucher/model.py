@@ -21,8 +21,9 @@ class VoucherModel:
 
     # Why the Voucher was issued
     CHANGE = "change"    # change the hoppers couldn't give (a Shortfall)
-    REFUND = "refund"    # a paid-for digital copy that couldn't be delivered
     UNSPENT = "unspent"  # cash put in for a payment that wasn't completed
+    REFUND = "refund"    # a paid print that failed (#59)
+    DIGITAL_REFUND = "digital_refund"  # a paid-for digital copy that couldn't be made
 
     def __init__(self):
         self.clear()
@@ -68,12 +69,19 @@ class VoucherModel:
         if self.state == self.FAILED:
             return "We couldn't issue your voucher"
         if self.reason == self.REFUND:
+            return "Sorry, your print failed"
+        if self.reason == self.DIGITAL_REFUND:
             return "Here's your refund voucher"
         return "Here's your voucher" if self.reason == self.UNSPENT else "Here's your change voucher"
 
     def body(self) -> str:
         amount = f"{PESO}{self.value}"
         if self.reason == self.REFUND:
+            if self.state == self.FAILED:
+                return (f"Your document didn't print and we couldn't issue a refund voucher for "
+                        f"{amount}. Please contact the attendant and mention this amount.")
+            return f"Your document didn't print, so we've issued a refund voucher worth {amount}."
+        if self.reason == self.DIGITAL_REFUND:
             if self.state == self.FAILED:
                 return (
                     f"We couldn't prepare your digital copy and couldn't issue a voucher for the "

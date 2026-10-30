@@ -157,8 +157,11 @@ class PDFButton(QPushButton):
         self.is_selected = False
         filename = pdf_data['filename']
         size_mb = pdf_data.get('size', 0) / (1024 * 1024)
-        pages = pdf_data.get('pages', 1)
-        self.setText(f"📄 {filename}\n({size_mb:.1f}MB, ~{pages} pages)")
+        if pdf_data.get('error'):
+            self.setText(f"⚠️ {filename}\n({size_mb:.1f}MB, can't be opened)")
+        else:
+            pages = pdf_data.get('pages', 1)
+            self.setText(f"📄 {filename}\n({size_mb:.1f}MB, ~{pages} pages)")
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
         self.setStyleSheet(self.get_normal_style())
         self.clicked.connect(self.on_click)
@@ -713,7 +716,8 @@ class FileBrowserView(QWidget):
                 'type': 'pdf',
                 'pages': pdf_info.get('pages', 1),
                 'size': pdf_info['size'],
-                'path': pdf_info['path']
+                'path': pdf_info['path'],
+                'error': pdf_info.get('error')
             })
         self.file_header.setText(f"PDF Files ({len(self.pdf_files_data)} files)")
         self.clear_file_list()
@@ -749,6 +753,11 @@ class FileBrowserView(QWidget):
         if self.selected_pdf is not None and self.selected_pages is not None:
             self.pdf_page_selections[self.selected_pdf['path']] = self.selected_pages.copy()
         self.selected_pdf = pdf_data
+        if pdf_data.get('error'):
+            self._show_unreadable(pdf_data)
+            return
+        self.view_all_btn.show()
+        self.view_single_btn.show()
         if pdf_data['path'] in self.pdf_page_selections:
             self.selected_pages = self.pdf_page_selections[self.selected_pdf['path']].copy()
         else:
@@ -761,6 +770,42 @@ class FileBrowserView(QWidget):
         self.current_grid_page = 1
         self.single_page_index = 1
         self.show_pdf_preview()
+
+    def _show_unreadable(self, pdf_data):
+        """A file that failed check_pdf at intake: say so in place of the preview and
+        offer no way forward with it (no pages, no Continue)."""
+        self.selected_pages = {}
+        for btn in self.pdf_buttons:
+            btn.set_selected(btn.pdf_data == pdf_data)
+        self.preview_header.setText(f"{pdf_data['filename']}")
+        self.view_mode = 'all'
+        self.update_view_mode_buttons()
+        self.clear_preview()
+        self.preview_container.show()
+        self.single_page_widget.hide()
+        for widget in (self.prev_grid_page_btn, self.grid_page_label, self.next_grid_page_btn,
+                       self.prev_page_btn, self.next_page_btn, self.page_input,
+                       self.single_page_checkbox, self.zoom_out_btn, self.zoom_label,
+                       self.zoom_in_btn, self.zoom_reset_btn):
+            widget.hide()
+        self.view_all_btn.hide()
+        self.view_single_btn.hide()
+        self.continue_btn.setEnabled(False)
+        self.page_info.setText("This file can't be printed")
+
+        message = QLabel(
+            f"This file can't be opened.\n{pdf_data['error']}\n\n"
+            "Check the file on your device, or choose another file."
+        )
+        message.setObjectName("UnreadableFileMessage")
+        message.setAlignment(Qt.AlignCenter)
+        message.setWordWrap(True)
+        message.setStyleSheet(
+            f"QLabel {{ background-color: {COLORS['danger_bg']}; border: 1px solid {COLORS['danger']}; "
+            f"border-radius: {RADIUS['md']}px; color: {COLORS['danger']}; "
+            f"font-size: {FONT['size_lg']}px; font-weight: 700; padding: 24px; }}"
+        )
+        self.preview_layout.addWidget(message, 0, 1, 1, 3)
 
     def show_pdf_preview(self):
         """Shows the PDF preview in grid mode."""

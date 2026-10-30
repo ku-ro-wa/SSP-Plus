@@ -22,6 +22,7 @@ from managers.voucher_manager import MSG_UNGIVEN_CHANGE, IssuedVoucher, LookupSt
 from managers.sms_manager import send_operator_alert
 from managers.adapters.scan_adapter import ScanAdapter
 from managers.session_manager import SessionManager
+from managers.print_refund import record_digital_refund, record_print_success
 from config import get_config
 
 
@@ -647,16 +648,38 @@ class PaymentModel(QObject):
         """Get payment suggestions for the current total cost."""
         return self.payment_algorithm.find_optimal_payment_amounts(self.total_cost)
 
-    def log_transaction_after_print_success(self):
-        """Log the transaction to database after successful printing."""
-        if hasattr(self, 'transaction_data') and self.transaction_data:
-            try:
-                self.db_manager.log_transaction(self.transaction_data)
-                print(f"✅ Transaction logged successfully: {self.transaction_data['file_name']}")
-            except Exception as e:
-                print(f"❌ Error logging transaction: {e}")
-        else:
-            print("⚠️ No transaction data available to log")
+    def settle_transaction(self):
+        """Money is settled once change has been dispensed (cash taken, coins
+        out, Shortfall Voucher saved, Applied Vouchers decremented), whatever
+        the printer does next. Logs the transactions row as `paid` and applies
+        the cash_inventory change, exactly once per payment_ref (#59). main_app
+        later moves the row to `completed` or `print_failed`."""
+        td = getattr(self, 'transaction_data', None)
+        if not td:
+            print("WARNING: No transaction data available to settle")
+            return
+        ref = td.get('payment_ref')
+        if ref and ref == getattr(self, '_settled_ref', None):
+            return
+        td['status'] = 'paid'
+        try:
+            if not self.db_manager.log_transaction(td):
+                print(f"ERROR: Transaction {ref} was not logged; skipping inventory update")
+                return
+            self._settled_ref = ref
+            print(f"Transaction settled: {td['file_name']}")
+        except Exception as e:
+            print(f"ERROR: Error logging transaction: {e}")
+            return
+        try:
+            for denom, count in (self.cash_received or {}).items():
+                if count > 0:
+                    self.db_manager.adjust_cash_inventory(denom, count, 'bill' if denom >= 20 else 'coin')
+            for denom, count in (self.change_dispensed or {}).items():
+                if count > 0:
+                    self.db_manager.adjust_cash_inventory(denom, -count, 'bill' if denom >= 20 else 'coin')
+        except Exception as e:
+            print(f"ERROR: Error updating cash inventory: {e}")
 
     # Print job signals are now handled by the thank you screen
     # No need to connect them here since the thank you screen will manage the entire print lifecycle
@@ -999,7 +1022,7 @@ class PaymentModel(QObject):
             self.change_dispensed = {}
             print(f"Change to dispense: P{change_amount:.2f}")
 
-            # Logged by main_app via log_transaction_after_print_success();
+            # Logged as 'paid' by settle_transaction() once change is out;
             # _issue_shortfall_voucher fills in change_dispensed / voucher_issued.
             self.transaction_data = {
                 'file_name': os.path.basename(self.payment_data['pdf_data']['path']),
@@ -1124,6 +1147,10 @@ class PaymentModel(QObject):
         """Start the printing process."""
         print("Starting printing process...")
 
+        # The customer has paid and their change is out: settle now, before
+        # anything about printing can go wrong.
+        self.settle_transaction()
+
         try:
             # Validate payment data exists
             if not hasattr(self, 'payment_data') or not self.payment_data:
@@ -1147,9 +1174,11 @@ class PaymentModel(QObject):
             self._prepare_digital_copy()
 
             if not self.is_print_job():
-                # Digital-only: nothing to print, so the sale is complete.
+                # Digital-only: nothing to print. The sale was settled above, so
+                # delivering the copy completes it (a failed copy stays `paid`).
                 self.main_app.current_print_job = None
-                self.main_app.finish_digital_only_payment()
+                if self.digital_refund is None:
+                    record_print_success(self.db_manager, (getattr(self, 'transaction_data', None) or {}).get('payment_ref'))
                 self._navigate_to_thank_you()
                 return
 
@@ -1158,7 +1187,13 @@ class PaymentModel(QObject):
                 'file_path': self.payment_data['pdf_data']['path'],
                 'selected_pages': self.payment_data.get('selected_pages', [1]),
                 'copies': self.payment_data.get('copies', 1),
-                'color_mode': self.payment_data.get('color_mode', 'Color')
+                'color_mode': self.payment_data.get('color_mode', 'Color'),
+                # The print is async and the model resets, so the outcome is
+                # recorded against this ref (#59).
+                'payment_ref': (getattr(self, 'transaction_data', None) or {}).get('payment_ref'),
+                # A failed digital copy's fee was already refunded (or flagged to the
+                # attendant), so a failed print must not refund it again.
+                'digital_fee_refunded': self.digital_fee() if self.digital_refund is not None else 0,
             }
             self.main_app.current_print_job = print_job_details
             print(f"SUCCESS: Print job details stored: {print_job_details}")
@@ -1211,18 +1246,21 @@ class PaymentModel(QObject):
             print(f"CRITICAL: could not refund P{fee} as a voucher: {e}")
             self.digital_refund = ('failed', fee)
             refunded = 0
-        td = getattr(self, 'transaction_data', None)
-        if td is not None:
-            td['voucher_issued'] = (td.get('voucher_issued') or 0) + refunded
+        # The row was settled before the copy was made, so record the refund on it.
+        try:
+            record_digital_refund(self.db_manager, (getattr(self, 'transaction_data', None) or {}).get('payment_ref'),
+                                  refunded, digital_only=not self.is_print_job(), error_message=failure)
+        except Exception as e:
+            print(f"ERROR: could not record the digital refund on the transaction: {e}")
 
     def _show_digital_refund(self):
         kind, value = self.digital_refund
         self.digital_refund = None
         screen = self.main_app.voucher_screen
         if kind == 'issued':
-            screen.show_issued(value, reason='refund', on_continue=self.continue_to_thank_you)
+            screen.show_issued(value, reason='digital_refund', on_continue=self.continue_to_thank_you)
         else:
-            screen.show_failure(value, reason='refund', on_continue=self.continue_to_thank_you)
+            screen.show_failure(value, reason='digital_refund', on_continue=self.continue_to_thank_you)
         self.main_app.show_screen('voucher')
 
     def reset_payment_state(self):

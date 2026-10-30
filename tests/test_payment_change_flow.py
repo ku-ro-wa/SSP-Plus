@@ -29,6 +29,7 @@ import screens.payment.model as payment_module  # noqa: E402
 from database.db_manager import DatabaseManager  # noqa: E402
 from database.models import init_db  # noqa: E402
 from managers.voucher_manager import VoucherManager  # noqa: E402
+from managers.print_refund import record_print_success, refund_failed_print  # noqa: E402
 from screens.payment.model import PaymentModel, ShortfallCause, redirect_for_carried_credit  # noqa: E402
 from screens.print_options.model import PrintOptionsModel  # noqa: E402
 from screens.voucher.controller import VoucherController  # noqa: E402
@@ -72,9 +73,6 @@ class FakeMainApp:
     def _set_scan_session(self, session, then_print):
         self.scan_result_screen.session = session
         self.scan_result_screen.then_print = then_print
-
-    def finish_digital_only_payment(self):
-        self.payment_screen.model.log_transaction_after_print_success()
 
     def show_screen(self, name):
         # Like PrintingSystemApp.show_screen: leave, (abandoned payment -> voucher),
@@ -199,7 +197,7 @@ def finish(main_app, model):
     if main_app.screens[-1] == 'voucher':
         main_app.voucher_screen.view.continue_button.click()
     assert main_app.screens[-1] == 'thank_you'
-    model.log_transaction_after_print_success()  # main_app does this once the print succeeds
+    record_print_success(model.db_manager, model.payment_ref)  # main_app does this once the print succeeds
 
 
 def pay_with_change(main_app, model, change):
@@ -252,7 +250,7 @@ def test_back_is_ignored_while_change_is_dispensing(kiosk, db, monkeypatch):
     wait_for(lambda: {'voucher', 'thank_you'} & set(main_app.screens), "payment to finish")
 
     assert model.change_dispensed == {1: 3, 5: 0}
-    assert db.get_transaction_history() == []  # nothing logged as cancelled
+    assert [r['status'] for r in db.get_transaction_history()] == ['paid']  # settled, not cancelled
     assert locked[0] is True                   # Back/Vouchers greyed out from auto-complete
 
 
@@ -1001,6 +999,15 @@ def scan(kiosk, db, tmp_path, monkeypatch):
     return main_app, model, destination, scan_dir
 
 
+def scan_print_plus_digital_data(fee):
+    options = PrintOptionsModel()
+    options.set_color_mode("Black and White")
+    options.set_pdf_data({'path': PDF}, [1], digital_fee=fee)
+    payment_data = options.get_payment_data()
+    payment_data['source'] = 'scanner'
+    return payment_data
+
+
 def test_digital_only_scan_pays_the_flat_fee_before_a_session_exists(scan, db):
     main_app, model, destination, scan_dir = scan
     db.update_setting('scan_digital_fee', 7)
@@ -1019,6 +1026,8 @@ def test_digital_only_scan_pays_the_flat_fee_before_a_session_exists(scan, db):
     assert main_app.scan_result_screen.then_print is False
     row = logged_row(db)
     assert (row['total_cost'], row['copies'], row['source']) == (7, 0, 'scanner')
+    assert row['status'] == 'completed'
+    assert revenue(db)['scanner'] == 7
     assert main_app.current_print_job is None
     assert not scan_dir.exists()  # the scan was copied for the session, then cleaned up
 
@@ -1046,9 +1055,13 @@ def test_scan_print_plus_digital_adds_the_fee_and_shows_the_otp_after_payment(sc
     assert scan_dir.exists()                    # the print still needs the scan
 
 
-def test_failed_digital_copy_is_refunded_as_a_voucher(scan, db, monkeypatch):
+def fail_digital_copies(monkeypatch):
     import managers.adapters.scan_adapter as adapter
     monkeypatch.setattr(adapter.ScanAdapter, 'handle_scan', lambda self, path, **k: (False, "disk full", None))
+
+
+def test_failed_digital_only_copy_is_refunded_with_its_own_status(scan, db, monkeypatch):
+    fail_digital_copies(monkeypatch)
     main_app, model, destination, _ = scan
     model.set_payment_data(destination.get_digital_only_payment_data())
     model.on_enter()
@@ -1056,10 +1069,67 @@ def test_failed_digital_copy_is_refunded_as_a_voucher(scan, db, monkeypatch):
     wait_for(lambda: 'voucher' in main_app.screens, "the refund voucher")
 
     assert main_app.scan_result_screen.session is None
-    assert main_app.voucher_screen.model.reason == 'refund'
+    assert main_app.voucher_screen.model.reason == 'digital_refund'
+    assert "digital copy" in main_app.voucher_screen.model.body()
     main_app.voucher_screen.view.continue_button.click()
     assert main_app.screens[-1] == 'homepage'
-    assert logged_row(db)['voucher_issued'] == 5
+    row = logged_row(db)
+    assert row['status'] == 'digital_failed'
+    assert row['voucher_issued'] == 5
+    assert row['error_message'] == "disk full"
+    assert sum(revenue(db).values()) == 0  # refunded, so not revenue
+    totals = db.get_change_and_voucher_totals()
+    assert totals['voucher_issued'] == 5
+
+
+def test_failed_digital_copy_with_a_print_stays_paid_for_the_print_outcome(scan, db, monkeypatch):
+    fail_digital_copies(monkeypatch)
+    main_app, model, _, _ = scan
+    payment_data = scan_print_plus_digital_data(fee=5)
+    model.set_payment_data(payment_data)
+    model.on_enter()
+    main_app.acceptors.bill_inserted.emit(int(payment_data['total_cost']))
+    wait_for(lambda: 'voucher' in main_app.screens, "the digital refund voucher")
+
+    assert main_app.voucher_screen.model.reason == 'digital_refund'
+    row = logged_row(db)
+    assert row['status'] == 'paid'  # the print outcome settles it
+    assert row['voucher_issued'] == 5
+    assert main_app.current_print_job['digital_fee_refunded'] == 5
+
+
+def test_failed_print_after_a_failed_digital_copy_does_not_refund_the_fee_twice(scan, db, monkeypatch):
+    fail_digital_copies(monkeypatch)
+    main_app, model, _, _ = scan
+    payment_data = scan_print_plus_digital_data(fee=5)
+    total = int(payment_data['total_cost'])
+    model.set_payment_data(payment_data)
+    model.on_enter()
+    main_app.acceptors.bill_inserted.emit(total)
+    wait_for(lambda: 'voucher' in main_app.screens, "the digital refund voucher")
+    ref = logged_row(db)['payment_ref']
+
+    outcome = refund_failed_print(db, ref, "jam",
+                                  already_refunded=main_app.current_print_job['digital_fee_refunded'])
+
+    assert outcome.voucher.value == total - 5
+    row = logged_row(db)
+    assert row['status'] == 'print_failed'
+    assert row['voucher_issued'] == total  # the fee once, the print once
+    assert db.get_voucher_liability(datetime.now()) == total
+
+
+def test_failed_print_refund_keeps_the_shortfall_voucher_separate(kiosk, db):
+    """already_refunded only trims the refund; it never touches the change Voucher."""
+    main_app, model = kiosk
+    stock_hoppers(db, ones=0, fives=0)
+    payment_data = pay(main_app, model, 10)  # P10 shortfall voucher
+    cost = int(payment_data['total_cost'])
+
+    outcome = refund_failed_print(db, model.payment_ref, "jam", already_refunded=cost + 100)
+
+    assert outcome.voucher is None and not outcome.voucher_failed  # nothing left to refund
+    assert logged_row(db)['voucher_issued'] == 10
 
 
 def test_digital_fee_defaults_to_env_and_admin_overrides_it(db, monkeypatch):
@@ -1070,3 +1140,93 @@ def test_digital_fee_defaults_to_env_and_admin_overrides_it(db, monkeypatch):
     assert get_digital_fee(db) == 3
     set_digital_fee(db, -4)
     assert get_digital_fee(db) == 0
+
+
+def revenue(db):
+    return {r['source']: r['revenue'] for r in db.get_accounting_summary()}
+
+
+class TestPrintOutcomeAfterSettlement:
+    """Issue #59: the row is written when payment settles; the print outcome moves it on."""
+
+    def test_settlement_logs_a_paid_row_and_updates_inventory_before_any_print_outcome(self, kiosk, db):
+        main_app, model = kiosk
+        stock_hoppers(db, ones=20, fives=20)
+
+        pay(main_app, model, 13)
+
+        row = logged_row(db)
+        assert row['status'] == 'paid'
+        inv = {(i['denomination'], i['type']): i['count'] for i in db.get_cash_inventory()}
+        assert (inv[(1, 'coin')], inv[(5, 'coin')]) == (20 - 3, 20 - 2)
+        assert revenue(db) == {'usb': 0, 'wifi': 0, 'email': 0, 'scanner': 0}  # paid is not revenue yet
+
+    def test_settlement_applies_once(self, kiosk, db):
+        main_app, model = kiosk
+        stock_hoppers(db, ones=20, fives=20)
+        pay(main_app, model, 13)
+        model.settle_transaction()
+        model.settle_transaction()
+        assert len(db.get_transaction_history()) == 1
+        inv = {(i['denomination'], i['type']): i['count'] for i in db.get_cash_inventory()}
+        assert inv[(1, 'coin')] == 17
+
+    def test_print_success_completes_the_row_and_counts_as_revenue(self, kiosk, db):
+        main_app, model = kiosk
+        stock_hoppers(db, ones=20, fives=20)
+        payment_data, _ = pay_with_change(main_app, model, 0)
+        assert logged_row(db)['status'] == 'completed'
+        assert revenue(db)['usb'] == payment_data['total_cost']
+
+    def test_print_failure_refunds_one_voucher_and_is_not_revenue(self, kiosk, db):
+        main_app, model = kiosk
+        stock_hoppers(db, ones=0, fives=0)
+        payment_data = pay(main_app, model, 10)  # P10 shortfall voucher
+        ref = model.payment_ref
+        cost = int(payment_data['total_cost'])
+
+        outcome = refund_failed_print(db, ref, "Paper jam detected")
+
+        row = logged_row(db)
+        assert row['status'] == 'print_failed'
+        assert outcome.voucher.value == cost
+        assert row['voucher_issued'] == 10 + cost
+        assert sum(revenue(db).values()) == 0
+        totals = db.get_change_and_voucher_totals()
+        assert totals['voucher_issued'] == 10 + cost
+        assert totals['change_dispensed'] == 0
+        assert db.get_voucher_liability(datetime.now()) == 10 + cost
+
+    def test_refund_is_issued_at_most_once_per_payment(self, kiosk, db):
+        main_app, model = kiosk
+        stock_hoppers(db, ones=20, fives=20)
+        pay(main_app, model, 0)
+        ref = model.payment_ref
+
+        first = refund_failed_print(db, ref, "jam")
+        second = refund_failed_print(db, ref, "jam again")
+
+        assert first.applied and not second.applied
+        assert len(voucher_rows(db.db_path)) == 1
+
+    def test_a_failure_after_success_does_not_refund(self, kiosk, db):
+        main_app, model = kiosk
+        stock_hoppers(db, ones=20, fives=20)
+        pay_with_change(main_app, model, 0)
+
+        assert not refund_failed_print(db, model.payment_ref, "late error").applied
+        assert logged_row(db)['status'] == 'completed'
+
+    def test_unsavable_refund_voucher_is_logged_alerted_and_row_still_written(self, kiosk, db, sms, monkeypatch):
+        import managers.print_refund as pr
+        main_app, model = kiosk
+        stock_hoppers(db, ones=20, fives=20)
+        pay(main_app, model, 0)
+        monkeypatch.setattr(pr, 'send_operator_alert', sms.append)
+        monkeypatch.setattr(db, 'create_voucher', lambda **kw: False)
+
+        outcome = refund_failed_print(db, model.payment_ref, "jam")
+
+        assert outcome.voucher is None and outcome.voucher_failed
+        assert logged_row(db)['status'] == 'print_failed'
+        assert len(sms) == 1

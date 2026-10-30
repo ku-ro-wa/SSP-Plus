@@ -163,6 +163,10 @@ class FileBrowserModel(QObject):
         self.selected_pdf = pdf_data
         self.pdf_selected.emit(pdf_data)
 
+        # An unreadable file has nothing to analyze
+        if pdf_data.get('error'):
+            return
+
         # Mark file as in use for safety
         if hasattr(self.usb_manager, 'mark_file_in_use'):
             self.usb_manager.mark_file_in_use(pdf_data['path'])

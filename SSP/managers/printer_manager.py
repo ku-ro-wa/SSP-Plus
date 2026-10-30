@@ -39,7 +39,9 @@ class PrinterManager(QObject):
         print(f"Print request: {len(selected_pages)} pages x {copies} copies ({color_mode})")
 
         if hasattr(self, 'print_thread') and self.print_thread and self.print_thread.isRunning():
-            print("Print job already running, ignoring duplicate request")
+            print("Print job already running, rejecting duplicate request")
+            # A paid job dropped silently would neither print nor fail (#59).
+            self.print_job_failed.emit("A print job is already running.")
             return
 
         if not self.check_printer_availability():
