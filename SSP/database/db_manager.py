@@ -105,8 +105,11 @@ class DatabaseManager(VoucherDBMixin):
 
     # --- Existing Methods (assuming they are here) ---
     def log_transaction(self, data):
+        """Insert a transactions row. Returns True if it was written (False
+        if there is no connection, the row failed, or its payment_ref is
+        already logged)."""
         if not self.conn:
-            return
+            return False
         try:
             cursor = self.conn.cursor()
             cursor.execute("""
@@ -122,8 +125,59 @@ class DatabaseManager(VoucherDBMixin):
                 data.get('voucher_applied', 0), data.get('payment_ref', None)
             ))
             self.conn.commit()
+            return True
         except sqlite3.Error as e:
             print(f"Error logging transaction: {e}")
+            return False
+
+    def get_transaction_by_ref(self, payment_ref):
+        if not self.conn or not payment_ref:
+            return None
+        try:
+            cursor = self.conn.cursor()
+            cursor.execute("SELECT * FROM transactions WHERE payment_ref = ?", (payment_ref,))
+            row = cursor.fetchone()
+            return dict(row) if row else None
+        except sqlite3.Error as e:
+            print(f"Error reading transaction {payment_ref}: {e}")
+            return None
+
+    def update_transaction_outcome(self, payment_ref, status, from_status=None,
+                                   voucher_issued=None, error_message=None):
+        """Record a settled transaction's print outcome, found by payment_ref.
+        With `from_status`, only a row still in that status changes, so an
+        outcome is applied at most once. Returns True if a row changed."""
+        if not self.conn or not payment_ref:
+            return False
+        try:
+            sets, params = ["status = ?"], [status]
+            if voucher_issued is not None:
+                sets.append("voucher_issued = ?")
+                params.append(voucher_issued)
+            if error_message is not None:
+                sets.append("error_message = ?")
+                params.append(error_message)
+            query = f"UPDATE transactions SET {', '.join(sets)} WHERE payment_ref = ?"
+            params.append(payment_ref)
+            if from_status is not None:
+                query += " AND status = ?"
+                params.append(from_status)
+            cursor = self.conn.cursor()
+            cursor.execute(query, params)
+            self.conn.commit()
+            return cursor.rowcount > 0
+        except sqlite3.Error as e:
+            print(f"Error updating transaction {payment_ref}: {e}")
+            return False
+
+    def adjust_cash_inventory(self, denomination, delta, type):
+        """Add `delta` (may be negative) to a stock count, never below 0."""
+        current = 0
+        for item in self.get_cash_inventory():
+            if item.get('denomination') == denomination and item.get('type') == type:
+                current = item.get('count', 0)
+                break
+        self.update_cash_inventory(denomination=denomination, count=max(0, current + delta), type=type)
 
     def get_transaction_history(self):
         if not self.conn:
@@ -684,12 +738,13 @@ class DatabaseManager(VoucherDBMixin):
         try:
             cursor = self.conn.cursor()
             query = (
-                "SELECT COALESCE(SUM(CASE WHEN status = 'completed' THEN change_dispensed END), 0) "
-                "AS change_dispensed, "
+                "SELECT COALESCE(SUM(CASE WHEN status IN ('completed', 'print_failed') "
+                "THEN change_dispensed END), 0) AS change_dispensed, "
                 "COALESCE(SUM(voucher_issued), 0) AS voucher_issued, "
-                "COALESCE(SUM(CASE WHEN status = 'completed' THEN voucher_applied END), 0) "
-                "AS voucher_applied "
-                "FROM transactions WHERE status IN ('completed', 'cancelled_partial_payment')"
+                "COALESCE(SUM(CASE WHEN status IN ('completed', 'print_failed') "
+                "THEN voucher_applied END), 0) AS voucher_applied "
+                "FROM transactions WHERE status IN "
+                "('completed', 'print_failed', 'cancelled_partial_payment')"
             )
             params = []
             if since is not None:
