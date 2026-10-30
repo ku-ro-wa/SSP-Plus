@@ -21,8 +21,8 @@ COLORS = {
     "primary": "#3B8C66",
     "primary_hover": "#327A58",
     "primary_pressed": "#286A4B",
-    # Banner and accents: white text on it is about 6.6:1.
-    "header": "#37634C",
+    # Banner and accents: white text on it is about 4.65:1.
+    "header": "#0F8558",
     "danger": "#EB5757",
     "danger_bg": "#FDEDED",
     "success": "#2F7D5C",
