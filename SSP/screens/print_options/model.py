@@ -126,9 +126,12 @@ class PrintOptionsModel(QObject):
         self.selected_pages = None
         self._copies = config.min_copies
         self._color_mode = config.default_color_mode
+        self.digital_fee = 0  # flat fee for the scan's digital copy; 0 = print only
 
-    def set_pdf_data(self, pdf_data, selected_pages):
-        """Sets the PDF data and selected pages."""
+    def set_pdf_data(self, pdf_data, selected_pages, digital_fee=0):
+        """Sets the PDF data and selected pages. digital_fee > 0 adds the flat
+        fee for a digital copy (scan sent via download/email) to the total."""
+        self.digital_fee = digital_fee
         print("🔍 PrintOptionsModel.set_pdf_data called")
         print(f"🔍 PDF data: {pdf_data}")
         print(f"🔍 Selected pages: {selected_pages}")
@@ -232,7 +235,7 @@ class PrintOptionsModel(QObject):
 
         num_copies = self._copies
         base_cost = self.analysis_results['pricing']['base_cost']
-        total_cost = base_cost * num_copies
+        total_cost = base_cost * num_copies + self.digital_fee
 
         cost_text = f"Total Cost: ₱{total_cost:.2f}"
 
@@ -244,6 +247,8 @@ class PrintOptionsModel(QObject):
             details_text = f"Based on {num_copies} copies of {b_count} Black & White pages"
 
         print(f"🔍 Emitting cost_updated signal: '{cost_text}' / '{details_text}'")
+        if self.digital_fee:
+            details_text += f" + ₱{self.digital_fee} digital copy"
         self.cost_updated.emit(cost_text, details_text)
 
     def get_payment_data(self):
@@ -251,8 +256,8 @@ class PrintOptionsModel(QObject):
         if not self.analysis_results:
             return None
 
-        total_cost = self.analysis_results['pricing']['base_cost'] * self._copies
-        return {
+        total_cost = self.analysis_results['pricing']['base_cost'] * self._copies + self.digital_fee
+        data = {
             'pdf_data': self.selected_pdf,
             'selected_pages': self.selected_pages,
             'copies': self._copies,
@@ -260,6 +265,9 @@ class PrintOptionsModel(QObject):
             'total_cost': total_cost,
             'analysis': self.analysis_results
         }
+        if self.digital_fee:
+            data['digital_copy'] = {'fee': self.digital_fee}
+        return data
 
     def stop_analysis(self):
         """Stops the current analysis thread."""

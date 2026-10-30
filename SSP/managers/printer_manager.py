@@ -39,7 +39,9 @@ class PrinterManager(QObject):
         print(f"Print request: {len(selected_pages)} pages x {copies} copies ({color_mode})")
 
         if hasattr(self, 'print_thread') and self.print_thread and self.print_thread.isRunning():
-            print("Print job already running, ignoring duplicate request")
+            print("Print job already running, rejecting duplicate request")
+            # A paid job dropped silently would neither print nor fail (#59).
+            self.print_job_failed.emit("A print job is already running.")
             return
 
         if not self.check_printer_availability():
@@ -74,11 +76,9 @@ class PrinterManager(QObject):
                 print("'lp' command not found. Is CUPS installed?")
                 return False
 
-            result = subprocess.run(['pgrep', 'cupsd'], capture_output=True, text=True)
-            if result.returncode != 0:
-                print("CUPS daemon (cupsd) is not running")
-                return False
-
+            # No pgrep for cupsd: CUPS is socket-activated and cupsd exits when idle,
+            # so it's often not running. lpstat below wakes it via cups.sock, and fails
+            # if CUPS can't be reached.
             result = subprocess.run(
                 ['lpstat', '-p', self.printer_name],
                 capture_output=True, text=True, timeout=10

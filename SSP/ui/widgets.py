@@ -81,6 +81,9 @@ class Card(QFrame):
 
     clicked = pyqtSignal(str)
 
+    def set_description(self, text: str):
+        self._desc_label.setText(text)
+
     def __init__(self, key: str, title: str, description: str, icon_name: str = None,
                  extra_widget=None, parent=None):
         super().__init__(parent)
@@ -116,6 +119,7 @@ class Card(QFrame):
         )
 
         desc_label = QLabel(description)
+        self._desc_label = desc_label
         desc_label.setAlignment(Qt.AlignCenter)
         desc_label.setWordWrap(True)
         desc_label.setStyleSheet(

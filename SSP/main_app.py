@@ -50,6 +50,8 @@ from managers.kiosk_status import SETTING_LAST_SEEN, SETTING_QR_STATUS, heartbea
 from managers.session_manager import SessionManager
 from database.db_manager import DatabaseManager
 from managers.sms_manager import cleanup_sms
+from managers.print_refund import record_print_success, refund_failed_print
+from screens.voucher.model import VoucherModel
 from managers.persistent_gpio import cleanup_persistent_gpio
 from managers.gpio_check import gpio_problem
 from config import get_config
@@ -449,6 +451,27 @@ class PrintingSystemApp(QMainWindow):
             return True
         return False
 
+    def _low_ink_cartridges(self):
+        """{cartridge: level%} for each CMYK cartridge at or below 20%; {} if none or unknown."""
+        cmyk_levels = self.admin_screen.db_manager.get_cmyk_ink_levels()
+        if not cmyk_levels:
+            print("No CMYK ink data available, skipping ink level check")
+            return {}
+        low_ink_threshold = 20.0
+        return {
+            name: level
+            for name, level in cmyk_levels.items()
+            if name in ('cyan', 'magenta', 'yellow', 'black') and level <= low_ink_threshold
+        }
+
+    def print_supplies_low(self):
+        """True when printing isn't possible: paper at 3 sheets or fewer, or a cartridge low."""
+        try:
+            return self.admin_screen.get_paper_count() <= 3 or bool(self._low_ink_cartridges())
+        except Exception as e:
+            print(f"Error checking print supplies: {e}")
+            return False
+
     def check_ink_levels_and_redirect(self):
         """
         Check CMYK ink levels and redirect to error screen if any cartridge is critically low.
@@ -457,17 +480,7 @@ class PrintingSystemApp(QMainWindow):
             bool: True if redirected (kiosk should stop), False if ink is acceptable.
         """
         try:
-            cmyk_levels = self.admin_screen.db_manager.get_cmyk_ink_levels()
-            if not cmyk_levels:
-                print("No CMYK ink data available, skipping ink level check")
-                return False
-
-            low_ink_threshold = 20.0
-            low_cartridges = {
-                name: level
-                for name, level in cmyk_levels.items()
-                if name in ('cyan', 'magenta', 'yellow', 'black') and level <= low_ink_threshold
-            }
+            low_cartridges = self._low_ink_cartridges()
 
             if low_cartridges:
                 details = ", ".join(
@@ -511,7 +524,13 @@ class PrintingSystemApp(QMainWindow):
         screen_name = redirect_for_carried_credit(self, screen_name)
 
         # Check paper and ink before switching to most screens (except admin and thank_you)
-        if screen_name not in ['admin', 'thank_you', 'voucher']:
+        # scan_result: the customer has paid for the digital copy it shows.
+        # scan_destination and a digital-only payment need no paper or ink; the
+        # print choices are blocked there (and at printing_options) instead.
+        digital_only_payment = (screen_name == 'payment'
+                                and not self.payment_screen.model.is_print_job())
+        if (screen_name not in ['admin', 'thank_you', 'voucher', 'scan_result', 'scan_destination']
+                and not digital_only_payment):
             if self.check_paper_count_and_redirect():
                 print(f"Cannot navigate to {screen_name} - insufficient paper")
                 return
@@ -578,15 +597,16 @@ class PrintingSystemApp(QMainWindow):
         print("✅ Print job successfully completed")
         print("DEBUG: on_print_successful called, about to trigger ink analysis")
 
-        # Log transaction to database after successful printing
-        if hasattr(self, 'payment_screen') and self.payment_screen and hasattr(self.payment_screen.model, 'log_transaction_after_print_success'):
-            print("DEBUG: Logging transaction after successful print")
-            self.payment_screen.model.log_transaction_after_print_success()
+        # The transaction was logged and the cash inventory updated at
+        # settlement; the print outcome only completes the row (#59).
+        job = getattr(self, 'current_print_job', None) or {}
+        try:
+            record_print_success(self.payment_screen.model.db_manager, job.get('payment_ref'))
+        except Exception as e:
+            print(f"⚠️ Could not mark transaction completed: {e}")
 
-        # Update database immediately after print success (don't wait for ink analysis)
-        print("DEBUG: Updating database immediately after print success")
+        # Update paper count immediately after print success (don't wait for ink analysis)
         self._update_paper_count_after_print()
-        self._update_coin_inventory_after_print()
 
         # Trigger ink analysis for the printed job (if print job info available).
         # It reads current_print_job, so this must run before the job is cleared.
@@ -728,94 +748,6 @@ class PrintingSystemApp(QMainWindow):
         except Exception as e:
             print(f"❌ Error updating paper count: {e}")
 
-    def _update_coin_inventory_after_print(self):
-        """
-        Update coin inventory after successful printing.
-
-        This method handles BOTH:
-        1. Adding received coins (coins inserted during payment)
-        2. Subtracting dispensed change (coins given as change)
-
-        This ensures the database reflects the actual coins in the system.
-        """
-        if not hasattr(self, 'current_print_job') or not self.current_print_job:
-            print("⚠️ No print job info available for coin inventory update")
-            return
-
-        try:
-            print(f"DEBUG: Starting coin inventory update for print job: {self.current_print_job}")
-
-            # Get payment info from the payment model if available
-            if hasattr(self, 'payment_screen') and self.payment_screen:
-                payment_model = self.payment_screen.model
-
-                # Handle received coins (coins inserted during payment)
-                if hasattr(payment_model, 'cash_received') and payment_model.cash_received:
-                    print(f"💰 Adding received coins to inventory: {payment_model.cash_received}")
-                    self._update_coin_inventory_items(payment_model.cash_received, add=True)
-
-                # Handle dispensed change (coins given as change)
-                if hasattr(payment_model, 'change_dispensed') and payment_model.change_dispensed:
-                    print(f"💰 Subtracting dispensed change from inventory: {payment_model.change_dispensed}")
-                    self._update_coin_inventory_items(payment_model.change_dispensed, add=False)
-                else:
-                    print("DEBUG: No change dispensed data available")
-
-            else:
-                print("⚠️ No payment screen available for coin inventory update")
-
-        except Exception as e:
-            print(f"❌ Error updating coin inventory: {e}")
-
-    def _update_coin_inventory_items(self, coin_data, add=True):
-        """
-        Update coin inventory with specific coin data.
-
-        Args:
-            coin_data: Dictionary of {denomination: count}
-            add: True to add coins, False to subtract coins
-        """
-        if not hasattr(self, 'admin_screen') or not self.admin_screen:
-            print("⚠️ No admin screen available for coin inventory update")
-            return
-
-        try:
-            print("DEBUG: Admin screen available, updating coin inventory")
-            for denomination, count in coin_data.items():
-                if count > 0:
-                    is_bill = denomination >= 20
-                    operation = "Adding" if add else "Subtracting"
-                    print(f"DEBUG: {operation} {count} x {denomination} {'bill' if is_bill else 'coin'}")
-
-                    # Get current count
-                    current_inventory = self.admin_screen.model.db_manager.get_cash_inventory()
-                    current_count = 0
-
-                    for item in current_inventory:
-                        if (item.get('denomination') == denomination and
-                                item.get('type') == ('bill' if is_bill else 'coin')):
-                            current_count = item.get('count', 0)
-                            break
-
-                    # Calculate new count
-                    if add:
-                        new_count = current_count + count
-                    else:
-                        new_count = max(0, current_count - count)  # Don't go below 0
-
-                    # Update database
-                    self.admin_screen.model.db_manager.update_cash_inventory(
-                        denomination=denomination,
-                        count=new_count,
-                        type='bill' if is_bill else 'coin'
-                    )
-
-                    operation_symbol = "+" if add else "-"
-                    print(f"✅ Updated {denomination} {'bill' if is_bill else 'coin'}: {current_count} {operation_symbol}{count} = {new_count}")
-
-        except Exception as e:
-            print(f"❌ Error updating coin inventory items: {e}")
-
     def on_print_waiting(self):
         """
         Handle print job waiting state.
@@ -858,6 +790,10 @@ class PrintingSystemApp(QMainWindow):
         except Exception as db_error:
             print(f"⚠️ Failed to log error to database: {db_error}")
 
+        # The customer already paid: refund them with a Voucher (#59).
+        if self._refund_failed_print(error_message):
+            return
+
         # Display error on thank you screen
         if self.stacked_widget.currentWidget() == self.thank_you_screen:
             # Check if this is a paper jam error for specialized handling
@@ -867,6 +803,36 @@ class PrintingSystemApp(QMainWindow):
                 self.thank_you_screen.show_printing_error(error_message)
         else:
             print(f"⚠️ Print failed on wrong screen. Error: {error_message}")
+
+    def _refund_failed_print(self, error_message):
+        """Move the paid transaction to print_failed and issue a refund Voucher.
+        Returns True if the voucher screen (or its failure notice) is now showing."""
+        job, self.current_print_job = getattr(self, 'current_print_job', None), None
+        ref = (job or {}).get('payment_ref')
+        if not ref:
+            return False
+        try:
+            outcome = refund_failed_print(self.payment_screen.model.db_manager, ref, error_message,
+                                          already_refunded=job.get('digital_fee_refunded', 0))
+        except Exception as e:
+            print(f"CRITICAL: refund for failed print {ref} errored: {e}")
+            return False
+        if not outcome.applied:
+            return False
+        try:
+            def to_idle():
+                self.show_screen('idle')
+            if outcome.voucher:
+                self.voucher_screen.show_issued(outcome.voucher, reason=VoucherModel.REFUND, on_continue=to_idle)
+            elif outcome.voucher_failed:
+                self.voucher_screen.show_failure(outcome.amount, reason=VoucherModel.REFUND, on_continue=to_idle)
+            else:
+                return False
+            self.show_screen('voucher')
+            return True
+        except Exception as e:
+            print(f"CRITICAL: could not show the refund voucher: {e}")
+            return False
 
     def start_global_countdown(self, seconds=60):
         self.remaining_seconds = seconds

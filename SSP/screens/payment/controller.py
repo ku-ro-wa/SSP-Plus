@@ -79,7 +79,9 @@ class PaymentController(QWidget):
     def _go_back(self):
         """Handles go back request from model."""
         if hasattr(self.main_app, 'show_screen'):
-            self.main_app.show_screen('printing_options')
+            # A digital-only scan has no print options to go back to.
+            self.main_app.show_screen(
+                'printing_options' if self.model.is_print_job() else 'scan_destination')
 
     def set_payment_data(self, payment_data):
         """Sets payment data in the model."""

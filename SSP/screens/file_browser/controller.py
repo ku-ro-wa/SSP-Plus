@@ -104,6 +104,11 @@ class FileBrowserController(QWidget):
             QMessageBox.warning(self, "No PDF Selected", "Please select a PDF file.")
             return
 
+        if self.view.selected_pdf.get('error'):
+            QMessageBox.warning(self, "File Can't Be Opened",
+                                "This file can't be printed. Please choose another file.")
+            return
+
         # Get selected pages from the view
         selected_pages_list = [page for page, selected in self.view.selected_pages.items() if selected]
         print(f"🔍 Selected pages list: {selected_pages_list}")
@@ -149,7 +154,11 @@ class FileBrowserController(QWidget):
         """Handles completion of PDF analysis."""
         self._current_analysis = analysis_data
         self.view.update_analysis_info(analysis_data)
-        self.view.set_continue_button_enabled(True)
+        # The analysis thread can finish after the customer picked another file;
+        # never re-enable Continue for an unreadable one
+        selected = self.view.selected_pdf
+        if selected and selected['path'] == pdf_data['path'] and not selected.get('error'):
+            self.view.set_continue_button_enabled(True)
 
     def _handle_navigation(self, screen_name):
         """Handles navigation requests from the model."""

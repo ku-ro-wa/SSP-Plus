@@ -41,15 +41,12 @@ class ScanDestinationController(QWidget):
 
         self.view.destination_toggled.connect(lambda *_: self._reset_timeout())
 
-        self.model.session_created.connect(self._handle_session_created)
-        self.model.session_failed.connect(self._handle_session_failed)
-        self.model.ready_to_print.connect(self._handle_ready_to_print)
-
     # --- Public API for main_app ---
 
     def set_scan_result(self, pdf_path: str, page_count: int):
         self.model.set_scan_result(pdf_path, page_count)
         self.view.set_summary(page_count)
+        self.view.set_digital_fee(self.model.get_digital_fee())
         self.view.reset_selection()
         self._start_thumbnail_render(pdf_path)
 
@@ -71,34 +68,21 @@ class ScanDestinationController(QWidget):
         self.thumbnail_thread = None
 
     def _handle_continue(self):
+        """Route the selection. Nothing is delivered before payment."""
         selected = self.view.get_selected_keys()
-        self.view.set_busy(True)
-        self.view.show_status("")
-        self.model.confirm_selection(selected)
+        wants_print = 'print' in selected
+        wants_digital = 'send_wifi' in selected
+        if not (wants_print or wants_digital):
+            return
 
-    def _handle_ready_to_print(self):
-        self.view.set_busy(False)
-        pdf_data = self.model.get_pdf_data()
-        selected_pages = self.model.get_selected_pages()
-        self.main_app.printing_options_screen.set_pdf_data(pdf_data, selected_pages, "scanner")
-        self.main_app.show_screen('printing_options')
-
-    def _handle_session_created(self, session):
-        self.view.set_busy(False)
-        if self.model.wants_print:
-            pending_print = {
-                'pdf_data': self.model.get_pdf_data(),
-                'selected_pages': self.model.get_selected_pages(),
-            }
-            self.main_app.scan_result_screen.set_session(session, pending_print=pending_print)
+        if wants_print:
+            fee = self.model.get_digital_fee() if wants_digital else 0
+            self.main_app.printing_options_screen.set_pdf_data(
+                self.model.get_pdf_data(), self.model.get_selected_pages(), "scanner", digital_fee=fee)
+            self.main_app.show_screen('printing_options')
         else:
-            self._cleanup_pdf()
-            self.main_app.scan_result_screen.set_session(session)
-        self.main_app.show_screen('scan_result')
-
-    def _handle_session_failed(self, message):
-        self.view.set_busy(False)
-        self.view.show_status(message, is_error=True)
+            self.main_app.payment_screen.set_payment_data(self.model.get_digital_only_payment_data())
+            self.main_app.show_screen('payment')
 
     def _handle_cancel(self):
         self._cleanup_pdf()
@@ -116,6 +100,8 @@ class ScanDestinationController(QWidget):
         print("Scan destination screen entered")
         self.view.show_status("")
         self.view.set_busy(False)
+        self.view.set_print_available(not self.main_app.print_supplies_low())
+        self.view.set_digital_fee(self.model.get_digital_fee())
         self.timeout_timer.start(60000)
 
     def on_leave(self):

@@ -7,6 +7,8 @@ import tempfile
 import platform
 from datetime import datetime
 
+from managers.pdf_check import check_pdf
+
 
 class USBFileManager:
     """Handles USB detection and PDF file filtering"""
@@ -271,22 +273,17 @@ class USBFileManager:
                                 file_size = os.path.getsize(dest_path)
                                 print(f"✅ Copied {filename} ({file_size/1024:.1f} KB)")
 
-                                # Get PDF page count
-                                try:
-                                    import fitz  # PyMuPDF
-                                    doc = fitz.open(dest_path)
-                                    page_count = len(doc)
-                                    doc.close()
-                                except Exception:
-                                    page_count = 1
-                                    print(f"⚠️ Could not get page count for {filename}")
+                                # An unreadable file is kept but flagged, so
+                                # file_browser can say why it won't print
+                                page_count, error = check_pdf(dest_path)
 
                                 copied_files.append({
                                     'filename': filename,
                                     'path': dest_path,
                                     'size': file_size,
                                     'pages': page_count,
-                                    'type': '.pdf'
+                                    'type': '.pdf',
+                                    'error': error
                                 })
 
                             # Mark file as complete
@@ -350,21 +347,15 @@ class USBFileManager:
                     file_size = os.path.getsize(dest_path)
                     print(f"✅ Copied {filename} ({file_size/1024:.1f} KB)")
 
-                    try:
-                        import fitz  # PyMuPDF
-                        doc = fitz.open(dest_path)
-                        page_count = len(doc)
-                        doc.close()
-                    except Exception:
-                        page_count = 1
-                        print(f"⚠️ Could not get page count for {filename}")
+                    page_count, error = check_pdf(dest_path)
 
                     copied_files.append({
                         'filename': filename,
                         'path': dest_path,
                         'size': file_size,
                         'pages': page_count,
-                        'type': '.pdf'
+                        'type': '.pdf',
+                        'error': error
                     })
                 except Exception as e:
                     print(f"❌ Error copying '{filename}': {e}")
