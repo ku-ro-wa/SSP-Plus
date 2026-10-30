@@ -8,7 +8,7 @@ from PyQt5.QtCore import QTimer
 
 from .model import ScanDestinationModel
 from .thumbnail_thread import ThumbnailRenderThread
-from .view import ScanDestinationScreenView
+from .view import PAGE_RENDER_HEIGHT, ScanDestinationScreenView
 
 
 class ScanDestinationController(QWidget):
@@ -53,7 +53,7 @@ class ScanDestinationController(QWidget):
     def _start_thumbnail_render(self, pdf_path):
         self._stop_thumbnail_render()
         self.view.clear_thumbnails()
-        self.thumbnail_thread = ThumbnailRenderThread(pdf_path)
+        self.thumbnail_thread = ThumbnailRenderThread(pdf_path, PAGE_RENDER_HEIGHT)
         self.thumbnail_thread.thumbnail_ready.connect(self.view.add_thumbnail)
         self.thumbnail_thread.finished.connect(self._on_thumbnail_thread_finished)
         self.thumbnail_thread.start()

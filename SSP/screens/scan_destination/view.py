@@ -18,7 +18,11 @@ QFrame#Card {{
 }}
 """
 
-THUMBNAIL_HEIGHT = 200
+# Same size and look as the scanner screen's page preview, so the two screens read as one flow.
+PREVIEW_WIDTH = 380
+PREVIEW_HEIGHT = 520
+# Page images fit inside the preview frame: minus its padding, border and scrollbar.
+PAGE_RENDER_HEIGHT = PREVIEW_HEIGHT - 50
 
 
 class DestinationOption(QFrame):
@@ -76,14 +80,23 @@ class ScanDestinationScreenView(QWidget):
         content = QWidget()
         content.setStyleSheet(f"background-color: {COLORS['bg']};")
         body_layout = QVBoxLayout(content)
-        body_layout.setContentsMargins(60, 20, 60, 24)
-        body_layout.setSpacing(10)
+        body_layout.setContentsMargins(60, 16, 60, 24)
+        body_layout.setSpacing(8)
         outer_layout.addWidget(content, 1)
 
         self.cancel_button = BackButton("Cancel")
         self.cancel_button.clicked.connect(self.cancel_clicked.emit)
 
-        body_layout.addStretch(1)
+        # Two columns, matching the scanner screen: choices on the left, the scan on the right.
+        columns = QHBoxLayout()
+        columns.setSpacing(40)
+        body_layout.addLayout(columns, 1)
+
+        left_column = QVBoxLayout()
+        left_column.setSpacing(8)
+        columns.addLayout(left_column, 1)
+
+        left_column.addStretch(1)
 
         title = QLabel("Scan Complete")
         title.setAlignment(Qt.AlignCenter)
@@ -91,17 +104,13 @@ class ScanDestinationScreenView(QWidget):
 
         self.summary_label = QLabel("")
         self.summary_label.setAlignment(Qt.AlignCenter)
+        self.summary_label.setWordWrap(True)
         self.summary_label.setStyleSheet(f"color: {COLORS['text_secondary']}; font-size: {FONT['size_md']}px;")
 
-        body_layout.addWidget(title)
-        body_layout.addSpacing(6)
-        body_layout.addWidget(self.summary_label)
-        body_layout.addSpacing(16)
-
-        self.thumbnail_scroll = self._build_thumbnail_strip()
-        body_layout.addWidget(self.thumbnail_scroll)
-
-        body_layout.addSpacing(20)
+        left_column.addWidget(title)
+        left_column.addSpacing(6)
+        left_column.addWidget(self.summary_label)
+        left_column.addSpacing(16)
 
         self.print_option = DestinationOption('print', "Print Now", "Print this scan right away (photocopy).")
         self.print_option.toggled.connect(self._on_option_toggled)
@@ -113,24 +122,41 @@ class ScanDestinationScreenView(QWidget):
         )
         self.send_wifi_option.toggled.connect(self._on_option_toggled)
 
-        cards_row = QHBoxLayout()
-        cards_row.setSpacing(24)
-        cards_row.addStretch()
-        cards_row.addWidget(self.print_option)
-        cards_row.addWidget(self.send_wifi_option)
-        cards_row.addStretch()
-        body_layout.addLayout(cards_row)
+        for option in (self.print_option, self.send_wifi_option):
+            row = QHBoxLayout()
+            row.addStretch()
+            row.addWidget(option)
+            row.addStretch()
+            left_column.addLayout(row)
 
-        body_layout.addSpacing(16)
+        left_column.addSpacing(8)
 
         self.continue_button = PrimaryButton("Continue")
         self.continue_button.setEnabled(False)
         self.continue_button.clicked.connect(self.continue_clicked.emit)
 
         self.status_banner = StatusBanner()
-        body_layout.addWidget(self.status_banner)
+        left_column.addWidget(self.status_banner)
 
-        body_layout.addStretch(2)
+        left_column.addStretch(2)
+
+        right_column = QVBoxLayout()
+        right_column.setSpacing(8)
+        columns.addLayout(right_column)
+
+        right_column.addStretch(1)
+
+        self.thumbnail_scroll = self._build_thumbnail_strip()
+        right_column.addWidget(self.thumbnail_scroll)
+
+        self.preview_caption = QLabel("")
+        self.preview_caption.setAlignment(Qt.AlignCenter)
+        self.preview_caption.setStyleSheet(
+            f"color: {COLORS['text_secondary']}; font-size: {FONT['size_md']}px; font-weight: 600;"
+        )
+        right_column.addWidget(self.preview_caption)
+
+        right_column.addStretch(1)
 
         body_layout.addLayout(nav_row(self.cancel_button, self.continue_button))
 
@@ -146,14 +172,18 @@ class ScanDestinationScreenView(QWidget):
     def _build_thumbnail_strip(self):
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
-        scroll.setFixedHeight(THUMBNAIL_HEIGHT + 24)
+        scroll.setFixedSize(PREVIEW_WIDTH, PREVIEW_HEIGHT)
         scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
         scroll.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-        scroll.setStyleSheet(f"QScrollArea {{ border: 1px solid {COLORS['border']}; border-radius: 8px; }}")
+        scroll.setStyleSheet(
+            f"QScrollArea {{ background-color: {COLORS['bg_subtle']}; "
+            f"border: 1px solid {COLORS['border_strong']}; border-radius: 8px; }}"
+            f"QScrollArea > QWidget > QWidget {{ background-color: {COLORS['bg_subtle']}; }}"
+        )
 
         strip = QWidget()
         self._thumbnail_layout = QHBoxLayout(strip)
-        self._thumbnail_layout.setContentsMargins(12, 12, 12, 12)
+        self._thumbnail_layout.setContentsMargins(8, 8, 8, 8)
         self._thumbnail_layout.setSpacing(12)
         self._thumbnail_layout.addStretch()
         strip.setSizePolicy(QSizePolicy.Minimum, QSizePolicy.Preferred)
@@ -198,8 +228,10 @@ class ScanDestinationScreenView(QWidget):
     def set_summary(self, page_count: int):
         if page_count == 1:
             self.summary_label.setText("1 page scanned — choose what to do with it.")
+            self.preview_caption.setText("Page 1")
         else:
             self.summary_label.setText(f"{page_count} pages scanned — choose what to do with them.")
+            self.preview_caption.setText(f"{page_count} pages — swipe to see them all")
 
     def show_status(self, message, is_error=True):
         self.status_banner.show_message(message, variant="error" if is_error else "success")

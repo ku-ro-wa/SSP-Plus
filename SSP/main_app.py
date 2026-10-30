@@ -17,9 +17,9 @@ import signal
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
 from PyQt5 import QtCore
-from PyQt5.QtWidgets import QApplication, QMainWindow, QStackedWidget, QInputDialog, QShortcut
+from PyQt5.QtWidgets import QApplication, QMainWindow, QStackedWidget, QInputDialog, QShortcut, QGraphicsDropShadowEffect
 from PyQt5.QtCore import QObject, QTimer, pyqtSignal
-from PyQt5.QtGui import QKeySequence
+from PyQt5.QtGui import QColor, QKeySequence
 from screens.idle import IdleController
 from screens.payment.model import redirect_for_carried_credit
 from screens.usb import USBController
@@ -115,28 +115,26 @@ class PrintingSystemApp(QMainWindow):
         from PyQt5.QtWidgets import QLabel
         from PyQt5.QtCore import Qt
 
-        timer_label_width, timer_label_height, timer_label_margin = 260, 48, 12
         self.global_timer_label = QLabel("Remaining Time: 60s", self)
-        self.global_timer_label.setGeometry(
-            self.width() - timer_label_width - timer_label_margin,
-            timer_label_margin,
-            timer_label_width,
-            timer_label_height,
-        )
         self.global_timer_label.setAlignment(Qt.AlignCenter)
-        # Blends into the dark header (same fill) with a white border for contrast,
-        # rather than sitting on top as a separate jet-black pill.
+        # White chip with charcoal text and a soft shadow, sized to its text (see _place_timer_label).
         self.global_timer_label.setStyleSheet(f"""
             QLabel {{
-                background-color: {COLORS['text']};
-                color: white;
-                font-size: 20px;
+                background-color: {COLORS['bg']};
+                color: {COLORS['text']};
+                font-size: 18px;
                 font-weight: bold;
-                border: 1px solid #FFFFFF;
-                border-radius: 10px;
-                padding: 8px 18px;
+                border: none;
+                border-radius: 8px;
+                padding: 6px 14px;
             }}
         """)
+        shadow = QGraphicsDropShadowEffect(self.global_timer_label)
+        shadow.setBlurRadius(8)
+        shadow.setOffset(0, 2)
+        shadow.setColor(QColor(0, 0, 0, 70))
+        self.global_timer_label.setGraphicsEffect(shadow)
+        self._place_timer_label()
         self.global_timer_label.hide()
 
         self.countdown_timer = QTimer(self)
@@ -840,7 +838,14 @@ class PrintingSystemApp(QMainWindow):
         self.remaining_seconds = seconds
         self.global_timer_label.show()
         self.global_timer_label.setText(f"Remaining Time: {self.remaining_seconds:02d}s")
+        self._place_timer_label()
         self.countdown_timer.start(1000)
+
+    def _place_timer_label(self):
+        """Fit the chip to its text, right-aligned and vertically centred in the 72px header."""
+        label = self.global_timer_label
+        label.adjustSize()
+        label.move(self.width() - label.width() - 28, (72 - label.height()) // 2)
 
     def stop_global_countdown(self):
         self.countdown_timer.stop()
@@ -854,6 +859,7 @@ class PrintingSystemApp(QMainWindow):
             return
 
         self.global_timer_label.setText(f"Remaining Time: {self.remaining_seconds:02d}s")
+        self._place_timer_label()
 
     def cleanup(self):
         """

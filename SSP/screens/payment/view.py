@@ -1,6 +1,8 @@
 # screens/payment/view.py
 
-from PyQt5.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit
+from html import escape
+
+from PyQt5.QtWidgets import QFrame, QWidget, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit
 from PyQt5.QtCore import Qt, pyqtSignal
 
 from config import get_config
@@ -57,21 +59,43 @@ class PaymentScreenView(QWidget):
 
         body_layout.addStretch(1)
 
-        # Summary label
+        # Receipt card: the job's line items, then the total underneath a divider.
+        receipt = QFrame()
+        receipt.setObjectName("Receipt")
+        receipt.setStyleSheet(
+            f"QFrame#Receipt {{ background-color: {COLORS['bg_subtle']}; "
+            f"border: 1px solid {COLORS['border_strong']}; border-radius: 10px; }}"
+            f"QFrame#Receipt QLabel {{ background: transparent; border: none; }}"
+        )
+        receipt_layout = QVBoxLayout(receipt)
+        receipt_layout.setContentsMargins(24, 16, 24, 16)
+        receipt_layout.setSpacing(8)
+
+        # Summary label (rich-text line items, filled by update_payment_data)
         self.summary_label = QLabel("Print Job Summary")
         self.summary_label.setWordWrap(True)
-        self.summary_label.setStyleSheet(
-            f"color: {COLORS['text']}; font-size: {FONT['size_md']}px; padding: 10px;"
-        )
-        body_layout.addWidget(self.summary_label)
+        self.summary_label.setTextFormat(Qt.RichText)
+        self.summary_label.setStyleSheet(f"color: {COLORS['text']}; font-size: {FONT['size_md']}px;")
+        receipt_layout.addWidget(self.summary_label)
+
+        divider = QFrame()
+        divider.setFixedHeight(1)
+        divider.setStyleSheet(f"background-color: {COLORS['border_strong']}; border: none;")
+        receipt_layout.addWidget(divider)
 
         # Total label
-        self.total_label = QLabel("Total Amount Due: P0.00")
-        self.total_label.setAlignment(Qt.AlignCenter)
-        self.total_label.setStyleSheet(
-            f"color: {COLORS['text']}; font-size: {FONT['size_xl']}px; font-weight: 700; padding: 12px;"
-        )
-        body_layout.addWidget(self.total_label)
+        self.total_label = QLabel()
+        self.total_label.setTextFormat(Qt.RichText)
+        self._set_total(0)
+        receipt_layout.addWidget(self.total_label)
+
+        # Capped width, centred: label and value stay close enough to read as one row.
+        receipt.setFixedWidth(640)
+        receipt_row = QHBoxLayout()
+        receipt_row.addStretch()
+        receipt_row.addWidget(receipt)
+        receipt_row.addStretch()
+        body_layout.addLayout(receipt_row)
 
         # Suggested payment, shown independently of the status banner below.
         self.suggestion_banner = StatusBanner()
@@ -203,27 +227,54 @@ class PaymentScreenView(QWidget):
 
         layout.addLayout(sim_layout)
 
+    def _set_total(self, total_cost):
+        """Total as one row: label on the left, big amount on the right."""
+        self.total_label.setText(
+            f'<table width="100%"><tr>'
+            f'<td valign="middle" style="font-size:{FONT["size_lg"]}px; font-weight:600;">Total Amount Due</td>'
+            f'<td align="right" valign="middle" style="font-size:{FONT["size_xl"]}px; font-weight:700;">P{total_cost:.2f}</td>'
+            f'</tr></table>'
+        )
+        self.total_label.setStyleSheet(f"color: {COLORS['text']};")
+
+    @staticmethod
+    def _receipt_row(label, value, strong=False):
+        weight = 700 if strong else 400
+        return (
+            f'<tr><td style="color:{COLORS["text_secondary"]};">{label}</td>'
+            f'<td align="right" style="font-weight:{weight};">{value}</td></tr>'
+        )
+
     def update_payment_data(self, summary_data):
         """Updates the payment data display."""
-        self.total_label.setText(f"Total Amount Due: P{summary_data['total_cost']:.2f}")
+        self._set_total(summary_data['total_cost'])
 
+        row = self._receipt_row
+        document = escape(str(summary_data['document_name']))
         if summary_data.get('print_job', True):
-            summary_lines = [
-                "<b>Print Job Summary:</b>",
-                f"• Document: {summary_data['document_name']}",
-                f"• Copies: {summary_data['copies']}",
-                f"• Color Mode: {summary_data['color_mode']}",
-                f"• Breakdown: {summary_data['black_pages']} B&W pages, {summary_data['color_pages']} Color pages",
+            title = "Print Job Summary"
+            rows = [
+                row("Document", document, strong=True),
+                row("Copies", f"{summary_data['copies']}"),
+                row("Color mode", escape(str(summary_data['color_mode']))),
             ]
+            if summary_data['black_pages'] or not summary_data['color_pages']:
+                rows.append(row("B&amp;W pages", f"{summary_data['black_pages']}"))
+            if summary_data['color_pages']:
+                rows.append(row("Color pages", f"{summary_data['color_pages']}"))
         else:
-            summary_lines = [
-                "<b>Digital Copy:</b>",
-                f"• Document: {summary_data['document_name']}",
-                "• Download or email it from your own device after paying",
+            title = "Digital Copy"
+            rows = [
+                row("Document", document, strong=True),
+                row("Delivery", "Download or email after paying"),
             ]
         if summary_data.get('digital_fee'):
-            summary_lines.append(f"• Digital copy fee: P{summary_data['digital_fee']:.2f}")
-        self.summary_label.setText("<br>".join(summary_lines))
+            rows.append(row("Digital copy fee", f"P{summary_data['digital_fee']:.2f}", strong=True))
+
+        self.summary_label.setText(
+            f'<div style="font-size:{FONT["size_lg"]}px; font-weight:700; margin-left:3px;">{title}</div>'
+            f'<table width="100%" cellspacing="0" cellpadding="3">{"".join(rows)}</table>'
+        )
 
     def update_payment_status(self, status_text):
         """Updates the payment status banner."""

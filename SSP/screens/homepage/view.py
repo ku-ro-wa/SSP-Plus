@@ -5,6 +5,7 @@ from PyQt5.QtWidgets import (
 )
 from PyQt5.QtCore import Qt, pyqtSignal
 
+from ui.icons import icon
 from ui.theme import COLORS, FONT
 from ui.widgets import Card, Header, LowChangeBanner, ReaderHint, SecondaryButton, StatusBanner
 
@@ -14,6 +15,7 @@ class HomepageScreenView(QWidget):
 
     method_card_clicked = pyqtSignal(str)  # method_key
     voucher_balance_clicked = pyqtSignal()
+    admin_button_clicked = pyqtSignal()
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -29,9 +31,25 @@ class HomepageScreenView(QWidget):
         content = QWidget()
         content.setStyleSheet(f"background-color: {COLORS['bg']};")
         fg_layout = QVBoxLayout(content)
-        fg_layout.setContentsMargins(120, 24, 120, 24)
+        fg_layout.setContentsMargins(120, 24, 120, 0)
         fg_layout.setSpacing(8)
         outer_layout.addWidget(content, 1)
+
+        # Same entry point as the idle screen, at the same spot (50px from the right
+        # edge, 30px from the bottom). PIN-gated by the controller.
+        self.admin_button = SecondaryButton("Admin")
+        self.admin_button.setIcon(icon('admin'))
+        self.admin_button.setFixedSize(100, 36)
+        self.admin_button.clicked.connect(self.admin_button_clicked.emit)
+        # A widget (not a bare layout) so the strip gets the white fill; otherwise the
+        # window's background image shows through beneath the content.
+        admin_footer = QWidget()
+        admin_footer.setStyleSheet(f"background-color: {COLORS['bg']};")
+        admin_row = QHBoxLayout(admin_footer)
+        admin_row.setContentsMargins(50, 0, 50, 30)
+        admin_row.addStretch(1)
+        admin_row.addWidget(self.admin_button)
+        outer_layout.addWidget(admin_footer)
 
         title = QLabel("Select Upload Method")
         title.setAlignment(Qt.AlignCenter)
@@ -96,6 +114,7 @@ class HomepageScreenView(QWidget):
         fg_layout.addSpacing(12)
         fg_layout.addLayout(voucher_row)
         fg_layout.addStretch(2)
+
 
     def set_change_low(self, low):
         self.low_change_banner.set_low(low)

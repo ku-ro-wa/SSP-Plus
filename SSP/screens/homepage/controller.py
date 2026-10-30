@@ -1,6 +1,7 @@
-from PyQt5.QtWidgets import QWidget, QGridLayout
+from PyQt5.QtWidgets import QWidget, QGridLayout, QDialog
 from PyQt5.QtCore import QTimer
 
+from screens.dialogs.pin_dialog import PinDialogController as PinDialog
 from .model import HomepageModel
 from .view import HomepageScreenView
 
@@ -35,6 +36,7 @@ class HomepageController(QWidget):
         self.model.method_selected.connect(self._route_method)
 
         self.view.voucher_balance_clicked.connect(self._check_voucher_balance)
+        self.view.admin_button_clicked.connect(self._go_to_admin)
 
     def _handle_method_selected(self, method_key):
         """Passes the selected method to the model."""
@@ -57,6 +59,16 @@ class HomepageController(QWidget):
     def _check_voucher_balance(self):
         """Balance check doesn't start a print job; it returns here when done."""
         self.main_app.show_screen('voucher_balance')
+
+    def _go_to_admin(self):
+        """Opens the PIN dialog (same as the idle screen) and goes to admin if correct."""
+        # Pause the idle timeout so it can't yank the screen away behind the dialog.
+        self.timeout_timer.stop()
+        accepted = PinDialog(self).exec_() == QDialog.Accepted
+        if accepted:
+            self.main_app.show_screen('admin')
+        else:
+            self._reset_timeout()
 
     def show_qr_message(self, message):
         """A message about a QR read (from main_app)."""
