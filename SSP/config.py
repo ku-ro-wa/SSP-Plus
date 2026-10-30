@@ -721,6 +721,16 @@ class Config:
         except KeyError:
             return "SSP/database/scan_uploads"
 
+    @property
+    def scan_digital_fee(self) -> float:
+        """Default flat fee (₱) for the digital copy of a scan (download/email).
+        Kiosk Admin can override it via the 'scan_digital_fee' setting; see
+        managers/digital_fee.py."""
+        try:
+            return self.get('SCAN_DIGITAL_FEE', float)
+        except KeyError:
+            return 5.0
+
 
 # Global configuration instance
 config = Config()

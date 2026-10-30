@@ -453,6 +453,27 @@ class PrintingSystemApp(QMainWindow):
             return True
         return False
 
+    def _low_ink_cartridges(self):
+        """{cartridge: level%} for each CMYK cartridge at or below 20%; {} if none or unknown."""
+        cmyk_levels = self.admin_screen.db_manager.get_cmyk_ink_levels()
+        if not cmyk_levels:
+            print("No CMYK ink data available, skipping ink level check")
+            return {}
+        low_ink_threshold = 20.0
+        return {
+            name: level
+            for name, level in cmyk_levels.items()
+            if name in ('cyan', 'magenta', 'yellow', 'black') and level <= low_ink_threshold
+        }
+
+    def print_supplies_low(self):
+        """True when printing isn't possible: paper at 3 sheets or fewer, or a cartridge low."""
+        try:
+            return self.admin_screen.get_paper_count() <= 3 or bool(self._low_ink_cartridges())
+        except Exception as e:
+            print(f"Error checking print supplies: {e}")
+            return False
+
     def check_ink_levels_and_redirect(self):
         """
         Check CMYK ink levels and redirect to error screen if any cartridge is critically low.
@@ -461,17 +482,7 @@ class PrintingSystemApp(QMainWindow):
             bool: True if redirected (kiosk should stop), False if ink is acceptable.
         """
         try:
-            cmyk_levels = self.admin_screen.db_manager.get_cmyk_ink_levels()
-            if not cmyk_levels:
-                print("No CMYK ink data available, skipping ink level check")
-                return False
-
-            low_ink_threshold = 20.0
-            low_cartridges = {
-                name: level
-                for name, level in cmyk_levels.items()
-                if name in ('cyan', 'magenta', 'yellow', 'black') and level <= low_ink_threshold
-            }
+            low_cartridges = self._low_ink_cartridges()
 
             if low_cartridges:
                 details = ", ".join(
@@ -515,7 +526,13 @@ class PrintingSystemApp(QMainWindow):
         screen_name = redirect_for_carried_credit(self, screen_name)
 
         # Check paper and ink before switching to most screens (except admin and thank_you)
-        if screen_name not in ['admin', 'thank_you', 'voucher']:
+        # scan_result: the customer has paid for the digital copy it shows.
+        # scan_destination and a digital-only payment need no paper or ink; the
+        # print choices are blocked there (and at printing_options) instead.
+        digital_only_payment = (screen_name == 'payment'
+                                and not self.payment_screen.model.is_print_job())
+        if (screen_name not in ['admin', 'thank_you', 'voucher', 'scan_result', 'scan_destination']
+                and not digital_only_payment):
             if self.check_paper_count_and_redirect():
                 print(f"Cannot navigate to {screen_name} - insufficient paper")
                 return
@@ -797,7 +814,8 @@ class PrintingSystemApp(QMainWindow):
         if not ref:
             return False
         try:
-            outcome = refund_failed_print(self.payment_screen.model.db_manager, ref, error_message)
+            outcome = refund_failed_print(self.payment_screen.model.db_manager, ref, error_message,
+                                          already_refunded=job.get('digital_fee_refunded', 0))
         except Exception as e:
             print(f"CRITICAL: refund for failed print {ref} errored: {e}")
             return False

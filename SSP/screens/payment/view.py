@@ -207,13 +207,22 @@ class PaymentScreenView(QWidget):
         """Updates the payment data display."""
         self.total_label.setText(f"Total Amount Due: P{summary_data['total_cost']:.2f}")
 
-        summary_lines = [
-            "<b>Print Job Summary:</b>",
-            f"• Document: {summary_data['document_name']}",
-            f"• Copies: {summary_data['copies']}",
-            f"• Color Mode: {summary_data['color_mode']}",
-            f"• Breakdown: {summary_data['black_pages']} B&W pages, {summary_data['color_pages']} Color pages",
-        ]
+        if summary_data.get('print_job', True):
+            summary_lines = [
+                "<b>Print Job Summary:</b>",
+                f"• Document: {summary_data['document_name']}",
+                f"• Copies: {summary_data['copies']}",
+                f"• Color Mode: {summary_data['color_mode']}",
+                f"• Breakdown: {summary_data['black_pages']} B&W pages, {summary_data['color_pages']} Color pages",
+            ]
+        else:
+            summary_lines = [
+                "<b>Digital Copy:</b>",
+                f"• Document: {summary_data['document_name']}",
+                "• Download or email it from your own device after paying",
+            ]
+        if summary_data.get('digital_fee'):
+            summary_lines.append(f"• Digital copy fee: P{summary_data['digital_fee']:.2f}")
         self.summary_label.setText("<br>".join(summary_lines))
 
     def update_payment_status(self, status_text):

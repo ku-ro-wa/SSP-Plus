@@ -1,4 +1,5 @@
 import os
+import shutil
 import time
 import threading
 from dataclasses import dataclass
@@ -19,6 +20,10 @@ from managers.persistent_gpio import get_persistent_gpio, PIGPIO_AVAILABLE as PA
 import uuid
 from managers.voucher_manager import MSG_UNGIVEN_CHANGE, IssuedVoucher, LookupStatus, VoucherManager, normalize_code
 from managers.sms_manager import send_operator_alert
+from managers.adapters.scan_adapter import ScanAdapter
+from managers.session_manager import SessionManager
+from managers.print_refund import record_digital_refund, record_print_success
+from config import get_config
 
 
 def measure_shortfall(result, change_owed):
@@ -293,6 +298,15 @@ class PaymentModel(QObject):
         self.applied_vouchers = []
         self.carried_credit = None
         self._cash_committed = False  # True once complete_payment has taken the cash
+        self.digital_session = None   # paid-for digital copy's session, shown on scan_result
+        self.digital_refund = None    # ('issued', Voucher) / ('failed', fee) if it couldn't be made
+
+    def is_print_job(self):
+        """False for a digital-only scan: just the fee, nothing to print."""
+        return bool(self.payment_data.get('print_job', True)) if self.payment_data else True
+
+    def digital_fee(self):
+        return int((self.payment_data or {}).get('digital_copy', {}).get('fee', 0))
 
     @property
     def voucher_total(self):
@@ -389,6 +403,8 @@ class PaymentModel(QObject):
         self.amount_received = 0
         self.cash_received = {}
         self.payment_ready = False
+        self.digital_session = None
+        self.digital_refund = None
         self._clear_vouchers()
 
         # Extract print-related attributes for later use
@@ -425,7 +441,9 @@ class PaymentModel(QObject):
             'copies': payment_data['copies'],
             'color_mode': payment_data['color_mode'],
             'black_pages': b_count,
-            'color_pages': c_count
+            'color_pages': c_count,
+            'print_job': self.is_print_job(),
+            'digital_fee': self.digital_fee(),
         }
 
         self.payment_data_updated.emit(summary_data)
@@ -714,6 +732,18 @@ class PaymentModel(QObject):
         print("DEBUG: Current thread:", threading.current_thread().name)
         print("DEBUG: main_app available:", hasattr(self, 'main_app') and self.main_app is not None)
 
+        if self.digital_refund is not None:
+            self._show_digital_refund()
+            return
+        if self.digital_session is not None:
+            session, self.digital_session = self.digital_session, None
+            self.main_app.scan_result_screen.set_session(session, then_print=self.is_print_job())
+            self.main_app.show_screen('scan_result')
+            return
+        if not self.is_print_job():
+            self.main_app.show_screen('homepage')
+            return
+
         try:
             # Emit payment completed signal now that everything is done
             if hasattr(self, 'payment_info') and self.payment_info:
@@ -973,7 +1003,7 @@ class PaymentModel(QObject):
 
             # Paper check (no decrement; main_app does that after a successful print).
             total_pages = len(self.payment_data['selected_pages']) * self.payment_data['copies']
-            if not main_app.admin_screen.check_paper_availability(total_pages):
+            if self.is_print_job() and not main_app.admin_screen.check_paper_availability(total_pages):
                 return False, (f"Not enough paper to complete print job.\n"
                                f"Required: {total_pages} sheets. Please contact administrator to refill paper.")
 
@@ -1140,6 +1170,18 @@ class PaymentModel(QObject):
                 self.payment_status_updated.emit("No PDF data available for printing")
                 return
 
+            # The digital copy is created now that the sale is made, never before.
+            self._prepare_digital_copy()
+
+            if not self.is_print_job():
+                # Digital-only: nothing to print. The sale was settled above, so
+                # delivering the copy completes it (a failed copy stays `paid`).
+                self.main_app.current_print_job = None
+                if self.digital_refund is None:
+                    record_print_success(self.db_manager, (getattr(self, 'transaction_data', None) or {}).get('payment_ref'))
+                self._navigate_to_thank_you()
+                return
+
             # Store print job details in main app for thank you screen
             print_job_details = {
                 'file_path': self.payment_data['pdf_data']['path'],
@@ -1149,6 +1191,9 @@ class PaymentModel(QObject):
                 # The print is async and the model resets, so the outcome is
                 # recorded against this ref (#59).
                 'payment_ref': (getattr(self, 'transaction_data', None) or {}).get('payment_ref'),
+                # A failed digital copy's fee was already refunded (or flagged to the
+                # attendant), so a failed print must not refund it again.
+                'digital_fee_refunded': self.digital_fee() if self.digital_refund is not None else 0,
             }
             self.main_app.current_print_job = print_job_details
             print(f"SUCCESS: Print job details stored: {print_job_details}")
@@ -1164,6 +1209,59 @@ class PaymentModel(QObject):
                 self._navigate_to_thank_you()
             except Exception as nav_error:
                 print(f"ERROR: Error navigating to thank you screen: {nav_error}")
+
+    def _prepare_digital_copy(self):
+        """Create the download/email session for a paid digital copy. If that
+        fails, the fee is refunded as a Voucher (shown before moving on)."""
+        self.digital_session = None
+        self.digital_refund = None
+        fee = self.digital_fee()
+        if not fee:
+            return
+        failure = "unknown error"
+        try:
+            adapter = ScanAdapter(SessionManager(self.db_manager), get_config().scan_upload_dir)
+            ok, message, session = adapter.handle_scan(self.payment_data['pdf_data']['path'])
+            if ok:
+                self.digital_session = session
+                if not self.is_print_job():
+                    # Copied for the session; a print job still needs the original.
+                    shutil.rmtree(os.path.dirname(self.payment_data['pdf_data']['path']), ignore_errors=True)
+                return
+            failure = message
+        except Exception as e:
+            failure = str(e)
+        print(f"ERROR: could not create the digital copy session: {failure}")
+        try:
+            log_error("Digital Copy Failed",
+                      f"P{fee} was paid for a digital copy that couldn't be created "
+                      f"(payment_ref={self.payment_ref}): {failure}", "payment_model")
+        except Exception:
+            pass
+        try:
+            voucher = VoucherManager(self.db_manager).issue(fee, payment_ref=self.payment_ref)
+            self.digital_refund = ('issued', voucher)
+            refunded = fee
+        except Exception as e:
+            print(f"CRITICAL: could not refund P{fee} as a voucher: {e}")
+            self.digital_refund = ('failed', fee)
+            refunded = 0
+        # The row was settled before the copy was made, so record the refund on it.
+        try:
+            record_digital_refund(self.db_manager, (getattr(self, 'transaction_data', None) or {}).get('payment_ref'),
+                                  refunded, digital_only=not self.is_print_job(), error_message=failure)
+        except Exception as e:
+            print(f"ERROR: could not record the digital refund on the transaction: {e}")
+
+    def _show_digital_refund(self):
+        kind, value = self.digital_refund
+        self.digital_refund = None
+        screen = self.main_app.voucher_screen
+        if kind == 'issued':
+            screen.show_issued(value, reason='digital_refund', on_continue=self.continue_to_thank_you)
+        else:
+            screen.show_failure(value, reason='digital_refund', on_continue=self.continue_to_thank_you)
+        self.main_app.show_screen('voucher')
 
     def reset_payment_state(self):
         """Reset payment state for new transactions."""

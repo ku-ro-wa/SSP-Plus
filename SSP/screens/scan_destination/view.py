@@ -108,7 +108,7 @@ class ScanDestinationScreenView(QWidget):
 
         self.send_wifi_option = DestinationOption(
             'send_wifi', "Download or Email",
-            "Get a code to download or email this scan from your own device — phone, tablet, or laptop.",
+            self._digital_description(None),
             icon_name='wifi',
         )
         self.send_wifi_option.toggled.connect(self._on_option_toggled)
@@ -133,6 +133,15 @@ class ScanDestinationScreenView(QWidget):
         body_layout.addStretch(2)
 
         body_layout.addLayout(nav_row(self.cancel_button, self.continue_button))
+
+    @staticmethod
+    def _digital_description(fee):
+        text = "Get a code to download or email this scan from your own device."
+        return f"{text} (+₱{fee})" if fee else text
+
+    def set_digital_fee(self, fee: int):
+        """Show the digital copy's flat fee on its card, so the price is known before choosing."""
+        self.send_wifi_option.card.set_description(self._digital_description(fee))
 
     def _build_thumbnail_strip(self):
         scroll = QScrollArea()
@@ -194,6 +203,15 @@ class ScanDestinationScreenView(QWidget):
 
     def show_status(self, message, is_error=True):
         self.status_banner.show_message(message, variant="error" if is_error else "success")
+
+    def set_print_available(self, available: bool):
+        """Without paper or ink only the digital copy can be chosen."""
+        if not available:
+            self.print_option.set_selected(False)
+            self.continue_button.setEnabled(bool(self.get_selected_keys()))
+            self.show_status("Printing is unavailable right now (low paper or ink). "
+                             "You can still get a digital copy.", is_error=False)
+        self.print_option.setEnabled(available)
 
     def set_busy(self, busy: bool):
         self.print_option.setEnabled(not busy)

@@ -16,6 +16,7 @@ from utils.error_logger import log_error
 PAID = 'paid'
 COMPLETED = 'completed'
 PRINT_FAILED = 'print_failed'
+DIGITAL_FAILED = 'digital_failed'  # a digital-only sale whose copy couldn't be made
 
 
 @dataclass
@@ -31,13 +32,29 @@ def record_print_success(db, payment_ref):
     return db.update_transaction_outcome(payment_ref, COMPLETED, from_status=PAID)
 
 
-def refund_failed_print(db, payment_ref, error_message=""):
-    """paid -> print_failed, issuing one refund Voucher for the job's total_cost."""
+def record_digital_refund(db, payment_ref, refunded, digital_only, error_message=""):
+    """A paid Digital Copy couldn't be made; `refunded` is the fee given back as a
+    Voucher (0 if that failed too). Adds it to the row's voucher_issued. A
+    digital-only sale ends here as `digital_failed` (not revenue); with a print
+    the row stays `paid` for the print outcome to settle. Returns True if it applied."""
+    row = db.get_transaction_by_ref(payment_ref)
+    if not row or row['status'] != PAID:
+        return False
+    return db.update_transaction_outcome(
+        payment_ref, DIGITAL_FAILED if digital_only else PAID, from_status=PAID,
+        voucher_issued=(row['voucher_issued'] or 0) + refunded,
+        error_message=error_message or None)
+
+
+def refund_failed_print(db, payment_ref, error_message="", already_refunded=0):
+    """paid -> print_failed, issuing one refund Voucher for the job's total_cost,
+    less `already_refunded` (a digital fee whose copy failed and was refunded
+    on its own, so it isn't refunded twice)."""
     row = db.get_transaction_by_ref(payment_ref)
     if not row or row['status'] != PAID:
         return RefundOutcome()
 
-    amount = int(round(row['total_cost'] or 0))
+    amount = max(0, int(round(row['total_cost'] or 0)) - int(already_refunded or 0))
     outcome = RefundOutcome(amount=amount)
     if amount > 0 and db.get_setting('vouchers_enabled', 1):
         try:

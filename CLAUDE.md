@@ -122,8 +122,14 @@ Login issues a signed cookie session with a 10-hour sliding inactivity timeout
 `/accounting` (HTML) and `/accounting/data?range=today|week|month|all` (JSON) show per-Source
 (`usb`/`wifi`/`email`/`scanner`) revenue and transaction-count aggregates via
 `DatabaseManager.get_accounting_summary()` — a `scanner`-sourced row only exists when the scan's
-destination was print (a Photocopy); scan-to-email/session-download never produce a
-transactions row. Both also carry `vouchers`: change dispensed and Voucher value issued / Applied
+destination was print (a Photocopy) and/or a paid Digital Copy (`copies` = 0 when it's the
+Digital Copy alone). The scan's digital copy (download/email) costs a flat fee
+(`managers/digital_fee.py`: Kiosk Admin's `scan_digital_fee` setting, else `SCAN_DIGITAL_FEE`),
+and nothing is delivered before payment: `scan_destination` routes print-only to
+`printing_options`, print + digital to `printing_options` with the fee added, and digital-only
+straight to `payment` (`print_job: False`). `PaymentModel._prepare_digital_copy()` creates the
+session once paid, then `scan_result` shows the OTP (before `thank_you` starts the print); a
+failed session becomes a refund Voucher. Both also carry `vouchers`: change dispensed and Voucher value issued / Applied
 summed from the same completed transactions (`get_change_and_voucher_totals()`), plus the
 outstanding Voucher liability — remaining value of unexpired Vouchers as of now, ignoring the
 filter (`get_voucher_liability()`). `/paper-reset` (the SMS fuzzy-match reset fallback) is `admin`-only.
@@ -157,7 +163,7 @@ The UI renders the same however it's launched (desktop terminal, SSH, systemd, a
 1. `file_browser` (select file) → `printing_options` (set copies/color/pages) → `payment` (insert coins/bills)
 2. `payment` model emits `payment_completed` → `main_app.on_payment_completed()` calls `printer_manager.print_file(...)`
 3. `PrinterThread.run()` builds a temp PDF containing only the selected pages (via PyMuPDF/`fitz`), submits it to CUPS with `lp`, then polls `lpstat -l -p <printer>` for job completion, paper jams, and media-empty alerts (sends SMS on jam/no-paper via `sms_manager`). A `paused` alert (CUPS disabled the queue) fails the job, and `check_printer_availability()` refuses a `disabled` queue before submitting. The job counts as printed only once it has left `lpstat -o`, and this thread is the only thing that reports success: the thank-you screen just waits for its signals (`tests/test_printer_completion.py`)
-4. Settlement happens before printing: once change is out, `PaymentModel.settle_transaction()` logs the `transactions` row as `paid` and updates `cash_inventory` (received coins added, dispensed change subtracted), once per `payment_ref`. The print outcome then moves the row (`managers/print_refund.py`): on success `completed` (and `main_app` decrements paper count, then triggers ink analysis); on failure `print_failed` plus one refund Voucher worth `total_cost` (shown on the voucher screen, `VoucherModel.REFUND`), and the CUPS job is cancelled. Only `completed` counts as revenue; `print_failed` still counts toward change dispensed / Vouchers Applied (issue #59)
+4. Settlement happens before printing: once change is out, `PaymentModel.settle_transaction()` logs the `transactions` row as `paid` and updates `cash_inventory` (received coins added, dispensed change subtracted), once per `payment_ref`. The print outcome then moves the row (`managers/print_refund.py`): on success `completed` (and `main_app` decrements paper count, then triggers ink analysis); on failure `print_failed` plus one refund Voucher worth `total_cost` (shown on the voucher screen, `VoucherModel.REFUND`), and the CUPS job is cancelled. Only `completed` counts as revenue; `print_failed` still counts toward change dispensed / Vouchers Applied (issue #59). A paid Digital Copy that can't be made is refunded as a Voucher for the fee (`record_digital_refund`): a digital-only sale ends as `digital_failed` (not revenue, counted like `print_failed` in the change/Voucher totals); with a print the row stays `paid` and only `voucher_issued` is updated
 5. `InkAnalysisThreadManager` uses `pdf2image` + OpenCV on the temp PDF to estimate CMYK consumption and updates `cmyk_ink_levels`
 6. The temp PDF is deleted only after ink analysis completes (`PrinterManager.cleanup_last_temp_pdf`), since analysis needs it even if the original USB drive was removed
 

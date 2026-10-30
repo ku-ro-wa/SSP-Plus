@@ -2,6 +2,7 @@
 
 from PyQt5.QtCore import QObject, pyqtSignal
 from database.db_manager import DatabaseManager
+from managers.digital_fee import get_digital_fee, set_digital_fee
 from managers.sms_manager import get_sms_manager
 
 
@@ -11,6 +12,7 @@ class AdminModel(QObject):
     coin_count_changed = pyqtSignal(int, int)   # Emits coin_1_count, coin_5_count
     cmyk_levels_changed = pyqtSignal(float, float, float, float)  # Emits cyan, magenta, yellow, black
     show_message = pyqtSignal(str, str)         # Emits message title and text
+    digital_fee_changed = pyqtSignal(int)       # Flat fee (₱) for a scan's digital copy
 
     def __init__(self):
         super().__init__()
@@ -29,6 +31,20 @@ class AdminModel(QObject):
         Dashboard (ADR-0005), so a refill made there must not be overwritten
         by a stale in-memory count here."""
         self.paper_count = self.db_manager.get_setting('paper_count', default=100)
+
+    def load_digital_fee(self):
+        self.digital_fee_changed.emit(get_digital_fee(self.db_manager))
+
+    def change_digital_fee(self, delta):
+        """Steps the digital copy fee by delta pesos (never below 0)."""
+        fee = set_digital_fee(self.db_manager, get_digital_fee(self.db_manager) + delta)
+        self.digital_fee_changed.emit(fee)
+
+    def increase_digital_fee(self):
+        self.change_digital_fee(1)
+
+    def decrease_digital_fee(self):
+        self.change_digital_fee(-1)
 
     def load_paper_count(self):
         """Loads the paper count from the database and emits a signal."""

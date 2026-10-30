@@ -76,11 +76,9 @@ class PrinterManager(QObject):
                 print("'lp' command not found. Is CUPS installed?")
                 return False
 
-            result = subprocess.run(['pgrep', 'cupsd'], capture_output=True, text=True)
-            if result.returncode != 0:
-                print("CUPS daemon (cupsd) is not running")
-                return False
-
+            # No pgrep for cupsd: CUPS is socket-activated and cupsd exits when idle,
+            # so it's often not running. lpstat below wakes it via cups.sock, and fails
+            # if CUPS can't be reached.
             result = subprocess.run(
                 ['lpstat', '-p', self.printer_name],
                 capture_output=True, text=True, timeout=10

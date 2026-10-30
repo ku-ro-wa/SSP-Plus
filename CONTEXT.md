@@ -116,10 +116,17 @@ older notes with care. See `docs/adr/0002-admin-dashboard-auth-and-remote-access
 _Avoid_: admin (unqualified), dev (as a role name).
 
 **Photocopy**:
-An on-kiosk transaction whose Source is `scanner` and whose destination is the print path,
-as opposed to scan-to-email or scan-to-session-download. Not a separate intake path of its
-own — it's the one `scanner`-sourced case the Admin Dashboard's revenue view counts.
-_Avoid_: copy job, scan job (ambiguous with the non-print scan destinations).
+An on-kiosk transaction whose Source is `scanner` and whose destination is the print path.
+Not a separate intake path of its own. A scan's **Digital Copy** (download/email) is paid for
+too, so a `scanner` row is a Photocopy (pages and copies set), a Digital Copy on its own
+(`copies` = 0) or both (the print price plus the fee).
+_Avoid_: copy job, scan job.
+
+**Digital Copy**:
+A scan delivered to the customer's own device (download or email) through an OTP session. It
+costs a flat fee (`SCAN_DIGITAL_FEE`, default ₱5; Kiosk Admin's `scan_digital_fee` setting
+overrides it), paid before the session exists. If the session can't be created after
+payment, the fee comes back as a Voucher.
 
 ### Vouchers
 

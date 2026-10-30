@@ -697,10 +697,8 @@ class DatabaseManager(VoucherDBMixin):
         the window, in a fixed order — so the accounting page's table
         shape never depends on which sources happen to have data.
 
-        A `scanner`-sourced row is counted the same as any other: per
-        CONTEXT.md's Photocopy term, scan-to-email/download never produce
-        a transactions row at all, so any `scanner` row here already
-        represents a printed Photocopy."""
+        A `scanner`-sourced row is counted the same as any other: it is a
+        Photocopy, a paid Digital Copy (copies = 0) or both (see CONTEXT.md)."""
         if not self.conn:
             return []
         try:
@@ -738,13 +736,13 @@ class DatabaseManager(VoucherDBMixin):
         try:
             cursor = self.conn.cursor()
             query = (
-                "SELECT COALESCE(SUM(CASE WHEN status IN ('completed', 'print_failed') "
+                "SELECT COALESCE(SUM(CASE WHEN status IN ('completed', 'print_failed', 'digital_failed') "
                 "THEN change_dispensed END), 0) AS change_dispensed, "
                 "COALESCE(SUM(voucher_issued), 0) AS voucher_issued, "
-                "COALESCE(SUM(CASE WHEN status IN ('completed', 'print_failed') "
+                "COALESCE(SUM(CASE WHEN status IN ('completed', 'print_failed', 'digital_failed') "
                 "THEN voucher_applied END), 0) AS voucher_applied "
                 "FROM transactions WHERE status IN "
-                "('completed', 'print_failed', 'cancelled_partial_payment')"
+                "('completed', 'print_failed', 'digital_failed', 'cancelled_partial_payment')"
             )
             params = []
             if since is not None:
