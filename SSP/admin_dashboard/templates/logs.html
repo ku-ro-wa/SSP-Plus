@@ -1,0 +1,46 @@
+{% extends "base.html" %}
+{% block title %}Logs{% endblock %}
+{% block heading %}Logs{% endblock %}
+{% block content %}
+<section id="transactions">
+    <h2>Transactions (latest {{ limit }})</h2>
+    <div class="scroll"><table>
+        <thead><tr><th>Time</th><th>File</th><th class="numeric">Pages</th><th class="numeric">Copies</th><th>Colour</th><th class="numeric">Cost</th><th class="numeric">Paid</th><th class="numeric">Change</th><th>Status</th></tr></thead>
+        <tbody>
+        {% for t in transactions %}
+            <tr><td>{{ t.timestamp }}</td><td>{{ t.file_name }}</td><td class="numeric">{{ t.pages }}</td><td class="numeric">{{ t.copies }}</td><td>{{ t.color_mode }}</td><td class="numeric">₱{{ "%.2f"|format(t.total_cost) }}</td><td class="numeric">₱{{ "%.2f"|format(t.amount_paid) }}</td><td class="numeric">₱{{ "%.2f"|format(t.change_given) }}</td><td>{{ t.status }}</td></tr>
+        {% else %}
+            <tr><td colspan="9" class="muted">No transactions.</td></tr>
+        {% endfor %}
+        </tbody>
+    </table></div>
+</section>
+
+<section id="cash">
+    <h2>Cash inventory</h2>
+    <div class="scroll"><table>
+        <thead><tr><th>Type</th><th class="numeric">Denomination</th><th class="numeric">Count</th><th>Updated</th></tr></thead>
+        <tbody>
+        {% for c in cash %}
+            <tr><td>{{ c.type }}</td><td class="numeric">₱{{ "%g"|format(c.denomination) }}</td><td class="numeric">{{ c.count }}</td><td>{{ c.last_updated }}</td></tr>
+        {% else %}
+            <tr><td colspan="4" class="muted">No cash inventory.</td></tr>
+        {% endfor %}
+        </tbody>
+    </table></div>
+</section>
+
+<section id="error-log">
+    <h2>Error log (latest {{ limit }})</h2>
+    <div class="scroll"><table>
+        <thead><tr><th>Time</th><th>Type</th><th>Message</th><th>Screen</th><th>Resolved</th></tr></thead>
+        <tbody>
+        {% for e in errors %}
+            <tr><td>{{ e.timestamp }}</td><td>{{ e.error_type }}</td><td>{{ e.error_message }}</td><td>{{ e.screen_name }}</td><td>{{ 'yes' if e.resolved else 'no' }}</td></tr>
+        {% else %}
+            <tr><td colspan="5" class="muted">No errors.</td></tr>
+        {% endfor %}
+        </tbody>
+    </table></div>
+</section>
+{% endblock %}
