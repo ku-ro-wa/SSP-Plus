@@ -244,7 +244,6 @@ class TestPaymentCopy:
     def test_keeps_per_job_message_and_mentions_vouchers(self, payment, db):
         stock_hoppers(db, ones=3, fives=1)
         options = PrintOptionsModel()
-        options.set_color_mode("Black and White")
         options.set_items([PrintItem({'path': PDF}, [1])])
 
         payment.model.set_payment_data(options.get_payment_data())

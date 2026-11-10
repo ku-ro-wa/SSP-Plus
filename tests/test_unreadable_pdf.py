@@ -90,20 +90,22 @@ def test_file_browser_blocks_an_unreadable_pdf(usb_drive, file_browser):
     main_app.printing_options_screen.set_items.assert_not_called()
 
 
-def test_file_browser_still_lets_a_readable_pdf_through_next_to_a_broken_one(usb_drive, file_browser):
+def test_file_browser_cannot_tick_a_broken_pdf_but_prints_the_readable_one(usb_drive, file_browser):
     controller, main_app = file_browser
     files = _copy_from(usb_drive)
-    controller.load_pdf_files([files['good.pdf'], files['broken.pdf']])
+    controller.load_pdf_files([files['broken.pdf'], files['good.pdf']])
     view = controller.view
 
     broken = next(p for p in view.pdf_files_data if p['filename'] == 'broken.pdf')
-    controller.model.select_pdf(broken)
-    controller._continue_to_payment()
-    main_app.printing_options_screen.set_items.assert_not_called()
-
     good = next(p for p in view.pdf_files_data if p['filename'] == 'good.pdf')
+    assert [p['filename'] for p in view.ticked] == ['good.pdf']   # first *readable* file
+    assert not view.file_rows[0].tick_btn.isEnabled()
+    view.toggle_tick(broken)
+    assert [p['filename'] for p in view.ticked] == ['good.pdf']
+
+    controller.model.select_pdf(broken)   # previewing the broken one changes nothing
+    assert view.continue_btn.isEnabled() and not view.continue_btn.isHidden()
     controller.model.select_pdf(good)
-    assert view.continue_btn.isEnabled()
     assert not view.view_all_btn.isHidden() and not view.view_single_btn.isHidden()
     app.sendPostedEvents(None, QEvent.DeferredDelete)  # clear_preview() uses deleteLater()
     assert not view.preview_container.findChildren(QLabel, "UnreadableFileMessage")
