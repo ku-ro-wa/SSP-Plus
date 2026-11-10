@@ -1,0 +1,66 @@
+{% extends "base.html" %}
+{% block title %}Kiosk{% endblock %}
+{% block heading %}Kiosk{% endblock %}
+{% block content %}
+<section id="status">
+    <div class="card">
+        <span class="{{ 'ok' if o.online else 'bad' }}" id="last-seen">{{ o.last_seen }}</span>
+        <div class="muted">QR reader: <span id="qr-reader">{{ o.qr_reader }}</span></div>
+        {% if not o.online %}
+        <div class="muted">The numbers below were last written by the kiosk before it went offline.</div>
+        {% endif %}
+    </div>
+</section>
+
+<section id="paper">
+    <h2>Paper</h2>
+    <div class="card">
+        <div class="big {{ o.paper.band }}" id="paper-count">{{ o.paper.count }} sheets</div>
+        {% if o.paper.band == 'crit' %}<div class="bad">Critical: refill now.</div>{% elif o.paper.band == 'warn' %}<div class="warn">Low: refill soon.</div>{% endif %}
+        <div class="muted">A software count, not a sensor; the printer's own paper-out report is the backstop.</div>
+    </div>
+</section>
+
+<section id="coins">
+    <h2>Coins</h2>
+    <div class="grid">
+        <div class="card">₱1 hopper<div class="big {{ o.coins.peso_1_band }}" id="coins-1">{{ o.coins.peso_1 }}</div></div>
+        <div class="card">₱5 hopper<div class="big {{ o.coins.peso_5_band }}" id="coins-5">{{ o.coins.peso_5 }}</div></div>
+    </div>
+</section>
+
+<section id="ink">
+    <h2>Ink</h2>
+    {% if o.ink %}
+    <div class="grid">
+        {% for t in o.ink.tanks %}
+        <div class="card" id="ink-{{ t.name }}">
+            <span style="text-transform: capitalize">{{ t.name }}</span>
+            <div class="big {{ t.band }}">{{ t.level }}%</div>
+            <div class="bar {{ t.band }}"><span style="width: {{ [t.level, 0]|max }}%"></span></div>
+            {% if t.empty %}<div class="bad">Marked empty</div>{% elif t.band == 'crit' %}<div class="bad">Critical</div>{% elif t.band == 'warn' %}<div class="warn">Low</div>{% endif %}
+        </div>
+        {% endfor %}
+    </div>
+    <div class="muted">Estimates from page coverage, warning at {{ o.ink_warn|int }}%, critical at {{ o.ink_crit|int }}%. Last updated {{ o.ink.last_updated }}.</div>
+    {% else %}
+    <div class="card muted">No ink levels recorded yet.</div>
+    {% endif %}
+</section>
+
+<section id="errors">
+    <h2>Unresolved errors ({{ o.error_total }})</h2>
+    {% if o.errors %}
+    <div class="scroll"><table>
+        <thead><tr><th>Time</th><th>Type</th><th>Message</th><th>Screen</th></tr></thead>
+        <tbody>
+        {% for e in o.errors %}
+            <tr><td>{{ e.timestamp }}</td><td>{{ e.error_type }}</td><td>{{ e.error_message }}</td><td>{{ e.screen_name }}</td></tr>
+        {% endfor %}
+        </tbody>
+    </table></div>
+    {% else %}
+    <div class="card muted">None.</div>
+    {% endif %}
+</section>
+{% endblock %}

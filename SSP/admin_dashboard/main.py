@@ -18,7 +18,7 @@ from fastapi.staticfiles import StaticFiles
 from config import get_config
 from admin_dashboard.auth import SESSION_COOKIE_NAME, LoginRequired
 from admin_dashboard.startup_check import secret_key_problem
-from admin_dashboard.routers import accounting, auth
+from admin_dashboard.routers import accounting, auth, kiosk
 
 config = get_config()
 
@@ -31,12 +31,13 @@ app = FastAPI(title="AIO SPARK Admin Dashboard", docs_url=docs_url, redoc_url=re
 
 app.include_router(auth.router)
 app.include_router(accounting.router)
+app.include_router(kiosk.router)
 
 
 @app.get("/", include_in_schema=False)
 def root():
-    # Accounting is the dashboard's only page so far, so it's the landing page.
-    return RedirectResponse("/accounting")
+    # /kiosk is the landing page: is the kiosk up, and does it need anything?
+    return RedirectResponse("/kiosk")
 
 
 @app.exception_handler(LoginRequired)

@@ -11,19 +11,17 @@
 
 import json
 from datetime import datetime, timedelta
-from pathlib import Path
 from typing import Literal
 
 from fastapi import APIRouter, Depends, Query, Request
 from fastapi.responses import HTMLResponse
-from fastapi.templating import Jinja2Templates
 
 from admin_dashboard.auth import get_current_user, get_current_user_page, require_write_role
 from admin_dashboard.dependencies import get_db
+from admin_dashboard.templating import templates
 
 router = APIRouter()
 
-templates = Jinja2Templates(directory=Path(__file__).resolve().parent.parent / "templates")
 
 RangeKey = Literal["today", "week", "month", "all"]
 
@@ -107,6 +105,7 @@ def accounting_page(
         "accounting.html",
         {
             "request": request,
+            "active": "accounting",
             "range": "today",
             "sources": sources,
             # Jinja2Templates doesn't register Flask's `tojson` filter, so
