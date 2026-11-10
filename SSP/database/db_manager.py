@@ -227,6 +227,32 @@ class DatabaseManager(VoucherDBMixin):
         except sqlite3.Error as e:
             print(f"Error updating cash inventory: {e}")
 
+    def get_transaction_page(self, limit, offset=0):
+        """One page of transactions, newest first, plus the total row count."""
+        return self._get_page("transactions", "", limit, offset)
+
+    def get_error_page(self, limit, offset=0, unresolved_only=False):
+        """One page of error_log rows, newest first, plus the total row count."""
+        where = "WHERE resolved = 0" if unresolved_only else ""
+        return self._get_page("error_log", where, limit, offset)
+
+    def _get_page(self, table, where, limit, offset):
+        # `table` and `where` are fixed strings from the callers above, never user input.
+        if not self.conn:
+            return [], 0
+        try:
+            cursor = self.conn.cursor()
+            cursor.execute(f"SELECT COUNT(*) AS n FROM {table} {where}")
+            total = cursor.fetchone()["n"]
+            cursor.execute(
+                f"SELECT * FROM {table} {where} ORDER BY timestamp DESC, id DESC LIMIT ? OFFSET ?",
+                (int(limit), max(0, int(offset))),
+            )
+            return cursor.fetchall(), total
+        except sqlite3.Error as e:
+            print(f"❌ ERROR: Failed to get a page of {table}: {e}")
+            return [], 0
+
     def get_cash_inventory(self):
         if not self.conn:
             print("❌ ERROR: No database connection for get_cash_inventory")

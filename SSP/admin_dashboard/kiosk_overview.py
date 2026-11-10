@@ -6,11 +6,15 @@
 
 from datetime import datetime
 
-from config import get_config
 from managers.kiosk_status import SETTING_LAST_SEEN, SETTING_QR_STATUS
+from managers.supply_levels import (
+    COIN_CRIT, COIN_WARN, INK_CRIT, INK_WARN, PAPER_CRIT, PAPER_WARN, severity,
+)
 
 # The kiosk writes its heartbeat about every 60 s; three missed beats means it is down.
 ONLINE_WITHIN_SECONDS = 180
+
+ERRORS_SHOWN = 10
 
 INK_COLOURS = ("cyan", "magenta", "yellow", "black")
 
@@ -29,7 +33,7 @@ def describe_last_seen(raw, now=None):
     return False, f"offline since {when}"
 
 
-def _ink(db, threshold):
+def _ink(db):
     levels = db.get_cmyk_ink_levels()
     if not levels:
         return None
@@ -41,20 +45,16 @@ def _ink(db, threshold):
         tanks.append({
             "name": name,
             "level": round(level),
-            "low": level <= threshold,
+            "band": severity(level, INK_WARN, INK_CRIT),
             "empty": level <= 0,
         })
     return {"tanks": tanks, "last_updated": str(levels.get("last_updated") or "")}
 
 
 def build_overview(db, now=None):
-    config = get_config()
-    paper_threshold = config.low_paper_alert_sheets
-    ink_threshold = config.ink_low_alert_percent
-
     supplies = db.get_supplies_status() or {"paper_count": 0, "coins": {"peso_1": 0, "peso_5": 0}}
     online, seen_text = describe_last_seen(db.get_setting(SETTING_LAST_SEEN), now)
-    errors = [e for e in db.get_error_log() if not e.get("resolved")]
+    errors, error_total = db.get_error_page(ERRORS_SHOWN, unresolved_only=True)
 
     return {
         "online": online,
@@ -62,11 +62,17 @@ def build_overview(db, now=None):
         "qr_reader": db.get_setting(SETTING_QR_STATUS) or "Unknown",
         "paper": {
             "count": supplies["paper_count"],
-            "low": supplies["paper_count"] <= paper_threshold,
+            "band": severity(supplies["paper_count"], PAPER_WARN, PAPER_CRIT),
         },
-        "coins": supplies["coins"],
-        "ink": _ink(db, ink_threshold),
-        "ink_threshold": ink_threshold,
-        "errors": errors[:20],
-        "error_total": len(errors),
+        "coins": {
+            "peso_1": supplies["coins"]["peso_1"],
+            "peso_5": supplies["coins"]["peso_5"],
+            "peso_1_band": severity(supplies["coins"]["peso_1"], COIN_WARN, COIN_CRIT),
+            "peso_5_band": severity(supplies["coins"]["peso_5"], COIN_WARN, COIN_CRIT),
+        },
+        "ink": _ink(db),
+        "ink_warn": INK_WARN,
+        "ink_crit": INK_CRIT,
+        "errors": errors,
+        "error_total": error_total,
     }

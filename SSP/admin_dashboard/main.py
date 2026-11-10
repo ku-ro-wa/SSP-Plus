@@ -34,8 +34,8 @@ app.include_router(kiosk.router)
 
 @app.get("/", include_in_schema=False)
 def root():
-    # Accounting is the dashboard's only page so far, so it's the landing page.
-    return RedirectResponse("/accounting")
+    # /kiosk is the landing page: is the kiosk up, and does it need anything?
+    return RedirectResponse("/kiosk")
 
 
 @app.exception_handler(LoginRequired)

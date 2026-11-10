@@ -717,11 +717,11 @@ class TestBrowserEntryPoints:
     """The browser-facing routes: / as the landing page and the GET /login
     sign-in form."""
 
-    def test_root_redirects_to_accounting(self, client):
+    def test_root_redirects_to_kiosk(self, client):
         response = client.get("/", follow_redirects=False)
 
         assert response.status_code in (302, 303, 307)
-        assert response.headers["location"] == "/accounting"
+        assert response.headers["location"] == "/kiosk"
 
     def test_login_form_is_served_without_a_session(self, client):
         response = client.get("/login")
@@ -730,14 +730,15 @@ class TestBrowserEntryPoints:
         assert "<form" in response.text
         assert 'type="password"' in response.text
 
-    def test_root_lands_on_accounting_once_logged_in(self, client, temp_db):
+    def test_root_lands_on_kiosk_once_logged_in(self, client, temp_db):
         create_account(temp_db, "admin1", "s3cret!", "admin")
         client.post("/login", json={"username": "admin1", "password": "s3cret!"})
 
         response = client.get("/")
 
         assert response.status_code == 200
-        assert "Accounting" in response.text
+        assert 'id="status"' in response.text
+        assert 'href="/accounting"' in response.text
 
 
 class TestPaperReset:
