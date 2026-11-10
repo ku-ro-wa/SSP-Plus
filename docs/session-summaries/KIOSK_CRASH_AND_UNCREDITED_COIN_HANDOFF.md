@@ -156,6 +156,10 @@ panel's own screen agree on which process is serving the kiosk screen.
   app's inhibit handling is correct, so the inhibit path is innocent for the coin problem.
   Same for the bill acceptor, which credited normally throughout.
 - `pigs r 22` uses a second pigpiod client and works while the app runs.
+- **Exit left the coin acceptor on** (found on the kiosk, 21:05): after a clean Ctrl+C
+  shutdown `pigs r 22` still read 1, because `PersistentGPIO.cleanup()` inhibited only the bill
+  acceptor. Fixed: it now inhibits both and clears both glitch filters
+  (`tests/test_persistent_gpio_cleanup.py`).
 - `KIOSK_MODEL=new` on this unit: coin pulses GPIO 17, hopper A sensor 26 / enable 24,
   hopper B sensor 9 / enable 25 (matches the app's startup line).
 - A ₱95 Voucher was issued at ~18:25 with `cash_inventory` claiming 36 ₱1 + 36 ₱5 — a real

@@ -349,10 +349,12 @@ class PersistentGPIO(QObject):
                 if self.bill_callback:
                     self.bill_callback.cancel()
                     self.bill_callback = None
-                self.pi.set_glitch_filter(self.COIN_PIN, 0)  # pigpiod keeps it after we exit
-
-                # Disable acceptor
+                # pigpiod keeps glitch filters and pin levels after we exit, so a
+                # coin acceptor left enabled here takes coins nobody credits.
+                self.pi.set_glitch_filter(self.COIN_PIN, 0)
+                self.pi.set_glitch_filter(self.BILL_PIN, 0)
                 self._set_acceptor_state(False)
+                self._set_coin_acceptor_state(False)
                 time.sleep(0.1)  # Small delay for state change
 
                 # Stop pigpio
