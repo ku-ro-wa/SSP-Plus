@@ -57,6 +57,7 @@ class EmailPollerThreadManager:
             smtp_client=smtp_client,
             upload_dir=config.email_upload_dir,
             max_size_bytes=config.email_max_attachment_size_mb * 1024 * 1024,
+            max_total_bytes=config.email_max_total_attachment_mb * 1024 * 1024,
             subject_keyword=config.email_subject_keyword,
             from_address=config.email_user,
         )

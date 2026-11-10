@@ -21,6 +21,7 @@ from typing import Optional
 from managers.session_manager import Session
 
 PDF_MAGIC = b"%PDF"
+DEFAULT_MAX_TOTAL_BYTES = 50 * 1024 * 1024
 
 
 def attachment_filename(part) -> Optional[str]:
@@ -48,6 +49,7 @@ class EmailAdapter:
     def __init__(
         self, session_manager, db_manager, imap_client, smtp_client,
         upload_dir: str, max_size_bytes: int, subject_keyword: str, from_address: str,
+        max_total_bytes: int = DEFAULT_MAX_TOTAL_BYTES,
     ):
         self.session_manager = session_manager
         self.db_manager = db_manager
@@ -55,6 +57,7 @@ class EmailAdapter:
         self.smtp_client = smtp_client
         self.upload_dir = upload_dir
         self.max_size_bytes = max_size_bytes
+        self.max_total_bytes = max_total_bytes
         self.subject_keyword = subject_keyword
         self.from_address = from_address
         os.makedirs(self.upload_dir, exist_ok=True)
@@ -115,26 +118,43 @@ class EmailAdapter:
             if self.subject_keyword.lower() not in subject.lower():
                 return MessageResult("rejected_subject", None, message_id, sender)
 
-            pdf_part = next(
-                (part for part in msg.walk() if part.get_content_type() == "application/pdf"),
-                None,
-            )
-            if pdf_part is None:
+            # Validate every PDF before writing any, so a rejection leaves
+            # nothing behind in the upload directory.
+            pdfs = []  # (bytes, original filename)
+            total = 0
+            for part in msg.walk():
+                if part.get_content_type() != "application/pdf":
+                    continue
+                data = part.get_payload(decode=True) or b""
+                total += len(data)
+                if (
+                    not data
+                    or len(data) > self.max_size_bytes
+                    or total > self.max_total_bytes
+                    or not data.startswith(PDF_MAGIC)
+                ):
+                    return MessageResult("rejected_attachment", None, message_id, sender)
+                pdfs.append((data, attachment_filename(part)))
+            if not pdfs:
                 return MessageResult("rejected_attachment", None, message_id, sender)
 
-            data = pdf_part.get_payload(decode=True) or b""
-            if not data or len(data) > self.max_size_bytes or not data.startswith(PDF_MAGIC):
-                return MessageResult("rejected_attachment", None, message_id, sender)
-
-            dest_path = os.path.join(self.upload_dir, f"{uuid.uuid4().hex}.pdf")
-            with open(dest_path, "wb") as f:
-                f.write(data)
-
-            session = self.session_manager.create_session(
-                source="email",
-                files=[{"path": dest_path, "original_filename": attachment_filename(pdf_part)}],
-                metadata=sender,
-            )
+            files = []
+            try:
+                for data, name in pdfs:
+                    dest_path = os.path.join(self.upload_dir, f"{uuid.uuid4().hex}.pdf")
+                    files.append({"path": dest_path, "original_filename": name})
+                    with open(dest_path, "wb") as f:
+                        f.write(data)
+                session = self.session_manager.create_session(
+                    source="email", files=files, metadata=sender,
+                )
+            except Exception:
+                for f in files:
+                    try:
+                        os.remove(f["path"])
+                    except OSError:
+                        pass
+                raise
             return MessageResult("accepted", session, message_id, sender)
 
         except Exception as e:
