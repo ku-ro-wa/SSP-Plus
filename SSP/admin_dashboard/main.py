@@ -8,6 +8,7 @@
 #
 # Started via `make run-admin-dashboard`, never spawned by main_app.py.
 
+import sys
 from pathlib import Path
 
 from fastapi import FastAPI, Request
@@ -16,6 +17,7 @@ from fastapi.staticfiles import StaticFiles
 
 from config import get_config
 from admin_dashboard.auth import SESSION_COOKIE_NAME, LoginRequired
+from admin_dashboard.startup_check import secret_key_problem
 from admin_dashboard.routers import accounting, auth
 
 config = get_config()
@@ -54,7 +56,18 @@ BASE_DIR = Path(__file__).resolve().parent
 app.mount("/static", StaticFiles(directory=BASE_DIR / "static"), name="static")
 
 
-if __name__ == "__main__":
+def main():
+    """Start the server, refusing a forgeable cookie-signing key outside SIM_MODE."""
+    problem = secret_key_problem(config)
+    if problem:
+        print(f"Admin Dashboard not started: {problem}", file=sys.stderr)
+        return 1
+
     import uvicorn
 
     uvicorn.run(app, host="0.0.0.0", port=config.admin_dashboard_port)
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

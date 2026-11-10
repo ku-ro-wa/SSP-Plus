@@ -135,6 +135,59 @@ Set at least the following. Restore the values from the team's credential store,
 | `COIN_PIN`, `BILL_PIN`, `*_INHIBIT_PIN` | the defaults unless the wiring changed |
 | `SCANNER_DEVICE` | from step 8 |
 
+#### Admin Dashboard secret key
+
+`ADMIN_DASHBOARD_SECRET_KEY` signs the dashboard's login cookie. The value in `.env.example` is public. Left unset or at that default, anyone who knows it can forge an `admin` cookie and get full write access with no password and no login-log row. So with `SIM_MODE=false` the dashboard refuses to start until a real key is set (issue #103). The kiosk app and the Wi-Fi portal are not affected, and `SIM_MODE=true` keeps working with the default.
+
+**Who:** whoever sets up the kiosk's `.env`. **When:** once per kiosk, before the first dashboard start. **Where it is kept:** the kiosk's `.env` and the team's credential store. Never in git, chat or screenshots.
+
+1. Generate a key, on the kiosk or any machine with Python 3:
+
+   ```bash
+   python3 -c "import secrets; print(secrets.token_urlsafe(32))"
+   ```
+
+2. Put it in the kiosk's `.env` (repo root), on one line with no quotes or spaces:
+
+   ```
+   ADMIN_DASHBOARD_SECRET_KEY=<the generated value>
+   ```
+
+3. Save a copy in the team's credential store under that kiosk's name. Each kiosk gets its own key.
+4. If you can't reach the kiosk yet, keep the key in your own `.env` (the same variable) and copy it over later, see "Getting the key onto the kiosk" below.
+5. Start the dashboard (`make run-admin-dashboard`, or the service once it exists). It should log a normal Uvicorn start-up on port 8100.
+
+**Getting the key onto the kiosk.** `.env` is gitignored, so `git pull` never delivers it. Copy it by hand, over SSH from the machine whose `.env` holds the key (replace `<user>@<kiosk>`; the repo is assumed at `~/SSP-Plus`). This doesn't print the key:
+
+```bash
+KEY=$(grep '^ADMIN_DASHBOARD_SECRET_KEY=' .env | cut -d= -f2-)
+ssh <user>@<kiosk> "cd ~/SSP-Plus && \
+  sed -i '/^ADMIN_DASHBOARD_SECRET_KEY=/d' .env && \
+  echo 'ADMIN_DASHBOARD_SECRET_KEY=$KEY' >> .env && \
+  grep -c '^ADMIN_DASHBOARD_SECRET_KEY=' .env"   # prints 1
+```
+
+Or, at the kiosk, `nano ~/SSP-Plus/.env` and paste the line. Check without showing the key:
+
+```bash
+grep -q '^ADMIN_DASHBOARD_SECRET_KEY=.\+' ~/SSP-Plus/.env && ! grep -q 'dev-insecure' ~/SSP-Plus/.env && echo ok
+```
+
+The kiosk app doesn't need a restart for this; it is a separate process from the dashboard.
+
+If the dashboard is already running, restart it after changing the key. Everyone signed in is logged out, which is expected.
+
+**If it exits with `Admin Dashboard not started: ADMIN_DASHBOARD_SECRET_KEY is unset or still the development default`:**
+
+| Cause | Fix |
+|-------|-----|
+| Line missing, blank, or commented out in `.env` | Add it as in step 2 |
+| Still `dev-insecure-secret-change-me` | Replace it with a generated key |
+| `.env` edited in `SSP/` or elsewhere | It must be at the repo root, see step 7 |
+| Service keeps restarting | `journalctl -u ssp-admin-dashboard -n 20` shows the same message |
+
+Changing or losing the key never touches accounts or data. It only signs people out. Rotate it the same way if it may have leaked.
+
 The backup image (step 17) contains `.env`, so keep images private.
 
 ## 8. Printer (CUPS) and scanner
@@ -423,6 +476,7 @@ firewall blocks it from phones).
 
 ## 16. Final checks
 
+- **Dashboard key:** `.env` on the kiosk has its own `ADMIN_DASHBOARD_SECRET_KEY` (not the dev default); see "Admin Dashboard secret key" in step 7. A key set only on a laptop does nothing for the kiosk.
 - **Reboot test:** everything comes up without anyone touching it.
 - **Power and heat**, after the kiosk has run for a while (ideally after a few prints):
 
