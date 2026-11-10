@@ -26,7 +26,13 @@ from datetime import datetime, timedelta
 import qrcode
 
 MAX_FAILED_ATTEMPTS = 5  # fixed per project_objectives.txt, not operator-configurable
-DEFAULT_EXPIRY_MINUTES = 15  # fallback if the 'session_expiry_minutes' setting is unset
+
+# The pickup window: 12 hours after a Session is created its files and row are
+# deleted (main_app runs cleanup_expired_sessions() every 5 minutes). Inside the
+# window a Session can be redeemed as many times as the customer likes — there is
+# no use counter. Fallback only; the 'session_expiry_minutes' setting wins when
+# it's set (issue #108).
+DEFAULT_EXPIRY_MINUTES = 720
 
 
 @dataclass
@@ -183,15 +189,30 @@ class SessionManager:
 
     def cleanup_expired_sessions(self) -> int:
         """
-        Mark past-expiry sessions as expired, delete their temp files, and
-        remove the DB row. Returns the number of sessions cleaned up.
-        Intended to run on a background schedule (see ink_analysis_threader
-        for the existing QThread pattern this can follow).
+        Delete the files, folders and DB rows of Sessions whose 12-hour pickup
+        window (DEFAULT_EXPIRY_MINUTES, or the `session_expiry_minutes` setting)
+        has passed. Returns the number of Sessions cleaned up.
+
+        Called by the kiosk app on a 5-minute QTimer (main_app, issue #108). Only
+        rows already past `expires_at` are taken, so a Session issued moments ago
+        is never touched, and a second pass straight after the first finds nothing
+        left to do. A session's `files` entries are normally single PDFs, but one
+        can be a directory, which is removed whole.
+
+        A Portal download that happens to span its Session's expiry can fail
+        mid-flow with the existing "Session expired" message. That is accepted,
+        not worked around: the window is a pickup deadline, not a lease.
         """
         expired = self.db_manager.get_expired_sessions(datetime.now())
         cleaned = 0
         for row in expired:
-            for f in json.loads(row['files']):
+            try:
+                files = json.loads(row['files'])
+            except (TypeError, ValueError) as e:
+                # One unreadable row would otherwise fail every pass from now on.
+                print(f"Error reading the files of session '{row['session_id']}': {e}")
+                files = []
+            for f in files:
                 file_path = f['path']
                 try:
                     if os.path.isdir(file_path):

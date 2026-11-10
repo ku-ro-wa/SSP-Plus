@@ -65,6 +65,11 @@ from ui.timeout_warning import TimeoutWarning
 from ui.theme import apply_theme, render_summary, COLORS
 
 
+# How often past-expiry intake Sessions are swept (issue #108). The pickup window
+# itself is SessionManager's DEFAULT_EXPIRY_MINUTES (12 hours), not this.
+SESSION_CLEANUP_INTERVAL_MS = 5 * 60 * 1000
+
+
 class _QrReadBridge(QObject):
     """Carries reads from the QR reader's thread to the GUI thread (a signal
     emitted off-thread is delivered queued on the receiver's thread)."""
@@ -192,6 +197,7 @@ class PrintingSystemApp(QMainWindow):
 
         self._setup_qr_reader()
         self._setup_kiosk_status()
+        self._setup_session_cleanup()
 
         # Initialize printer manager (no dependencies)
         self.printer_manager = PrinterManager()
@@ -351,6 +357,34 @@ class PrintingSystemApp(QMainWindow):
             log_error("QR Reader", message, "qr_reader")
         # db_threader is thread-safe (queue-backed), so this reader-thread call is fine.
         self.db_threader.update_setting(SETTING_QR_STATUS, describe_reader_status(self.qr_reader))
+
+    def _setup_session_cleanup(self):
+        """Delete past-expiry intake Sessions (files, folders and rows) once at startup and
+        then every 5 minutes (issue #108). A Session's pickup window is 12 hours
+        (`session_expiry_minutes`), so this is what keeps `sessions` rows and the
+        `wifi_uploads`/`email_uploads` files from piling up forever.
+
+        Main-thread DB writes, like the heartbeat timer next door — no db_threader hop
+        and no extra thread. Only rows already past `expires_at` are taken, so a Session
+        issued seconds ago is safe.
+        """
+        self.session_cleanup_manager = SessionManager(DatabaseManager())
+        self._run_session_cleanup()
+        self._session_cleanup_timer = QTimer(self)
+        self._session_cleanup_timer.timeout.connect(self._run_session_cleanup)
+        self._session_cleanup_timer.start(SESSION_CLEANUP_INTERVAL_MS)
+
+    def _run_session_cleanup(self):
+        """One cleanup pass. Stays quiet when there was nothing to remove, so the console
+        isn't one line every 5 minutes; a failure is reported and never left to crash the
+        kiosk (the next pass will try again)."""
+        try:
+            cleaned = self.session_cleanup_manager.cleanup_expired_sessions()
+        except Exception as e:
+            print(f"⚠️ Session cleanup failed: {e}")
+            return
+        if cleaned:
+            print(f"🧹 Removed {cleaned} expired session(s)")
 
     def _on_qr_reader_config_error(self, detail):
         """Runs on the reader thread, once per port open where a code was NAKed or unanswered."""
@@ -953,6 +987,9 @@ class PrintingSystemApp(QMainWindow):
             if hasattr(self, '_heartbeat_timer'):
                 print("🔄 Stopping heartbeat timer...")
                 self._heartbeat_timer.stop()
+            if hasattr(self, '_session_cleanup_timer'):
+                print("🔄 Stopping session cleanup timer...")
+                self._session_cleanup_timer.stop()
             # Stop database operations first to prevent SQLite thread errors
             if hasattr(self, 'db_threader'):
                 print("🔄 Stopping database threader...")

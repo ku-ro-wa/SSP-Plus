@@ -30,8 +30,9 @@ _Avoid_: channel, method, origin, modality.
 
 **Session**:
 A record that ties one batch of already-validated, on-disk files to a single pickup code,
-with an expiry and a failed-attempt count. Created by the Session Manager, consumed once at
-redemption. One session can carry several files.
+with an expiry and a failed-attempt count. Created by the Session Manager, reusable without
+limit until it expires — the pickup window is 12 hours from creation, after which a scheduled
+sweep deletes its files and its row. One session can carry several files.
 _Avoid_: job, ticket, upload, transfer.
 
 **OTP**:
