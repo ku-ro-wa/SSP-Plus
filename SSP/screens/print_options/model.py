@@ -185,6 +185,13 @@ class PrintOptionsModel(QObject):
         """True once every file has a price (none analysing, none failed)."""
         return bool(self.items) and all(item.analysis is not None for item in self.items)
 
+    def reprice_unpriced(self):
+        """Prices again every file that has no price and isn't being analysed (its
+        analysis failed or was stopped), so Continue can never be stuck waiting."""
+        for index, item in enumerate(self.items):
+            if item.analysis is None and index not in self._threads:
+                self._price(index)
+
     def _price(self, index):
         item = self.items[index]
         self._stop_item_thread(index)
@@ -206,11 +213,18 @@ class PrintOptionsModel(QObject):
             return
 
         thread = AnalysisThread(self.analyzer, item.path, item.pages, True)
-        thread.analysis_complete.connect(lambda results, t=thread, i=index: self._on_item_analysed(i, t, results))
+        thread.item_index = index
+        # A bound method of this (main-thread) object, so the result is queued to the main
+        # thread; a lambda would run in the worker thread and touch widgets from there.
+        thread.analysis_complete.connect(self._on_thread_result)
         self._threads[index] = thread
         self.item_changed.emit(index)
         self.analysis_started.emit()
         thread.start()
+
+    def _on_thread_result(self, results):
+        thread = self.sender()
+        self._on_item_analysed(getattr(thread, 'item_index', -1), thread, results)
 
     def _on_item_analysed(self, index, thread, results):
         if self._threads.get(index) is not thread:

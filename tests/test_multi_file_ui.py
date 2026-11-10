@@ -373,3 +373,55 @@ def test_continue_hands_every_item_to_payment(tmp_path, options):
     assert data['source'] == 'wifi'
     assert data['total_cost'] == pytest.approx(4 * BW_PRICE + BW_PRICE)
     main_app.show_screen.assert_called_with('payment')
+
+
+# ---- coming back from payment ------------------------------------------------------
+
+def test_backing_out_of_payment_changing_the_job_and_returning_works_twice(tmp_path, options, monkeypatch):
+    """Back from payment lands on print options with the job as it was; the customer can
+    change copies and color and go to payment again, more than once."""
+    controller, main_app = options
+    warned = []
+    monkeypatch.setattr(QMessageBox, 'warning', lambda *a, **k: warned.append(a[2]))
+    items = [PrintItem(pdf_data(tmp_path, 'a.pdf', pages=3, color_pages=(1,)), [1, 2, 3]),
+             PrintItem(pdf_data(tmp_path, 'b.pdf', pages=1), [1])]
+    controller.set_items(items, 'usb')
+    controller.view.item_color_clicked.emit(0, "Color")
+    wait_until(controller.model.is_priced)
+    controller._continue_to_payment()
+    first = main_app.payment_screen.set_payment_data.call_args.args[0]['total_cost']
+
+    for round_trip, (mode, step) in enumerate([("Black and White", 1), ("Color", 1)], 1):
+        controller.on_leave()           # what show_screen does on the way to payment...
+        controller.on_enter()           # ...and on the way back
+        assert controller.view.continue_btn.isEnabled() or controller.model.is_analysing()
+        controller.view.item_color_clicked.emit(0, mode)
+        controller.view.item_copies_step.emit(1, step)
+        wait_until(controller.model.is_priced)
+        wait_until(lambda: controller.view.continue_btn.isEnabled(), "Continue")
+        controller._continue_to_payment()
+        data = main_app.payment_screen.set_payment_data.call_args.args[0]
+        assert main_app.payment_screen.set_payment_data.call_count == round_trip + 1
+        assert data['items'][1].copies == 1 + round_trip
+
+    assert warned == []
+    assert data['total_cost'] != first
+
+
+def test_continue_during_a_stalled_price_recovers_instead_of_a_popup(tmp_path, options, monkeypatch):
+    controller, main_app = options
+    warned = []
+    monkeypatch.setattr(QMessageBox, 'warning', lambda *a, **k: warned.append(a[2]))
+    item = PrintItem(pdf_data(tmp_path, 'a.pdf', pages=2, color_pages=(1,)), [1, 2])
+    controller.set_items([item], 'usb')
+    item.analysis = None            # a price that never arrived (failed or stopped analysis)
+    item.color_mode = "Color"
+
+    controller._continue_to_payment()
+    assert warned == [] and not controller.view.continue_btn.isEnabled()
+    main_app.payment_screen.set_payment_data.assert_not_called()
+
+    wait_until(controller.model.is_priced, "the price to be recalculated")
+    wait_until(lambda: controller.view.continue_btn.isEnabled(), "Continue")
+    controller._continue_to_payment()
+    main_app.payment_screen.set_payment_data.assert_called_once()

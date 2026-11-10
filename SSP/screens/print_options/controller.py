@@ -79,7 +79,12 @@ class PrintOptionsController(QWidget):
         """Continues to the payment screen."""
         payment_data = self.model.get_payment_data()
         if not payment_data:
-            QMessageBox.warning(self, "Please Wait", "Cost calculation is still in progress.")
+            # Still pricing (or a price failed): never a popup the customer can't clear.
+            # Price anything that has stalled, keep Continue off and say so in the banner.
+            self.model.reprice_unpriced()
+            self.view.set_continue_button_enabled(False)
+            self.view.set_analysis_status(
+                "Still calculating the price...", "Continue will come back in a moment.")
             return
         payment_data['source'] = self.source
 
