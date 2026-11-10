@@ -43,6 +43,10 @@ class FakeDBManager:
         self.settings = settings or {}
         self.sessions = {}
         self.email_log = {}  # (uidvalidity, uid) -> row dict
+        self.errors = []     # (error_type, message, context) from log_error()
+
+    def log_error(self, error_type, message, context):
+        self.errors.append((error_type, message, context))
 
     def get_setting(self, key, default=None):
         return self.settings.get(key, default)
@@ -280,6 +284,60 @@ class TestVerifyOtpForSourceWithId:
         assert ok is False
         assert files is None
         assert session_id is None
+
+
+class TestVerifyTypedOtp:
+    """verify_typed_otp() is the typed-code lookup the attempt limits (#104)
+    are built on: `matched` separates a guess from a real code that simply
+    couldn't be redeemed."""
+
+    def test_wrong_code_is_an_unmatched_guess(self):
+        db = FakeDBManager()
+        sm = SessionManager(db)
+        session = sm.create_session('wifi', _files())
+
+        result = sm.verify_typed_otp('wifi', '000000')
+
+        assert result.success is False
+        assert result.matched is False
+        assert result.session_id is None
+        assert db.sessions[session.session_id]['failed_attempts'] == 0
+
+    def test_correct_code_matches_and_returns_the_session(self):
+        db = FakeDBManager()
+        sm = SessionManager(db)
+        session = sm.create_session('wifi', _files())
+
+        result = sm.verify_typed_otp('wifi', session.otp)
+
+        assert result.success is True
+        assert result.matched is True
+        assert result.session_id == session.session_id
+        assert result.files == _files()
+
+    def test_locked_out_session_still_counts_as_matched(self):
+        db = FakeDBManager()
+        sm = SessionManager(db)
+        session = sm.create_session('wifi', _files())
+        db.sessions[session.session_id]['status'] = 'locked'
+
+        result = sm.verify_typed_otp('wifi', session.otp)
+
+        assert result.success is False
+        assert result.matched is True
+        assert 'locked' in result.message.lower()
+
+    def test_compat_wrappers_still_return_tuples(self):
+        db = FakeDBManager()
+        sm = SessionManager(db)
+        session = sm.create_session('scanner', _files())
+
+        ok, msg, files = sm.verify_otp_for_source('scanner', session.otp)
+        assert (ok, files) == (True, _files())
+
+        ok, msg, files, session_id = sm.verify_otp_for_source_with_id(
+            'scanner', '000000')
+        assert (ok, files, session_id) == (False, None, None)
 
 
 class TestCleanupExpiredSessions:

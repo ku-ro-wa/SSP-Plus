@@ -58,6 +58,27 @@ class TestCodeScreenKeypad:
         press(view, ["4", BACKSPACE_KEY])
         assert activity.call_count == 2
 
+    def test_lockout_disables_the_keypad_and_counts_down(self, qapp, view_class):
+        # Issue #104: while typed entry is locked, the whole panel is dead and
+        # the banner shows the time left; unlocking clears both.
+        view = view_class()
+        press(view, "123")
+        message = "Too many wrong codes. Try again in 4:32."
+        view.set_locked(True, message)
+
+        assert not view.otp_input.isEnabled()
+        assert not view.send_button.isEnabled()
+        assert not any(b.isEnabled() for b in view.otp_entry.keypad.key_buttons.values())
+        assert view.status_banner._label.text() == message
+
+        view.set_locked(False, "")
+
+        assert view.otp_input.isEnabled()
+        assert view.send_button.isEnabled()
+        assert all(b.isEnabled() for b in view.otp_entry.keypad.key_buttons.values())
+        assert view.otp_input.text() == ""
+        assert view.status_banner.isHidden()
+
     def test_clear_otp_input_empties_the_field(self, qapp, view_class):
         view = view_class()
         press(view, "42")

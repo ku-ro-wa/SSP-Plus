@@ -19,6 +19,7 @@ class WifiScreenView(QWidget):
         self.setup_ui()
 
     def setup_ui(self):
+        self._locked = False  # set_locked() looks for the locked->unlocked edge
         outer_layout = QVBoxLayout(self)
         outer_layout.setContentsMargins(0, 0, 0, 0)
         outer_layout.setSpacing(0)
@@ -127,6 +128,19 @@ class WifiScreenView(QWidget):
 
     def show_status(self, message, is_error=True):
         self.status_banner.show_message(message, variant="error" if is_error else "success")
+
+    def set_locked(self, locked, message=""):
+        """Lock/unlock typed entry. While locked the keypad is dead and the
+        banner counts down; the one transition back to unlocked clears the
+        half-typed code and the lockout notice so the customer starts fresh."""
+        self.otp_entry.set_locked(locked)
+        if locked:
+            self._locked = True
+            self.show_status(message, is_error=True)
+        elif self._locked:
+            self._locked = False
+            self.clear_otp_input()
+            self.show_status("")
 
     def clear_otp_input(self):
         self.otp_entry.clear()

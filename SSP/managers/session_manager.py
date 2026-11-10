@@ -22,6 +22,7 @@ import secrets
 import shutil
 from dataclasses import dataclass
 from datetime import datetime, timedelta
+from typing import Optional
 
 import qrcode
 
@@ -42,6 +43,22 @@ class Session:
     qr_bytes: bytes
     files: list  # [{"path": ..., "original_filename": ...}, ...]
     expires_at: datetime
+
+
+@dataclass
+class OtpLookup:
+    """Outcome of resolving a typed OTP to a Session (see
+    SessionManager.verify_typed_otp). `matched` is what tells a caller's
+    attempt limit (issue #104) a guess apart from a real code that simply
+    couldn't be redeemed."""
+    success: bool
+    message: str
+    files: Optional[list] = None
+    session_id: Optional[str] = None
+    matched: bool = False  # the code hashed to a Session of this Source
+
+
+NO_MATCH_MESSAGE = "Incorrect or expired code"
 
 
 def _hash_otp(session_id: str, otp: str) -> str:
@@ -126,20 +143,32 @@ class SessionManager:
             return False, "Malformed QR payload", None
         return self.verify_otp(session_id, otp)
 
-    def verify_otp_for_source(self, source: str, otp: str):
+    def verify_typed_otp(self, source: str, otp: str) -> OtpLookup:
         """
-        Resolve a manually-typed OTP to a session without a session_id in
-        hand (the kiosk OTP screens only collect the 6-digit code). Scans
-        pending/locked sessions for `source` and hash-compares — read-only,
-        so looping over unrelated candidates never spuriously locks them
-        out. Only a matching hash falls through to verify_otp(), which
-        performs the actual (mutating) verification. Returns
-        (success, message, files).
+        Resolve a manually-typed OTP to a Session without a session_id in hand
+        (the kiosk OTP screens only collect the 6-digit code). Scans
+        pending/locked Sessions for `source` and hash-compares — read-only, so
+        looping over unrelated candidates never spuriously locks them out. Only
+        a matching hash falls through to verify_otp(), which performs the
+        actual (mutating) verification.
+
+        The returned OtpLookup's `matched` says whether the code belonged to any
+        Session at all: False means it was a guess, which is what attempt limits
+        (the kiosk's PickupCodeLockout, the Portal's per-client limiter) count. A
+        real code that can't be redeemed (expired or locked-out Session) has
+        matched=True, so retyping one never locks anyone out.
         """
         for row in self.db_manager.get_verifiable_sessions(source):
             if _hash_otp(row['session_id'], otp) == row['otp_hash']:
-                return self.verify_otp(row['session_id'], otp)
-        return False, "Incorrect or expired code", None
+                success, message, files = self.verify_otp(row['session_id'], otp)
+                return OtpLookup(success, message, files, row['session_id'], matched=True)
+        return OtpLookup(False, NO_MATCH_MESSAGE)
+
+    def verify_otp_for_source(self, source: str, otp: str):
+        """verify_typed_otp() as a plain (success, message, files) tuple, for
+        callers with no attempt limit to feed."""
+        result = self.verify_typed_otp(source, otp)
+        return result.success, result.message, result.files
 
     def verify_otp_for_source_with_id(self, source: str, otp: str):
         """
@@ -149,11 +178,8 @@ class SessionManager:
         without asking for the OTP a second time in the same visit. Returns
         (success, message, files, session_id).
         """
-        for row in self.db_manager.get_verifiable_sessions(source):
-            if _hash_otp(row['session_id'], otp) == row['otp_hash']:
-                success, message, files = self.verify_otp(row['session_id'], otp)
-                return success, message, files, row['session_id']
-        return False, "Incorrect or expired code", None, None
+        result = self.verify_typed_otp(source, otp)
+        return result.success, result.message, result.files, result.session_id
 
     def verify_otp(self, session_id: str, otp: str):
         """

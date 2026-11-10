@@ -1,8 +1,10 @@
 # screens/email/controller.py
 
+from PyQt5.QtCore import QTimer
 from PyQt5.QtWidgets import QWidget, QGridLayout
 
 from config import get_config
+from managers.pickup_code_lockout import locked_message
 from managers.timeout_manager import TimeoutPolicy
 
 from .model import EmailModel
@@ -25,6 +27,12 @@ class EmailController(QWidget):
 
         self._connect_signals()
 
+        # Live countdown while typed entry is locked; the deadline itself is
+        # wall-clock state in the model, so this timer only drives the display.
+        self._lock_timer = QTimer(self)
+        self._lock_timer.setInterval(1000)
+        self._lock_timer.timeout.connect(self._refresh_lock)
+
     def _connect_signals(self):
         self.view.back_button_clicked.connect(self._go_back)
 
@@ -44,6 +52,18 @@ class EmailController(QWidget):
                 self.view.show_status("Could not load the uploaded file(s).", is_error=True)
         else:
             self.view.show_status(message, is_error=True)
+            # This guess may have tripped the lockout: disable the keypad and
+            # start the countdown now, not on the next tick.
+            self._refresh_lock()
+
+    def _refresh_lock(self):
+        """Mirror the stored lockout into the view, counting down every second."""
+        remaining = self.model.lock_remaining()
+        self.view.set_locked(remaining > 0, locked_message(remaining) if remaining else "")
+        if remaining > 0 and not self._lock_timer.isActive():
+            self._lock_timer.start()
+        elif remaining <= 0:
+            self._lock_timer.stop()
 
     def show_qr_message(self, message):
         """A message about a QR read (from main_app), shown like a typed-code error."""
@@ -58,6 +78,7 @@ class EmailController(QWidget):
         print("Email screen entered")
         self.view.clear_otp_input()
         self.view.show_status("")
+        self._refresh_lock()
         try:
             config = get_config()
             self.view.set_email_hint(config.email_user, config.email_subject_keyword)
@@ -66,6 +87,7 @@ class EmailController(QWidget):
 
     def on_leave(self):
         print("Email screen leaving")
+        self._lock_timer.stop()
 
     def refresh_files(self):
         """Called by file_browser when the user wants to add another

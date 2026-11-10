@@ -110,6 +110,21 @@ Session is reusable without limit — no use counter, and no per-use expiry: `ve
 answers a Session already `verified` while it still exists, so the same code opens its files
 as many times as the customer likes.
 
+Typed pickup codes have an attempt limit of their own, one counter shared by the Wi-Fi and
+Email screens (`managers/pickup_code_lockout.py`, `settings` rows
+`pickup_code_failed_attempts`/`pickup_code_locked_until`, 5 misses then 5 minutes, both
+setting-overridable via `pickup_code_max_attempts`/`pickup_code_lockout_minutes`). While it
+runs the keypad, entry field and Send are disabled and the banner counts down, and even the
+right code is refused; a correct code resets it, and the deadline is wall-clock, so leaving
+the screen or restarting doesn't clear it. Only guesses count: `SessionManager.verify_typed_otp()`
+returns an `OtpLookup` whose `matched` says whether the code belonged to any Session, so
+retyping a real code that is expired or locked out doesn't. QR reads never consult it — they
+keep locking the individual Session. The Portal's `/redeem` has its own per-request-address
+sliding window instead (`webapp/rate_limit.py`: 5 wrong codes in 15 minutes on one address
+→ 429 + `Retry-After`), deliberately not the kiosk's counter in either direction (ADR 0009);
+`tests/test_pickup_code_lockout.py` and `tests/test_redeem_route.py` drive both on a fake
+clock.
+
 `main_app._setup_session_cleanup()` sweeps past-expiry Sessions — their files, any session
 folder, and the DB row — once at startup and then every 5 minutes on a `QTimer`
 (`_session_cleanup_timer`, stopped in `cleanup()` next to the heartbeat timer; main-thread
