@@ -139,6 +139,7 @@ default and the setting override; `tests/test_session_cleanup_schedule.py` cover
 ### Database
 
 SQLite at `SSP/database/ssp_database.db` (path is derived from `models.py`'s own location, so it's stable regardless of CWD — unlike `.env`). Schema is created by `database/models.py:init_db()`, called once at startup from `main()`. Tables: `transactions` (has a `source` column, see Admin Dashboard below), `cash_inventory`,
+`cash_collections` + `cash_collection_items` (a Kiosk Admin "Collect cash" records the counts, then zeroes `cash_inventory`; coin figures are a physical count, not coins received; listed read-only on `/accounting`, issue #110),
 `error_log`, `printer_status`, `cmyk_ink_levels`, `settings`, `sessions`, `email_intake_log`,
 `users`, `dashboard_login_log` (the last two are Admin Dashboard accounts/login-audit, unrelated
 to the touchscreen's own `ADMIN_PIN`).

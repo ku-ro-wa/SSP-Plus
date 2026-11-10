@@ -38,6 +38,8 @@
 
         .vouchers { margin-top: 20px; }
         .vouchers td.label { color: #555; }
+        .collections { margin-top: 20px; }
+        .collections .note { font-size: 13px; color: #777; }
         .vouchers .note { font-size: 13px; color: #777; }
 {% endblock %}
 {% block content %}
@@ -98,6 +100,32 @@
             </tr>
         </tbody>
     </table>
+
+    <!-- Cash collections (issue #110), recorded on the kiosk's Kiosk Admin.
+         Read-only here. The ₱1/₱5 figures are what the operator counted, not
+         coins received: received coins are added to the hoppers' stock. -->
+    <table class="collections" id="collections">
+        <thead>
+            <tr><th>Collected</th><th>Breakdown</th><th class="numeric">Total</th></tr>
+        </thead>
+        <tbody>
+            {% for c in cash.collections %}
+            <tr>
+                <td>{{ c.collected_at }}</td>
+                <td>{% for i in c['items'] %}₱{{ "%g"|format(i.denomination) }} &times; {{ i.count }}{% if not loop.last %}, {% endif %}{% endfor %}</td>
+                <td class="numeric">₱{{ "%.2f"|format(c.total) }}</td>
+            </tr>
+            {% else %}
+            <tr><td colspan="3">No collections recorded yet.</td></tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    <p class="note collections">
+        Revenue since the last collection{% if not cash.last_collected_at %} (none yet, so all time){% endif %}:
+        <strong id="revenue-since-last">₱{{ "%.2f"|format(cash.revenue_since_last) }}</strong><br>
+        Coin figures are the operator's physical count, which includes the stock in the
+        hoppers. They are not a tally of coins received. Bills reconcile exactly.
+    </p>
 {% endblock %}
 {% block scripts %}
 
