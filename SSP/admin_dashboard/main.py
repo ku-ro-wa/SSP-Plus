@@ -18,7 +18,7 @@ from fastapi.staticfiles import StaticFiles
 from config import get_config
 from admin_dashboard.auth import SESSION_COOKIE_NAME, LoginRequired
 from admin_dashboard.startup_check import secret_key_problem
-from admin_dashboard.routers import accounting, auth, kiosk
+from admin_dashboard.routers import accounting, auth, kiosk, settings
 
 config = get_config()
 
@@ -32,6 +32,7 @@ app = FastAPI(title="AIO SPARK Admin Dashboard", docs_url=docs_url, redoc_url=re
 app.include_router(auth.router)
 app.include_router(accounting.router)
 app.include_router(kiosk.router)
+app.include_router(settings.router)
 
 
 @app.get("/", include_in_schema=False)

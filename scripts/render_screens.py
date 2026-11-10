@@ -33,6 +33,7 @@ SCREENS = {
     "voucher": "VoucherController",
     "thank_you": "ThankYouController",
     "admin": "AdminController",
+    "settings": "SettingsController",
 }
 
 
@@ -78,6 +79,9 @@ def fill_live_content(name, screen):
         screen.view.update_page_count(2)
         screen.view.show_preview(sample_page_image(), 2)
         screen.view.show_status("Scan timed out after 60s — check the scanner connection.")
+    if name == "settings":
+        screen.on_enter()
+        screen.view.show_errors({"max_change_limit": "Maximum change must be between 0 and 1000 ₱."})
     if name == "thank_you":
         screen.model.show_no_paper_error(0)  # its longest message: the admin's refill hint
 
@@ -139,7 +143,11 @@ def build_screen(name):
         return build_popup_preview(name)
 
     module = importlib.import_module(f"screens.{name}")
-    screen = getattr(module, SCREENS[name])(MagicMock())
+    main_app = MagicMock()
+    if name == "settings":
+        from database.db_manager import DatabaseManager
+        main_app.admin_screen.db_manager = DatabaseManager()  # the settings screen reads real rows
+    screen = getattr(module, SCREENS[name])(main_app)
     fill_live_content(name, screen)
     return screen
 

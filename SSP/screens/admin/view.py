@@ -38,6 +38,7 @@ class AdminScreenView(QWidget):
     """The user interface for the Admin Panel. Contains no logic."""
     back_clicked = pyqtSignal()
     view_data_logs_clicked = pyqtSignal()
+    settings_clicked = pyqtSignal()
     update_paper_clicked = pyqtSignal(str)
     reset_paper_clicked = pyqtSignal()
     update_coin_1_clicked = pyqtSignal(str)
@@ -94,7 +95,11 @@ class AdminScreenView(QWidget):
         self.view_logs_button.setMinimumHeight(44)
         self.view_logs_button.clicked.connect(self.view_data_logs_clicked.emit)
 
-        body_layout.addLayout(nav_row(self.back_button, self.view_logs_button))
+        self.settings_button = SecondaryButton("Settings")
+        self.settings_button.setMinimumHeight(44)
+        self.settings_button.clicked.connect(self.settings_clicked.emit)
+
+        body_layout.addLayout(nav_row(self.back_button, self.settings_button, self.view_logs_button))
 
     def _section_label(self, text):
         label = QLabel(text)
