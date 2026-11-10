@@ -35,3 +35,6 @@ screenshots/
 intake_sheet.pdf
 
 SSP/logs/
+
+# Thesis manuscript (separate repo, never committed here)
+aio-spark-thesis/
