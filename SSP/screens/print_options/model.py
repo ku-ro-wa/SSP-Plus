@@ -5,6 +5,7 @@ import numpy as np
 from typing import List, Dict
 from PyQt5.QtCore import QObject, pyqtSignal, QThread
 from config import get_config
+from managers.print_items import PrintItem
 
 
 class PDFColorAnalyzer:
@@ -128,10 +129,15 @@ class PrintOptionsModel(QObject):
         self._color_mode = config.default_color_mode
         self.digital_fee = 0  # flat fee for the scan's digital copy; 0 = print only
 
-    def set_pdf_data(self, pdf_data, selected_pages, digital_fee=0):
-        """Sets the PDF data and selected pages. digital_fee > 0 adds the flat
-        fee for a digital copy (scan sent via download/email) to the total."""
+    def set_items(self, items, digital_fee=0):
+        """Sets the job: the screen prices one item for now (several come with #124).
+        digital_fee > 0 adds the flat fee for a digital copy (scan sent via
+        download/email) to the total."""
+        items = list(items)
+        if len(items) != 1:
+            raise ValueError("print options handles exactly one file for now")
         self.digital_fee = digital_fee
+        pdf_data, selected_pages = items[0].pdf_data, items[0].pages
         print("🔍 PrintOptionsModel.set_pdf_data called")
         print(f"🔍 PDF data: {pdf_data}")
         print(f"🔍 Selected pages: {selected_pages}")
@@ -256,14 +262,13 @@ class PrintOptionsModel(QObject):
         if not self.analysis_results:
             return None
 
-        total_cost = self.analysis_results['pricing']['base_cost'] * self._copies + self.digital_fee
+        item_cost = self.analysis_results['pricing']['base_cost'] * self._copies
+        item = PrintItem(pdf_data=self.selected_pdf, pages=list(self.selected_pages),
+                         copies=self._copies, color_mode=self._color_mode,
+                         cost=item_cost, analysis=self.analysis_results)
         data = {
-            'pdf_data': self.selected_pdf,
-            'selected_pages': self.selected_pages,
-            'copies': self._copies,
-            'color_mode': self._color_mode,
-            'total_cost': total_cost,
-            'analysis': self.analysis_results
+            'items': [item],
+            'total_cost': item_cost + self.digital_fee,
         }
         if self.digital_fee:
             data['digital_copy'] = {'fee': self.digital_fee}

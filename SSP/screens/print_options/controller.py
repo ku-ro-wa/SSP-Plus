@@ -2,6 +2,7 @@
 
 from PyQt5.QtWidgets import QWidget, QMessageBox
 
+from managers.print_items import total_sheets
 from managers.timeout_manager import TimeoutPolicy
 from .model import PrintOptionsModel
 from .view import PrintOptionsScreenView
@@ -95,7 +96,7 @@ class PrintOptionsController(QWidget):
         payment_data['source'] = self.source
 
         # Check paper availability before proceeding to payment
-        total_pages = len(payment_data['selected_pages']) * payment_data['copies']
+        total_pages = total_sheets(payment_data['items'])
         admin_screen = self.main_app.admin_screen
 
         if hasattr(admin_screen, 'get_paper_count'):
@@ -122,11 +123,11 @@ class PrintOptionsController(QWidget):
 
     # --- Public API for main_app ---
 
-    def set_pdf_data(self, pdf_data, selected_pages, source=None, digital_fee=0):
-        """Sets the PDF data and selected pages for printing. digital_fee adds a
+    def set_items(self, items, source=None, digital_fee=0):
+        """Sets the files to print (PrintItems, in print order). digital_fee adds a
         scan's digital-copy fee to the total (see ScanDestinationController)."""
         self.source = source
-        self.model.set_pdf_data(pdf_data, selected_pages, digital_fee=digital_fee)
+        self.model.set_items(items, digital_fee=digital_fee)
         self.view.update_copies_display(self.model.get_copies())
         self.view.set_bw_mode()
         # Clear any existing warnings when setting new PDF data

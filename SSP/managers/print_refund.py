@@ -47,13 +47,19 @@ def record_digital_refund(db, payment_ref, refunded, digital_only, error_message
         error_message=error_message or None)
 
 
-def refund_failed_print(db, payment_ref, error_message="", already_refunded=0):
+def refund_failed_print(db, payment_ref, error_message="", already_refunded=0, failed_position=None):
     """paid -> print_failed, issuing one refund Voucher for the job's total_cost,
     less `already_refunded` (a digital fee whose copy failed and was refunded
-    on its own, so it isn't refunded twice)."""
+    on its own, so it isn't refunded twice). Nothing printed, so every file row
+    ends `not_printed`, except `failed_position` (the file that was printing), `failed`."""
     row = db.get_transaction_by_ref(payment_ref)
     if not row or row['status'] != PAID:
         return RefundOutcome()
+
+    for f in db.get_transaction_files(payment_ref):
+        if f['status'] == 'pending':
+            db.set_transaction_file_status(
+                payment_ref, f['position'], 'failed' if f['position'] == failed_position else 'not_printed')
 
     amount = max(0, int(round(row['total_cost'] or 0)) - int(already_refunded or 0))
     outcome = RefundOutcome(amount=amount)

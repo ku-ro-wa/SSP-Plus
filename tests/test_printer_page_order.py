@@ -14,6 +14,7 @@ import pytest
 os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
 from PyQt5.QtWidgets import QApplication  # noqa: E402
 
+from managers.print_items import PrintItem  # noqa: E402
 from managers.printer_thread import PrinterThread  # noqa: E402
 
 PRINTER = "HP_Smart_Tank_580_590_series_5E0E1D_USB"
@@ -43,14 +44,15 @@ def make_thread(app, source_pdf):
     created = []
 
     def _make(selected_pages, copies=1, color_mode="Black and White"):
-        thread = PrinterThread(source_pdf, copies, color_mode, selected_pages, PRINTER)
+        item = PrintItem({'path': source_pdf}, list(selected_pages), copies, color_mode)
+        thread = PrinterThread([item], PRINTER)
         created.append(thread)
         return thread
 
     yield _make
 
     for thread in created:
-        thread.cleanup_temp_pdf()
+        thread._cleanup_pending()
 
 
 def page_texts(pdf_path):
@@ -60,49 +62,45 @@ def page_texts(pdf_path):
     return texts
 
 
+def temp_pdf(thread):
+    """Build the (only) item's temporary PDF the way run() does and keep track of it."""
+    path = thread.create_temp_pdf(thread.items[0])
+    thread.temp_pdfs[1] = path
+    return path
+
+
 class TestTempPdfPageOrder:
     def test_all_pages_are_written_last_page_first(self, make_thread):
-        thread = make_thread([1, 2, 3])
-        thread.create_temp_pdf_with_selected_pages()
-
-        assert page_texts(thread.temp_pdf_path) == ["Page 3", "Page 2", "Page 1"]
+        assert page_texts(temp_pdf(make_thread([1, 2, 3]))) == ["Page 3", "Page 2", "Page 1"]
 
     def test_selected_pages_are_written_in_descending_order(self, make_thread):
-        thread = make_thread([3, 1])
-        thread.create_temp_pdf_with_selected_pages()
-
-        assert page_texts(thread.temp_pdf_path) == ["Page 3", "Page 1"]
+        assert page_texts(temp_pdf(make_thread([3, 1]))) == ["Page 3", "Page 1"]
 
     def test_a_single_page_is_unchanged(self, make_thread):
-        thread = make_thread([2])
-        thread.create_temp_pdf_with_selected_pages()
+        assert page_texts(temp_pdf(make_thread([2]))) == ["Page 2"]
 
-        assert page_texts(thread.temp_pdf_path) == ["Page 2"]
-
-    def test_the_selection_sort_is_kept(self, make_thread):
-        """Reversing the list upstream has no effect — the constructor sorts it."""
-        thread = make_thread([2, 3, 1])
-        assert thread.selected_pages == [1, 2, 3]
-
-        thread.create_temp_pdf_with_selected_pages()
-        assert page_texts(thread.temp_pdf_path) == ["Page 3", "Page 2", "Page 1"]
+    def test_an_unsorted_selection_is_still_written_last_page_first(self, make_thread):
+        assert page_texts(temp_pdf(make_thread([2, 3, 1]))) == ["Page 3", "Page 2", "Page 1"]
 
     def test_the_temp_pdf_is_removed_by_cleanup(self, make_thread):
         thread = make_thread([1, 2])
-        thread.create_temp_pdf_with_selected_pages()
-        temp_path = thread.temp_pdf_path
+        temp_path = temp_pdf(thread)
         assert os.path.exists(temp_path)
 
-        thread.cleanup_temp_pdf()
+        thread._cleanup_pending()
         assert not os.path.exists(temp_path)
+
+    def test_a_page_outside_the_file_raises_and_leaves_no_temp_pdf(self, make_thread):
+        thread = make_thread([1, 9])
+        with pytest.raises(ValueError):
+            thread.create_temp_pdf(thread.items[0])
 
 
 class TestPrintCommand:
     @pytest.fixture
     def command(self, make_thread, monkeypatch):
         thread = make_thread([1, 2, 3], copies=2, color_mode="Color")
-        monkeypatch.setattr(thread, "temp_pdf_path", "/tmp/printjob-abc.pdf")
-        return thread.build_print_command()
+        return thread.build_print_command(thread.items[0], "/tmp/printjob-abc.pdf")
 
     def test_copies_are_collated(self, command):
         assert any(option == "collate=true" for option in command)
@@ -122,6 +120,5 @@ class TestPrintCommand:
 
     def test_black_and_white_stays_monochrome(self, make_thread, monkeypatch):
         thread = make_thread([1], color_mode="Black and White")
-        monkeypatch.setattr(thread, "temp_pdf_path", "/tmp/printjob-abc.pdf")
 
-        assert "print-color-mode=monochrome" in thread.build_print_command()
+        assert "print-color-mode=monochrome" in thread.build_print_command(thread.items[0], "/tmp/printjob-abc.pdf")

@@ -1,5 +1,6 @@
 from PyQt5.QtWidgets import QWidget, QMessageBox
 from PyQt5.QtCore import pyqtSignal
+from managers.print_items import PrintItem
 from managers.timeout_manager import TimeoutPolicy
 from .model import FileBrowserModel
 from .view import FileBrowserView
@@ -91,9 +92,9 @@ class FileBrowserController(QWidget):
             return
 
         # Pass data to print options screen
-        print(f"🔍 Calling set_pdf_data with PDF: {self.view.selected_pdf['filename']} and pages: {selected_pages_list}")
+        print(f"🔍 Calling set_items with PDF: {self.view.selected_pdf['filename']} and pages: {selected_pages_list}")
         options_screen = self.main_app.printing_options_screen
-        options_screen.set_pdf_data(self.view.selected_pdf, selected_pages_list, self.source)
+        options_screen.set_items([PrintItem(self.view.selected_pdf, sorted(selected_pages_list))], self.source)
         print("🔍 Switching to print options screen")
         self.main_app.show_screen('printing_options')
 

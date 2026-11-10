@@ -87,7 +87,7 @@ def test_file_browser_blocks_an_unreadable_pdf(usb_drive, file_browser):
     assert len(messages) == 1 and "can't be opened" in messages[0]
 
     controller._continue_to_payment()
-    main_app.printing_options_screen.set_pdf_data.assert_not_called()
+    main_app.printing_options_screen.set_items.assert_not_called()
 
 
 def test_file_browser_still_lets_a_readable_pdf_through_next_to_a_broken_one(usb_drive, file_browser):
@@ -99,7 +99,7 @@ def test_file_browser_still_lets_a_readable_pdf_through_next_to_a_broken_one(usb
     broken = next(p for p in view.pdf_files_data if p['filename'] == 'broken.pdf')
     controller.model.select_pdf(broken)
     controller._continue_to_payment()
-    main_app.printing_options_screen.set_pdf_data.assert_not_called()
+    main_app.printing_options_screen.set_items.assert_not_called()
 
     good = next(p for p in view.pdf_files_data if p['filename'] == 'good.pdf')
     controller.model.select_pdf(good)
@@ -108,5 +108,5 @@ def test_file_browser_still_lets_a_readable_pdf_through_next_to_a_broken_one(usb
     app.sendPostedEvents(None, QEvent.DeferredDelete)  # clear_preview() uses deleteLater()
     assert not view.preview_container.findChildren(QLabel, "UnreadableFileMessage")
     controller._continue_to_payment()
-    main_app.printing_options_screen.set_pdf_data.assert_called_once()
-    assert main_app.printing_options_screen.set_pdf_data.call_args.args[1] == [1, 2, 3]
+    main_app.printing_options_screen.set_items.assert_called_once()
+    assert main_app.printing_options_screen.set_items.call_args.args[0][0].pages == [1, 2, 3]
