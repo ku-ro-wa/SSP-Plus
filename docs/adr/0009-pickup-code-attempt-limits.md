@@ -29,12 +29,14 @@ Every other guessable secret in the kiosk already locks out: the touchscreen adm
   are disabled and the status banner counts down — even the right code is refused.
 
 - **Only guesses count, on either surface.** `SessionManager.verify_typed_otp()` returns an
-  `OtpLookup` whose `matched` says whether the code hashed to a Session of that Source at all. A
-  real code that can't be redeemed (an expired or already locked-out Session) is `matched`, so
-  retyping it never counts — otherwise a customer with a stale code would lock their own keypad
-  by retrying. Input that isn't six digits never reaches the lookup, so mashing keys can't lock
-  entry for the next customer, and a malformed string at `/redeem` is refused before the
-  limiter.
+  `OtpLookup` whose `matched` says whether the code hashed to a Session at all, of that Source or
+  another. A real code that can't be redeemed here is `matched`, so it never counts: its Session
+  expired or is already locked out, or — the likely one — it was typed on the wrong upload
+  screen, since the Wi-Fi and Email tiles look alike and a customer holding a working Email code
+  can pick Wi-Fi. The QR path already declined to count a wrong-Source attempt, and the typed
+  limits keep that promise. Input that isn't six digits never reaches the lookup, so mashing
+  keys can't lock entry for the next customer, and a malformed string at `/redeem` is refused
+  before the limiter.
 
 - **Portal: a per-client sliding window in the process, not the kiosk's counter.**
   `webapp/rate_limit.py` (`ClientAttemptLimiter`) keeps each request address's wrong-code times;
@@ -70,9 +72,11 @@ Every other guessable secret in the kiosk already locks out: the touchscreen adm
   attacker can write. It also needs pruning and a schema for what is a 15-minute concern.
 - **Locking the Portal out for a whole Source** after a burst: one phone could then halt Digital
   Copy pickup for everyone on the Hotspot.
-- **Counting expired/locked Session matches as misses:** simpler (`matched` would not be needed),
-  but retyping a real code that has just expired five times would lock the keypad, which is
-  exactly the customer who needs help, not the attacker.
+- **Counting expired/locked Session matches, or wrong-Source codes, as misses:** simpler (`matched`
+  and the cross-Source scan would not be needed), but retyping a real code that has just expired
+  five times would lock the keypad, which is exactly the customer who needs help, not the
+  attacker. The scan costs one hash comparison per pending Session of the other three Sources,
+  on failures only.
 
 ## Consequences
 

@@ -117,8 +117,9 @@ setting-overridable via `pickup_code_max_attempts`/`pickup_code_lockout_minutes`
 runs the keypad, entry field and Send are disabled and the banner counts down, and even the
 right code is refused; a correct code resets it, and the deadline is wall-clock, so leaving
 the screen or restarting doesn't clear it. Only guesses count: `SessionManager.verify_typed_otp()`
-returns an `OtpLookup` whose `matched` says whether the code belonged to any Session, so
-retyping a real code that is expired or locked out doesn't. QR reads never consult it — they
+returns an `OtpLookup` whose `matched` says whether the code belonged to any Session (of this
+Source or another), so retyping a real code that is expired, locked out, or typed on the wrong
+upload screen doesn't. QR reads never consult it — they
 keep locking the individual Session. The Portal's `/redeem` has its own per-request-address
 sliding window instead (`webapp/rate_limit.py`: 5 wrong codes in 15 minutes on one address
 → 429 + `Retry-After`), deliberately not the kiosk's counter in either direction (ADR 0009);

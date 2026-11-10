@@ -13,11 +13,13 @@ closing the screen, opening the other screen or restarting the app never clears
 it. QR reads are unaffected: they still lock the individual Session
 (`session_manager.MAX_FAILED_ATTEMPTS`) and never consult this.
 
-Only guesses count. A real code that can't be redeemed (expired or locked-out
-Session) comes back from `SessionManager.verify_typed_otp()` with
-`matched=True`, and retyping it must not lock the keypad — nor can it. Likewise
-input that isn't six digits never reaches the lookup, so mashing keys can't lock
-entry for the next customer.
+Only guesses count. A real code that can't be redeemed here — its Session
+expired or locked out, or the code typed on the *other* upload screen — comes
+back from `SessionManager.verify_typed_otp()` with `matched=True`, and retyping
+it must not lock the keypad (nor does it). That last case is the likely one: the
+Wi-Fi and Email tiles look alike, so a customer holding a working Email code can
+pick Wi-Fi and type it. Likewise input that isn't six digits never reaches the
+lookup, so mashing keys can't lock entry for the next customer.
 """
 from datetime import datetime
 

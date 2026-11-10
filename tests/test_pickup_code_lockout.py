@@ -221,6 +221,17 @@ class TestWifiScreen:
         assert all("locked" in message.lower() for _, message, _ in seen)
         assert model.lock_remaining() == 0
 
+    def test_code_for_the_other_upload_screen_does_not_count(self, env):
+        db, lockout, _ = env
+        manager = db()
+        email_session = _create(manager, "email")
+        wifi = WifiModel(db_manager=manager, lockout=lockout())
+
+        seen = _results(wifi, [email_session.otp] * (DEFAULT_MAX_ATTEMPTS + 1))
+
+        assert all(ok is False for ok, _, _ in seen)
+        assert wifi.lock_remaining() == 0
+
     def test_lockout_is_logged_once_however_many_attempts(self, env):
         db, lockout, _ = env
         model = WifiModel(db_manager=db(), lockout=lockout())

@@ -327,6 +327,21 @@ class TestVerifyTypedOtp:
         assert result.matched is True
         assert 'locked' in result.message.lower()
 
+    def test_code_for_another_source_is_matched_but_opens_nothing(self):
+        # The Wi-Fi and Email tiles look alike, so a real Email code can be typed
+        # on the Wi-Fi screen. It is not a guess, so it must not lock anyone out.
+        db = FakeDBManager()
+        sm = SessionManager(db)
+        email_session = sm.create_session('email', _files())
+
+        result = sm.verify_typed_otp('wifi', email_session.otp)
+
+        assert result.success is False
+        assert result.matched is True
+        assert result.session_id is None
+        assert db.sessions[email_session.session_id]['status'] == 'pending'
+        assert db.sessions[email_session.session_id]['failed_attempts'] == 0
+
     def test_compat_wrappers_still_return_tuples(self):
         db = FakeDBManager()
         sm = SessionManager(db)
