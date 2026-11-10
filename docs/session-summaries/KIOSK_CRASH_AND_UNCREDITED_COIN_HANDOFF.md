@@ -80,16 +80,42 @@ and do not prove an app crash.
 The last dump (line 423) has the **main thread inside `app.exec_()`**
 (`main_app.py:1094`) with no Python frames below it, and every other thread idle — QR reader
 blocking on `read`, email poller, two uvicorn threads, ink-analysis and DB workers, and the
-pigpio callback thread in `pigpio.py:1196 run`. That shape matches the Nov 6 segfaults and
-means the fault, if it is one, is inside Qt's C++ rather than our Python.
+pigpio callback thread in `pigpio.py:1196 run`. ~~That shape means the fault is inside Qt's
+C++.~~ **Wrong — reproduced on the laptop (2026-11-10, 20:41):** the same shape (`Aborted`,
+main thread in `app.exec_()`, no Python frames) comes from a *Python* exception escaping a Qt
+slot, which PyQt5 turns into `qFatal` → `abort()`. The trigger: Ctrl+C on
+`make run 2>&1 | tee log` sends SIGINT to `tee` too; `tee` exits; the SIGINT handler's
+`print("🛑 SIGINT received…")` raises `BrokenPipeError`; abort before `cleanup()`, so the coin
+acceptor stays enabled (pin 22 = 1) and the trip log ends mid-run with no `SIGINT received`.
+That is exactly the "dead run" signature above. The same happens on any `print` once the
+SSH session/tee behind stdout is gone (a closed tab or dropped SSH was SIGHUP, which killed the
+app outright, also with no cleanup), while a run whose terminal died but which hadn't printed
+yet kept running on the panel with nothing attached — the "phantom" that needed Alt+F4.
+
+**Fixed (this branch):** `utils/run_log.py` sends all output to `SSP/logs/app.log`
+(timestamped) and only mirrors it to the terminal while that works; a dead terminal is dropped
+with one note. SIGHUP now shuts down cleanly like SIGINT/SIGTERM. Re-run of the exact repro:
+no abort, full cleanup logged. The pigpio callback-thread segfaults of Nov 6 are not explained
+by this.
 
 **State left behind:** the graphical session is gone. `pgrep -a labwc` / `Xwayland` and
 `ls /tmp/.X11-unix/` need checking; `systemctl --user status ssp-kiosk` reports
-**"Unit ssp-kiosk.service could not be found"**, so this kiosk does not use the `--user`
-service from `docs/KIOSK_PI_SETUP.md` §9 — the app is started from a terminal on the desktop
-(the first idle screenshot shows `group-c@aio-spark-kiosk:~/SSP-Plus` plus the on-screen
-keyboard). That is also why two different "runs" coexisted tonight: one instance attached to
-the panel, another tee'd over SSH.
+**"Unit ssp-kiosk.service could not be found"**: this kiosk does not use the `--user`
+service from `docs/KIOSK_PI_SETUP.md` §14. Checked afterwards: nothing starts the app at boot
+(no `~/.config/labwc/autostart`, no XDG autostart entry, no crontab, no unit besides
+`ssp-hotspot-*`), so it is started by hand from a terminal on the desktop (the first idle
+screenshot shows `group-c@aio-spark-kiosk:~/SSP-Plus` plus the on-screen keyboard). Nothing
+restarts it after a crash (no `Restart=always`), its output went only to that terminal, and
+`systemctl --user stop ssp-kiosk` does nothing — which is why two instances coexisted tonight:
+the one from the desktop terminal on the panel, and a second `make run` tee'd over SSH. Two copies fight over the acceptor/hopper GPIO, the QR serial port, port 8000 and
+the DB (a second copy's startup disables the acceptors under the first one's payment screen),
+so every run tonight that overlapped another is suspect evidence.
+
+**Fixed (this branch):** `main()` now takes an flock single-instance lock
+(`managers/instance_lock.py`, `$TMPDIR/ssp-kiosk.lock`) before touching anything and refuses
+a second copy with `The kiosk app is already running (pid N, started …, launched by make)`.
+The kernel drops the lock however the holder dies, so it never goes stale; `cat
+/tmp/ssp-kiosk.lock` shows which process (and what launched it) owns the panel.
 
 **Kernel log:** `dmesg`'s newest entries are at uptime 1263–1265 s (~16:55, boot ≈ 16:34) and
 show the USB touchscreen (`27c0:0859`, "TouchScreen") **disconnecting and re-enumerating**
@@ -100,9 +126,9 @@ are related — they are ~3 h apart.
 ### Next steps, in order
 
 1. **Restore the session**: check `pgrep -a labwc; pgrep -a Xwayland; ls -l /tmp/.X11-unix/;
-   loginctl list-sessions`, then `sudo reboot`. Confirm the desktop comes back and note how
-   the app autostarts (`~/.config/labwc/autostart`, per `KIOSK_PI_SETUP.md` §9 — the file may
-   have a `ssp-kiosk` line that no longer corresponds to any unit).
+   loginctl list-sessions`, then `sudo reboot`. Confirm the desktop comes back (nothing starts
+   the app; it's launched by hand). `pkill -f main_app.py` before any SSH `make run` (a second
+   copy is now refused anyway), and read `SSP/logs/app.log` rather than relying on `tee`.
 2. **Get exact times and signals** — this settles whether any abort overlaps a payment run:
    `coredumpctl list --since today` and `coredumpctl info --since today | head -60`
    (systemd-coredump, trixie default). Cross-check against `ls -l --time-style=full-iso` of
@@ -180,5 +206,6 @@ Captured screens (`~/thesis-data/shots/` on the laptop): `fig-homepage.png`,
 `fig-admin-kiosk-admin.png` (also documents the A3 numbers), `fig-voucher-issued.png`
 (₱95 `WDEF-QB6F`, expires December 10 2026), `fig-payment-credited.png` (₱3 of ₱5,
 Digital Copy). `redo-idle-desktop-not-a-screen.png` is the desktop, not a kiosk screen. Still
-missing: C1 acceptor accuracy (blocked by §2), C2 hopper payout, C3 price-display times, D1–D6,
-B's photos and labels.
+missing: C1 acceptor accuracy (blocked by §2). C2 hopper payout, C3 price-display times and
+D1–D6 were already tested in earlier sessions; B's photos and labels were done on 2026-11-10
+(trip sheet in the thesis repo).

@@ -13,7 +13,7 @@ was written while rebuilding on a new card, so the next rebuild needs only the r
 | 1–7, 9–12 | Done on the new card |
 | 8. Printer (CUPS) and scanner | Printer done 2026-10-16: fixed driverless queue `HP_Smart_Tank` over `ipp-usb`. Scanner done 2026-10-20: sane-airscan over `ipp-usb`. Printer swapped to a Smart Tank 660-670 on 2026-10-20; both now use the model-independent `localhost:60000` addresses |
 | 13. QR reader | **In progress**: reads over serial and `QR_READER_PORT` set, 2026-10-20. udev rule, settings barcodes and the issue #38 checks not done |
-| 14. Start at boot (systemd) | **Not done yet**: the app is still started by hand with `make run` |
+| 14. Start at boot (systemd) | **Not done yet** (checked 2026-11-10): nothing starts the app at boot; it's started by hand with `make run` from a terminal on the desktop |
 | 15. Tailscale | **Not done yet**: planned in ADR-0005, not set up |
 | 16–17. Checks and backup image | Baseline image taken 2026-10-15, before steps 8 and 13–15 |
 
@@ -311,12 +311,26 @@ in Kiosk Admin without a restart.
 
 ## 14. Start at boot (systemd) — not done yet
 
-In production the app starts at boot and restarts if it crashes. Until then, start it by hand
-with `make run`.
+In production the app starts at boot and restarts if it crashes.
 
-**Never run `make run` while the service is running.** Two copies fight over port 8000, the QR
-reader's serial port, the GPIO pins (coin acceptor and hoppers) and the database. Stop the
-service first:
+**What the deployed kiosk actually does (checked 2026-11-10):** nothing starts the app at boot.
+There is no `ssp-kiosk.service`, no `~/.config/labwc/autostart` (only the stock
+`/etc/xdg/labwc/autostart`), no matching XDG autostart entry, no crontab and no system unit
+other than the two `ssp-hotspot-*` ones. Someone opens a terminal on the desktop after each boot
+and runs `make run`. So:
+
+- Nothing restarts it after a crash. pigpiod keeps the coin inhibit pin where the app left it,
+  so a crash on the payment screen leaves the coin acceptor taking coins that nobody credits.
+- `systemctl --user stop ssp-kiosk` below does nothing. Stop the app with Ctrl+C in its
+  terminal, or `pkill -f main_app.py` (SIGTERM, so cleanup runs).
+- journald is volatile on this image, but the app keeps its own log: `SSP/logs/app.log`
+  (timestamped, survives the terminal closing) and `SSP/logs/crash.log` (native crashes).
+  `tail -f SSP/logs/app.log` over SSH instead of `make run | tee`.
+
+**Only one copy runs at a time.** Two copies fight over port 8000, the QR reader's serial port,
+the GPIO pins (coin acceptor and hoppers) and the database, so a second launch refuses to start
+and names the running one: `The kiosk app is already running (pid N, started ..., launched by
+make)` (`managers/instance_lock.py`). Stop the running one first:
 
 ```bash
 systemctl --user stop ssp-kiosk          # then make run; afterwards:
