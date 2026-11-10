@@ -36,9 +36,12 @@ kiosk; the thesis data collection (section 6) is secondary.
   back after `pkill` (new pid, "launched by systemd"), comes up after a reboot.
   **To stop it: `systemctl --user stop ssp-kiosk`** (works over SSH).
 
-Still open: the Nov 6 segfaults; a 21 s stall at the first boot under the service (21:39:37 →
-21:39:58, between two prints in the idle screen's acceptor disable; suspected stdout to the
-journal blocking while journald moved to persistent storage, not confirmed).
+Still open: the Nov 6 segfaults; a 21 s stall at the first start after the reboot (21:39:37 →
+21:39:58, between two prints in the idle screen's acceptor disable, which only sleeps 0.1 s and
+calls `pi.stop()`). Not journald: its flush to persistent storage finished at 21:39:04, before
+the app started. The warm restart after `pkill` (21:36:51) had no gap, so it is first-start-only;
+unconfirmed guess: a background thread's cold-cache import of a large C extension holding the
+GIL. Next reboot, check `SSP/logs/app.log` for the same gap (the awk one-liner in this session).
 
 ## 1. Coins that are accepted but never credited — root cause found, fix pushed
 
