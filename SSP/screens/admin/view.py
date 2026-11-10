@@ -8,13 +8,12 @@ from PyQt5.QtCore import Qt, pyqtSignal
 from PyQt5.QtGui import QDoubleValidator
 
 from config import get_config
+from managers.supply_levels import (
+    COIN_CRIT, COIN_WARN, INK_CRIT, INK_WARN, PAPER_CRIT, PAPER_WARN,
+)
 from ui.theme import COLORS, FONT, GROUPBOX_QSS, INPUT_QSS, RADIUS, severity_color
 from ui.widgets import BackButton, CodeKeypad, Header, PrimaryButton, SecondaryButton, nav_row
 
-# Thresholds mirror screens/admin/model.py's own display logic.
-PAPER_WARN, PAPER_CRIT = 50, 20
-COIN_WARN, COIN_CRIT = 50, 20
-INK_WARN, INK_CRIT = 25.0, 10.0
 
 STEPPER_QSS = f"""
 QPushButton {{

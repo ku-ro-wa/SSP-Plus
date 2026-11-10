@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AIO SPARK Admin Dashboard | {% block title %}{% endblock %}</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: Arial, Helvetica, sans-serif; background: #f4f4f4; color: #1a1a1a; }
+        header { background: #000; color: #fff; padding: 16px 20px; }
+        header h1 { font-size: 22px; font-weight: 400; }
+        .muted-on-dark { color: #aaa; font-size: 16px; }
+        nav { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+        nav a { color: #ccc; text-decoration: none; padding: 6px 14px; border-radius: 8px; border: 1px solid #444; font-size: 14px; }
+        nav a.active { background: #fff; color: #000; border-color: #fff; }
+        main { max-width: 860px; margin: 24px auto; padding: 0 16px; }
+        section { margin-bottom: 28px; }
+        h2 { font-size: 16px; margin-bottom: 10px; }
+        .card { background: #fff; border-radius: 10px; box-shadow: 0 1px 4px rgba(0,0,0,.1); padding: 16px 18px; }
+        .scroll { overflow-x: auto; }
+        table { width: 100%; border-collapse: collapse; background: #fff; border-radius: 10px; overflow: hidden; box-shadow: 0 1px 4px rgba(0,0,0,.1); }
+        th, td { text-align: left; padding: 10px 14px; font-size: 14px; vertical-align: top; }
+        th { background: #eee; font-weight: 600; }
+        tbody tr:not(:last-child) td { border-bottom: 1px solid #eee; }
+        td.numeric, th.numeric { text-align: right; }
+        .warn { color: #8a5a00; font-weight: 600; }
+        .ok { color: #0F8558; font-weight: 600; }
+        .crit, .bad { color: #b3261e; font-weight: 600; }
+        .muted { color: #666; font-size: 13px; }
+        .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 12px; }
+        .big { font-size: 28px; font-weight: 600; margin-top: 4px; }
+        .bar { height: 8px; background: #ddd; border-radius: 4px; margin-top: 8px; overflow: hidden; }
+        .bar > span { display: block; height: 100%; background: #0F8558; }
+        .bar.warn > span { background: #d98e04; }
+        .bar.crit > span { background: #b3261e; }
+        .pager { display: flex; gap: 12px; align-items: center; margin-top: 10px; font-size: 14px; }
+        .pager a { color: #000; }
+        {% block style %}{% endblock %}
+    </style>
+</head>
+<body>
+<header>
+    <h1>{% block heading %}{% endblock %}{% if kiosk_id %} <span class="muted-on-dark">· {{ kiosk_id }}</span>{% endif %}</h1>
+    <nav>
+        <a href="/accounting" class="{{ 'active' if active == 'accounting' }}">Accounting</a>
+        <a href="/kiosk" class="{{ 'active' if active == 'kiosk' }}">Kiosk</a>
+        <a href="/logs" class="{{ 'active' if active == 'logs' }}">Logs</a>
+    </nav>
+</header>
+<main>
+{% block content %}{% endblock %}
+</main>
+{% block scripts %}{% endblock %}
+</body>
+</html>
