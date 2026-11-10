@@ -56,7 +56,7 @@ from managers.print_refund import record_print_success, refund_failed_print
 from screens.voucher.model import VoucherModel
 from managers.persistent_gpio import cleanup_persistent_gpio
 from managers.gpio_check import gpio_problem
-from managers.instance_lock import acquire_instance_lock
+from managers.instance_lock import EXIT_ALREADY_RUNNING, acquire_instance_lock
 from utils.run_log import install_run_log
 from config import get_config
 from ui.scaling import apply_ui_scale, pin_render_environment
@@ -1056,7 +1056,7 @@ def main():
     if instance_lock is None:
         print(f"❌ The kiosk app is already running ({holder}). Not starting a second copy.")
         print("   Stop that one first (kill <pid>), then start again.")
-        sys.exit(1)
+        sys.exit(EXIT_ALREADY_RUNNING)
 
     try:
         print("\n🔄 Initializing database...")

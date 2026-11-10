@@ -16,7 +16,7 @@ import pytest
 pytest.importorskip("fcntl")
 
 import main_app  # noqa: E402
-from managers.instance_lock import acquire_instance_lock  # noqa: E402
+from managers.instance_lock import EXIT_ALREADY_RUNNING, acquire_instance_lock  # noqa: E402
 
 LOCK_MODULE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "SSP", "managers", "instance_lock.py")
 
@@ -83,5 +83,5 @@ def test_main_refuses_a_second_copy_before_touching_anything(monkeypatch, capsys
 
     with pytest.raises(SystemExit) as exc:
         main_app.main()
-    assert exc.value.code == 1
+    assert exc.value.code == EXIT_ALREADY_RUNNING
     assert "already running (pid 4242" in capsys.readouterr().out

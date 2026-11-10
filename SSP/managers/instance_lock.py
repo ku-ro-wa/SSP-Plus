@@ -19,6 +19,11 @@ import time
 
 LOCK_NAME = "ssp-kiosk.lock"
 
+# main()'s exit status when another copy holds the lock. Distinct from 1 (any other
+# startup failure) so ssp-kiosk.service can retry failures but not this
+# (RestartPreventExitStatus): a copy started by hand keeps the panel until it's stopped.
+EXIT_ALREADY_RUNNING = 3
+
 
 def default_lock_path():
     return os.path.join(tempfile.gettempdir(), LOCK_NAME)
