@@ -16,6 +16,23 @@ kiosk; the thesis data collection (section 6) is secondary.
 
 ---
 
+## 0. Verified on the kiosk, 2026-11-10 21:00–21:10 (at 082d522 / 209976e)
+
+- **One copy only:** a second `make run` was refused, naming the running pid.
+- **Clean shutdown:** five Ctrl+C stops, each logged `SIGINT received` … `cleanup completed`
+  in `SSP/logs/app.log`. After 209976e, `pigs r 22` = 0 after exit (it was 1 before).
+- **Payment screen:** five runs scan → ₱5 Digital Copy → payment → ₱1 coin → cancel, each
+  credited and turned into a Voucher. No deaths, so §2's deaths are explained by the
+  terminal/tee crash (fixed); only the Nov 6 segfaults remain unexplained.
+- **Coins:** every coin the acceptor took was credited (3 pulses × 50 ms → `Coin processed: ₱1`).
+  Old-design ₱5 and ₱10 coins are **returned by the acceptor itself** (no pulses reach the Pi);
+  most old ₱1 coins are accepted. That is the acceptor's coin programming, not the app: teaching
+  it the old designs (per its manual) is a hardware task. §1's silent swallowing was most likely
+  coins taken while no app was crediting them (crashed runs, and the exit that left pin 22 on).
+- **Kiosk Admin:** real coin inventory and paper count set (§5 done).
+
+Still open: the Nov 6 segfaults; the start-at-boot service (`KIOSK_PI_SETUP.md` §14).
+
 ## 1. Coins that are accepted but never credited — root cause found, fix pushed
 
 A few coins of the correct denomination were swallowed with **no log line at all**: not
