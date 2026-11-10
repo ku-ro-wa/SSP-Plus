@@ -111,6 +111,13 @@ QPushButton#SecondaryButton:hover {{
 QPushButton#SecondaryButton:pressed {{
     background-color: {COLORS["border"]};
 }}
+QPushButton#SecondaryButton:disabled {{
+    /* Used by the pickup-code keypad during a lockout (#104) and by the
+       steppers at their bounds: a dead key must not look tappable. */
+    background-color: {COLORS["bg_subtle"]};
+    color: {COLORS["text_muted"]};
+    border-color: {COLORS["border"]};
+}}
 """
 
 

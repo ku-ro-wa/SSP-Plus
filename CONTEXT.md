@@ -45,6 +45,15 @@ _Avoid_: PIN, passcode, token (a "token" here is the raw session id, not the OTP
 User-facing name for the OTP in messages and on-screen copy. Same thing as the OTP.
 _Avoid_: collection code, claim code.
 
+**Typed code lockout**:
+The five minutes in which the Wi-Fi and Email screens refuse *typed* pickup codes, after five
+consecutive wrong ones (#104). Both screens share one counter (`settings`:
+`pickup_code_failed_attempts`, `pickup_code_locked_until`), so the deadline follows the kiosk,
+not the screen; a correct code clears it, and **QR reads** ignore it (they lock the individual
+**Session** instead). While it runs the keypad is disabled and counts down.
+_Avoid_: PIN lockout (that is Kiosk Admin's), rate limit (that is the **Portal**'s per-phone
+window on `/redeem`, which has no screen to lock).
+
 **QR payload**:
 The string encoded in a QR image handed to the user. Two kinds: a *Session payload*
 (`session_id:otp`, redeemable the same way a typed OTP is) and a *Voucher payload* (a

@@ -10,6 +10,12 @@ from database.db_manager import DatabaseManager
 from managers.adapters.email_client import SmtpClient
 from managers.adapters.wifi_adapter import WifiAdapter
 from managers.session_manager import SessionManager
+from webapp.rate_limit import ClientAttemptLimiter
+
+# One limiter for the whole process: /redeem's wrong-code counts have to survive
+# between requests, and the kiosk runs a single uvicorn server (no workers), so
+# this dict is the Portal's whole state. See webapp/rate_limit.py.
+_pickup_code_limiter = ClientAttemptLimiter()
 
 
 def get_db():
@@ -49,6 +55,12 @@ def get_session_manager():
         yield SessionManager(db)
     finally:
         db.close()
+
+
+def get_pickup_code_limiter():
+    # Used by webapp/routers/redeem.py to refuse one client's repeated wrong
+    # pickup codes. The same instance every request, unlike get_db().
+    return _pickup_code_limiter
 
 
 def get_smtp_client():
