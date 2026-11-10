@@ -70,9 +70,13 @@ class PersistentGPIO(QObject):
         self.coin_pulse_count = 0
         self.coin_last_pulse_time = 0
         self.coin_pulse_start_tick = None  # pigpio tick of the current low pulse's falling edge
+        self.coin_ignored_pulses = 0       # pulses dropped for being the wrong width
+        self.coin_last_ignored_time = 0
         self.bill_pulse_count = 0
         self.bill_last_pulse_time = 0
         self.bill_pulse_start_tick = None  # pigpio tick of the current low pulse's falling edge
+        self.bill_ignored_pulses = 0       # pulses dropped for being the wrong width
+        self.bill_last_ignored_time = 0
 
         # Callbacks
         self.coin_callback = None
@@ -164,6 +168,10 @@ class PersistentGPIO(QObject):
             width_ms = ((tick - self.coin_pulse_start_tick) & 0xFFFFFFFF) / 1000
             self.coin_pulse_start_tick = None
             if not self.COIN_PULSE_MIN_MS <= width_ms <= self.COIN_PULSE_MAX_MS:
+                # Not credited, but not silent either: a coin whose pulses all land outside
+                # the window would otherwise leave no trace in the log at all.
+                self.coin_ignored_pulses += 1
+                self.coin_last_ignored_time = time.time()
                 return
             self.coin_pulse_count += 1
             self.coin_last_pulse_time = time.time()
@@ -193,6 +201,8 @@ class PersistentGPIO(QObject):
             width_ms = ((tick - self.bill_pulse_start_tick) & 0xFFFFFFFF) / 1000
             self.bill_pulse_start_tick = None
             if not self.BILL_PULSE_MIN_MS <= width_ms <= self.BILL_PULSE_MAX_MS:
+                self.bill_ignored_pulses += 1
+                self.bill_last_ignored_time = time.time()
                 return
             self.bill_pulse_count += 1
             self.bill_last_pulse_time = time.time()
@@ -225,8 +235,10 @@ class PersistentGPIO(QObject):
         with self._state_lock:  # drop any half-counted coin or bill from before
             self.coin_pulse_count = 0
             self.coin_pulse_start_tick = None
+            self.coin_ignored_pulses = 0
             self.bill_pulse_count = 0
             self.bill_pulse_start_tick = None
+            self.bill_ignored_pulses = 0
         self.enabled = True
         self._set_acceptor_state(True)  # Enable bill acceptor
         self._set_coin_acceptor_state(True)  # Enable coin acceptor
@@ -262,6 +274,13 @@ class PersistentGPIO(QObject):
                     print(f"WARNING: Coin ignored: {self.coin_pulse_count} pulses match no coin")
                 self.coin_pulse_count = 0
 
+            # Pulses the width filter dropped: without this a coin whose pulses are all
+            # outside the window is credited nothing and logged nowhere.
+            if self.coin_ignored_pulses and (current_time - self.coin_last_ignored_time > self.COIN_TIMEOUT):
+                print(f"WARNING: Coin ignored: {self.coin_ignored_pulses} pulse(s) outside "
+                      f"{self.COIN_PULSE_MIN_MS:g}-{self.COIN_PULSE_MAX_MS:g}ms, nothing credited")
+                self.coin_ignored_pulses = 0
+
             # Process bill timeout
             if self.bill_pulse_count > 0 and (current_time - self.bill_last_pulse_time > self.BILL_TIMEOUT):
                 bill_value = self._get_bill_value(self.bill_pulse_count)
@@ -271,6 +290,11 @@ class PersistentGPIO(QObject):
                 else:
                     print(f"WARNING: Bill ignored: {self.bill_pulse_count} pulses match no bill")
                 self.bill_pulse_count = 0
+
+            if self.bill_ignored_pulses and (current_time - self.bill_last_ignored_time > self.BILL_TIMEOUT):
+                print(f"WARNING: Bill ignored: {self.bill_ignored_pulses} pulse(s) outside "
+                      f"{self.BILL_PULSE_MIN_MS:g}-{self.BILL_PULSE_MAX_MS:g}ms, nothing credited")
+                self.bill_ignored_pulses = 0
 
     def _get_coin_value(self, pulse_count):
         """Get coin value based on pulse count, as this kiosk's acceptor is programmed
