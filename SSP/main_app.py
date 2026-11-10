@@ -1055,7 +1055,11 @@ def main():
     instance_lock, holder = acquire_instance_lock()
     if instance_lock is None:
         print(f"❌ The kiosk app is already running ({holder}). Not starting a second copy.")
-        print("   Stop that one first (kill <pid>), then start again.")
+        if "launched by systemd" in holder:
+            print("   It's the ssp-kiosk service. Stop it with: systemctl --user stop ssp-kiosk")
+            print("   (works over SSH; it stays stopped until systemctl --user start ssp-kiosk or a reboot)")
+        else:
+            print("   Stop that one first (kill <pid>), then start again.")
         sys.exit(EXIT_ALREADY_RUNNING)
 
     try:

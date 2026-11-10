@@ -84,4 +84,16 @@ def test_main_refuses_a_second_copy_before_touching_anything(monkeypatch, capsys
     with pytest.raises(SystemExit) as exc:
         main_app.main()
     assert exc.value.code == EXIT_ALREADY_RUNNING
-    assert "already running (pid 4242" in capsys.readouterr().out
+    out = capsys.readouterr().out
+    assert "already running (pid 4242" in out
+    assert "kill <pid>" in out
+
+
+def test_refusal_names_the_service_command_when_the_service_holds_it(monkeypatch, capsys):
+    monkeypatch.setattr(main_app, 'install_run_log', lambda log_dir: "(test)")
+    monkeypatch.setattr(main_app, 'acquire_instance_lock',
+                        lambda: (None, "pid 2836, started 2026-11-10 21:35:38, launched by systemd"))
+
+    with pytest.raises(SystemExit):
+        main_app.main()
+    assert "systemctl --user stop ssp-kiosk" in capsys.readouterr().out

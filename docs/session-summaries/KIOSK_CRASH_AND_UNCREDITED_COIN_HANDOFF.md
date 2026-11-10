@@ -31,7 +31,14 @@ kiosk; the thesis data collection (section 6) is secondary.
   coins taken while no app was crediting them (crashed runs, and the exit that left pin 22 on).
 - **Kiosk Admin:** real coin inventory and paper count set (§5 done).
 
-Still open: the Nov 6 segfaults; the start-at-boot service (`KIOSK_PI_SETUP.md` §14).
+- **Start at boot (21:35, c24dc37):** `scripts/install_kiosk_service.sh` installed the
+  `ssp-kiosk` user service, started from `~/.config/labwc/autostart`. Checked: starts, comes
+  back after `pkill` (new pid, "launched by systemd"), comes up after a reboot.
+  **To stop it: `systemctl --user stop ssp-kiosk`** (works over SSH).
+
+Still open: the Nov 6 segfaults; a 21 s stall at the first boot under the service (21:39:37 →
+21:39:58, between two prints in the idle screen's acceptor disable; suspected stdout to the
+journal blocking while journald moved to persistent storage, not confirmed).
 
 ## 1. Coins that are accepted but never credited — root cause found, fix pushed
 
