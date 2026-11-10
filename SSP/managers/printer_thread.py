@@ -157,7 +157,10 @@ class PrinterThread(QThread):
             if invalid_pages:
                 raise ValueError(f"Invalid page numbers: {invalid_pages}")
 
-            pages_0_indexed = [p - 1 for p in self.selected_pages]
+            # Last page first: the HP Smart Tank puts each sheet face up on top of the
+            # last, so sending the pages in reading order leaves the stack reversed
+            # (issue #118). Keep the ascending sort above; the reversal lives here only.
+            pages_0_indexed = [p - 1 for p in reversed(self.selected_pages)]
             temp_doc = fitz.open()
 
             for page_num in pages_0_indexed:
@@ -292,6 +295,8 @@ class PrinterThread(QThread):
             "-d", self.printer_name,
             "-o", f"print-color-mode={mode_str}",
             "-o", "job-sheets=none",
+            # Whole sets (1,2,3,1,2,3) rather than the printer's default per-page order
+            "-o", "collate=true",
             "-n", str(self.copies),
             self.temp_pdf_path,
         ]
