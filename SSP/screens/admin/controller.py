@@ -52,6 +52,7 @@ class AdminController(QWidget):
         self.view.coin_5_increased.connect(self.model.increase_coin_5_count)
         self.view.reset_coins_clicked.connect(self.model.reset_coin_counts)
         self.view.empty_coins_clicked.connect(self.model.empty_coin_counts)
+        self.view.collect_cash_clicked.connect(self._collect_cash)
         self.view.update_cmyk_clicked.connect(self.model.update_cmyk_levels)
         self.view.reset_cmyk_clicked.connect(self.model.reset_cmyk_levels)
         self.view.refresh_cmyk_clicked.connect(self.model.refresh_cmyk_levels)
@@ -62,6 +63,12 @@ class AdminController(QWidget):
         self.model.coin_count_changed.connect(self.view.update_coin_count_display)
         self.model.cmyk_levels_changed.connect(self.view.update_cmyk_display)
         self.model.show_message.connect(self.view.show_message_box)
+
+    def _collect_cash(self):
+        """Confirm, then record the collection and zero the counts. Cancel changes nothing."""
+        preview = self.model.get_collection_preview()
+        if self.view.confirm_collect_cash(preview['items'], preview['total']):
+            self.model.collect_cash()
 
     def _connect_to_database_thread_manager(self):
         """Connect to database thread manager for real-time updates."""

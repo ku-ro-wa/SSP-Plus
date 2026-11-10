@@ -225,6 +225,22 @@ class AdminModel(QObject):
         self.load_coin_counts()
         print("Coin counts emptied: ₱1=0, ₱5=0")
 
+    def get_collection_preview(self):
+        """Every denomination's count and the total a collection would record now."""
+        return self.db_manager.get_collection_preview()
+
+    def collect_cash(self):
+        """Record the current counts as a cash collection and zero them (issue #110).
+        Returns True when it was recorded. Coins stay at 0, so the kiosk gives no
+        change until the operator enters the hopper counts after refilling."""
+        collection_id = self.db_manager.record_cash_collection()
+        if collection_id is None:
+            self.show_message.emit("Database Error", "Could not record the cash collection. Nothing was changed.")
+            return False
+        self.load_coin_counts()
+        print(f"Cash collection #{collection_id} recorded; all counts set to 0")
+        return True
+
     def increase_coin_1_count(self):
         """Increases the ₱1 coin count by 1."""
         try:

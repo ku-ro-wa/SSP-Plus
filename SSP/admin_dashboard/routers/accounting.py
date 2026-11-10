@@ -58,6 +58,28 @@ def _voucher_figures(db, since):
     }
 
 
+def _collection_figures(db):
+    """The Collected table's data (issue #110): collections newest first, and
+    completed revenue since the last one (all time if there has been none).
+    Collected coins are the operator's physical count, not takings."""
+    last = db.get_last_collection_time()
+    since_last = sum(r["revenue"] for r in db.get_accounting_summary(since=last))
+    return {
+        "collections": db.get_cash_collections(),
+        "last_collected_at": last,
+        "revenue_since_last": since_last,
+    }
+
+
+@router.get("/accounting/collections")
+def accounting_collections(
+    current_user: dict = Depends(get_current_user),
+    db=Depends(get_db),
+):
+    """Read-only for either role; recording a collection happens only on the kiosk."""
+    return _collection_figures(db)
+
+
 @router.get("/accounting/data")
 def accounting_data(
     time_range: RangeKey = Query("today", alias="range"),
@@ -92,6 +114,7 @@ def accounting_page(
             # pre-serialized string instead.
             "sources_json": json.dumps(sources),
             "vouchers": _voucher_figures(db, since),
+            "cash": _collection_figures(db),
         },
     )
 

@@ -45,6 +45,7 @@ class AdminScreenView(QWidget):
     update_coin_5_clicked = pyqtSignal(str)
     reset_coins_clicked = pyqtSignal()
     empty_coins_clicked = pyqtSignal()  # SIM_MODE only
+    collect_cash_clicked = pyqtSignal()
     update_cmyk_clicked = pyqtSignal(float, float, float, float)
     reset_cmyk_clicked = pyqtSignal()
     refresh_cmyk_clicked = pyqtSignal()
@@ -180,6 +181,11 @@ class AdminScreenView(QWidget):
         reset_coins_btn.setMinimumHeight(44)
         reset_coins_btn.clicked.connect(self.reset_coins_clicked.emit)
         p5_row.addWidget(reset_coins_btn)
+        # Same row as Refill All: the screen has no height to spare (issue #110).
+        collect_cash_btn = SecondaryButton("Collect cash")
+        collect_cash_btn.setMinimumHeight(44)
+        collect_cash_btn.clicked.connect(self.collect_cash_clicked.emit)
+        p5_row.addWidget(collect_cash_btn)
         # SIM_MODE only: empty hoppers make any change a Shortfall, so a sim
         # payment shows the Voucher screen. Hidden on the kiosk, where a stray
         # tap would turn every customer's change into a Voucher.
@@ -364,6 +370,30 @@ class AdminScreenView(QWidget):
             self.update_cmyk_clicked.emit(cyan, magenta, yellow, black)
         except ValueError:
             self.show_message_box("Invalid Input", "Please enter valid decimal numbers for CMYK levels")
+
+    def confirm_collect_cash(self, items, total) -> bool:
+        """The collection confirmation: every denomination with its count, the
+        total, and what zeroing means. True only if the operator confirms."""
+        lines = [
+            f"₱{i['denomination']:g} {'bills' if i['type'] == 'bill' else 'coins'}: {i['count']}"
+            for i in items
+        ]
+        text = (
+            "Record these counts and set every count to 0?\n\n"
+            + "\n".join(lines)
+            + f"\n\nTotal: ₱{total:,.2f}\n\n"
+            "Coin counts are what is in the machine now, including the hoppers' stock. "
+            "With the coins at 0 the kiosk gives no change until you enter the hopper "
+            "counts after refilling."
+        )
+        box = QMessageBox(self)
+        box.setIcon(QMessageBox.Question)
+        box.setWindowTitle("Collect cash")
+        box.setText(text)
+        box.setStandardButtons(QMessageBox.Yes | QMessageBox.Cancel)
+        box.setDefaultButton(QMessageBox.Cancel)
+        box.button(QMessageBox.Yes).setText("Collect")
+        return box.exec_() == QMessageBox.Yes
 
     def show_message_box(self, title: str, text: str):
         QMessageBox.warning(self, title, text)
