@@ -13,7 +13,7 @@ was written while rebuilding on a new card, so the next rebuild needs only the r
 | 1–7, 9–12 | Done on the new card |
 | 8. Printer (CUPS) and scanner | Printer done 2026-10-16: fixed driverless queue `HP_Smart_Tank` over `ipp-usb`. Scanner done 2026-10-20: sane-airscan over `ipp-usb`. Printer swapped to a Smart Tank 660-670 on 2026-10-20; both now use the model-independent `localhost:60000` addresses |
 | 13. QR reader | **In progress**: reads over serial and `QR_READER_PORT` set, 2026-10-20. udev rule, settings barcodes and the issue #38 checks not done |
-| 14. Start at boot (systemd) | **Not done yet**: the app is still started by hand with `make run` |
+| 14. Start at boot (systemd) | Kiosk app done 2026-11-10 (`scripts/install_kiosk_service.sh`; start, restart after a kill and reboot checked). Admin Dashboard service not done |
 | 15. Tailscale | **Not done yet**: planned in ADR-0005, not set up |
 | 16–17. Checks and backup image | Baseline image taken 2026-10-15, before steps 8 and 13–15 |
 
@@ -309,63 +309,65 @@ Still to do: follow `SETUP.md` → "QR reader (kiosk)": udev rule (vendor/produc
 Wi-Fi and email Session QRs open the right flow, and unplugging and replugging the reader shows
 in Kiosk Admin without a restart.
 
-## 14. Start at boot (systemd) — not done yet
+## 14. Start at boot (systemd)
 
-In production the app starts at boot and restarts if it crashes. Until then, start it by hand
-with `make run`.
+The app starts when the desktop logs in (Desktop Autologin, step 9) and comes back 5 s after it
+crashes, is killed or its window is closed. Before 2026-11-10 nothing did this: the app was
+started by hand with `make run` in a desktop terminal, so a crash left the kiosk dead (and,
+before 209976e, the coin acceptor taking coins nobody credited).
 
-**Never run `make run` while the service is running.** Two copies fight over port 8000, the QR
-reader's serial port, the GPIO pins (coin acceptor and hoppers) and the database. Stop the
-service first:
+### Kiosk app (user service) — done 2026-11-10
+
+It needs the desktop session, so it's a user service that the desktop starts. With the app
+stopped (Ctrl+C in its terminal):
+
+```bash
+cd ~/SSP-Plus && scripts/install_kiosk_service.sh
+```
+
+It checks labwc is running, writes `~/.config/systemd/user/ssp-kiosk.service`, creates
+`~/.config/labwc/autostart` from `/etc/xdg/labwc/autostart` if it's missing (a user autostart
+replaces the system one, so without the copy the taskbar disappears), adds one line to it that
+starts the service, and starts the service. Safe to re-run; `--uninstall` undoes it.
+
+What the unit does (see the script for the file):
+
+- `DISPLAY=:0`: the app draws through Xwayland on the panel.
+- `Restart=always`, `RestartSec=5`: also covers pigpiod or Xwayland not being up yet at login.
+- `RestartPreventExitStatus=3`: exit 3 means another copy holds the lock
+  (`managers/instance_lock.py`), so the service leaves a copy started by hand alone.
+- `TimeoutStopSec=30`: a stop sends SIGTERM, which runs `cleanup()` (acceptors off, hoppers
+  stopped).
+
+Test:
+
+1. The app is on the panel. `cat /tmp/ssp-kiosk.lock` shows its pid.
+2. `pkill -f SSP/main_app.py`: back within about 10 s, with a new pid in the lock file.
+3. `sudo reboot`: it comes up on its own after login.
+
+Logs: `tail -f ~/SSP-Plus/SSP/logs/app.log` (timestamped; native crashes in
+`SSP/logs/crash.log`), or `journalctl --user -u ssp-kiosk -f`.
+
+> **To stop the app:** `systemctl --user stop ssp-kiosk`. It works over SSH, cleans up
+> (acceptors off) and keeps the app stopped until `systemctl --user start ssp-kiosk` or a
+> reboot. `make run` while the service holds the panel is refused with this same command.
+
+**Only one copy runs at a time.** Two copies fight over port 8000, the QR reader's serial port,
+the GPIO pins (coin acceptor and hoppers) and the database, so a second launch refuses to start
+and names the running one: `The kiosk app is already running (pid N, started ..., launched by
+systemd)`. To run it by hand (`make run`, e.g. to watch its output), stop the service first:
 
 ```bash
 systemctl --user stop ssp-kiosk          # then make run; afterwards:
 systemctl --user start ssp-kiosk
 ```
 
-`Restart=always` restarts the app only when it crashes or is killed. After `systemctl stop` it
-stays stopped until it's started again or the Pi reboots. The same applies to
-`make run-admin-dashboard` and the dashboard service (port 8100).
+After `systemctl stop` the app stays stopped until it's started again or the Pi reboots;
+`Restart=always` only applies to crashes, kills and a closed window. Alt+F4 on the panel
+therefore brings the app straight back; use `systemctl --user stop ssp-kiosk` to reach the
+desktop. The same applies to `make run-admin-dashboard` and the dashboard service (port 8100).
 
-### Kiosk GUI (user service)
-
-It needs the desktop session, so it's a user service started by the desktop.
-
-1. Check the desktop runs labwc (the trixie default): `pgrep -a labwc` prints a line. If it
-   doesn't, step 4 doesn't apply.
-2. Create `~/.config/systemd/user/ssp-kiosk.service`:
-
-   ```ini
-   [Unit]
-   Description=SSP kiosk GUI
-
-   [Service]
-   WorkingDirectory=%h/SSP-Plus
-   ExecStart=%h/SSP-Plus/.venv/bin/python -X utf8 SSP/main_app.py
-   Restart=always
-   RestartSec=5
-   ```
-
-3. `systemctl --user daemon-reload`
-4. Have the desktop start it. A user `autostart` file replaces the system one, so copy that
-   first or the taskbar disappears:
-
-   ```bash
-   mkdir -p ~/.config/labwc
-   [ -f ~/.config/labwc/autostart ] || cp /etc/xdg/labwc/autostart ~/.config/labwc/autostart
-   ```
-
-   Add as the last line of `~/.config/labwc/autostart`:
-
-   ```bash
-   systemctl --user import-environment WAYLAND_DISPLAY DISPLAY && systemctl --user start ssp-kiosk.service
-   ```
-
-   The first command passes the display to systemd; without it the GUI has nowhere to draw.
-5. Test: reboot, and the app should open on its own. `pkill -f main_app.py` should bring it back
-   within about 5 s. Logs: `journalctl --user -u ssp-kiosk -f`.
-
-### Admin Dashboard (system service)
+### Admin Dashboard (system service) — not done yet
 
 ADR-0005 runs it as its own service, independent of the kiosk GUI. Create
 `/etc/systemd/system/ssp-admin-dashboard.service` (replace each `<user>`):
@@ -395,7 +397,7 @@ journalctl -u ssp-admin-dashboard -f
 ### Undo
 
 ```bash
-systemctl --user stop ssp-kiosk     # and delete the line added to ~/.config/labwc/autostart
+scripts/install_kiosk_service.sh --uninstall
 sudo systemctl disable --now ssp-admin-dashboard
 ```
 

@@ -37,6 +37,7 @@ def pulse(gpio, start_ms, width_ms):
 def finish_coin(gpio):
     """Let the coin timeout pass and run the timer's check."""
     gpio.coin_last_pulse_time -= gpio.COIN_TIMEOUT + 1
+    gpio.coin_last_ignored_time -= gpio.COIN_TIMEOUT + 1
     gpio.process_coin_timeout()
 
 
@@ -99,6 +100,38 @@ def test_unmatched_pulse_count_is_logged_not_credited(make_gpio, capsys, pulses)
     finish_coin(gpio)
     assert gpio.coins == []
     assert f"{pulses} pulses match no coin" in capsys.readouterr().out
+
+
+def test_coin_whose_pulses_are_all_outside_the_window_is_logged(make_gpio, capsys):
+    """A coin the width filter eats entirely credits nothing; it used to leave no log line,
+    which is indistinguishable from the acceptor never having accepted the coin."""
+    gpio = make_gpio(COIN_PULSE_FILTER='true', COIN_PULSE_MIN_MS=10, COIN_PULSE_MAX_MS=150)
+    pulse(gpio, 0, 4)     # too short, wear or a bad contact
+    pulse(gpio, 60, 300)  # too long
+    finish_coin(gpio)
+    assert gpio.coins == []
+    assert "Coin ignored: 2 pulse(s) outside 10-150ms, nothing credited" in capsys.readouterr().out
+
+
+def test_partly_dropped_coin_logs_both_the_count_and_the_dropped_pulses(make_gpio, capsys):
+    gpio = make_gpio(COIN_PULSE_FILTER='true', COIN_PULSE_MIN_MS=10, COIN_PULSE_MAX_MS=150)
+    pulse(gpio, 0, 16)    # counted, as a good ₱1 pulse
+    pulse(gpio, 60, 16)
+    pulse(gpio, 120, 400)  # dropped: the ₱1's third pulse never arrives
+    finish_coin(gpio)
+    assert gpio.coins == []
+    out = capsys.readouterr().out
+    assert "Coin ignored: 2 pulses match no coin" in out
+    assert "Coin ignored: 1 pulse(s) outside 10-150ms" in out
+
+
+def test_ignored_pulse_count_resets_on_enable_payment(make_gpio):
+    gpio = make_gpio(COIN_PULSE_FILTER='true')
+    pulse(gpio, 0, 400)
+    gpio.disable_payment()
+    gpio.enable_payment()
+    assert gpio.coin_ignored_pulses == 0
+    assert gpio.bill_ignored_pulses == 0
 
 
 def test_pulses_ignored_while_payment_disabled(make_gpio):
