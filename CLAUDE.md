@@ -96,6 +96,30 @@ The coin line is noisy (sub-millisecond spikes even with no coin). With `COIN_PU
 
 The hopper sensor lines pick up motor noise too, so `HopperController` sets a 5 ms glitch filter and counts a coin as one low pulse 20–300 ms wide (43–183 ms measured). A coin the sensor doesn't see within `DISPENSING_TIMEOUT` (1.5 s, the hoppers pay ~5 coins/s) stops that hopper with no retry, so an empty or jammed hopper, or a sensor that never registers coins, lets out a few coins at most and the rest of the change becomes a Voucher (`tests/test_hopper_controller.py`). From auto-complete until the change is out, the payment screen ignores Back and defers its timeout (`PaymentModel.is_busy()`), since leaving stops the hoppers. pigpiod keeps a motor's enable pin low after the app exits, so `main_app` stops both motors (`stop_all_hopper_motors()`) at startup and first thing in `cleanup()`, after ending any payout. A credited coin or bill restarts the payment screen's 60 s timeout.
 
+### Sessions (Wi-Fi, email, scanner intake)
+
+`managers/session_manager.py` ties one batch of already-validated, on-disk files to a 6-digit
+OTP and a QR payload (`session_id:otp`). The adapters under `managers/adapters/`
+(`wifi_adapter.py`, `email_adapter.py`, `scan_adapter.py`) validate the file and call
+`create_session()`; the kiosk's `open_session_files()` path (typed OTP or a Session QR read)
+copies the files into a private working directory for the print flow.
+
+The pickup window is **12 hours** (`DEFAULT_EXPIRY_MINUTES = 720` in `session_manager.py`),
+overridden by the `session_expiry_minutes` setting when one is set. Inside the window a
+Session is reusable without limit — no use counter, and no per-use expiry: `verify_otp()`
+answers a Session already `verified` while it still exists, so the same code opens its files
+as many times as the customer likes.
+
+`main_app._setup_session_cleanup()` sweeps past-expiry Sessions — their files, any session
+folder, and the DB row — once at startup and then every 5 minutes on a `QTimer`
+(`_session_cleanup_timer`, stopped in `cleanup()` next to the heartbeat timer; main-thread
+writes, so no `db_threader` hop), printing the count only when it is above zero. Only rows
+whose `expires_at` has already passed are taken, so a Session issued moments ago is safe and
+a second pass straight after the first finds nothing; a Portal download that happens to span
+its Session's expiry can still fail mid-flow with "Session expired", which is accepted rather
+than worked around. `tests/test_session_manager.py` covers the cleanup itself, the 12-hour
+default and the setting override; `tests/test_session_cleanup_schedule.py` covers the timer.
+
 ### Database
 
 SQLite at `SSP/database/ssp_database.db` (path is derived from `models.py`'s own location, so it's stable regardless of CWD — unlike `.env`). Schema is created by `database/models.py:init_db()`, called once at startup from `main()`. Tables: `transactions` (has a `source` column, see Admin Dashboard below), `cash_inventory`,

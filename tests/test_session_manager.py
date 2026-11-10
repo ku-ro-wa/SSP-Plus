@@ -7,7 +7,25 @@ any laptop with no SQLite file or IMAP/AP setup.
 import json
 from datetime import datetime, timedelta
 
-from managers.session_manager import SessionManager, MAX_FAILED_ATTEMPTS
+import managers.session_manager as session_manager_module
+from managers.session_manager import (
+    DEFAULT_EXPIRY_MINUTES, MAX_FAILED_ATTEMPTS, SessionManager,
+)
+
+
+class _FrozenDatetime(datetime):
+    """datetime with a settable now(), so a test can sit on either side of the
+    12-hour pickup window without sleeping."""
+    frozen_now = None
+
+    @classmethod
+    def now(cls, tz=None):
+        return cls.frozen_now
+
+
+def _freeze_at(monkeypatch, when):
+    _FrozenDatetime.frozen_now = when
+    monkeypatch.setattr(session_manager_module, 'datetime', _FrozenDatetime)
 
 
 class FakeDBManager:
@@ -106,8 +124,9 @@ class TestCreateSession:
         assert session.qr_bytes.startswith(b'\x89PNG')
 
     def test_expiry_uses_default_when_unset(self):
+        assert DEFAULT_EXPIRY_MINUTES == 720  # the 12-hour pickup window (issue #108)
         sm = SessionManager(FakeDBManager())
-        before = datetime.now() + timedelta(minutes=15)
+        before = datetime.now() + timedelta(hours=12)
         session = sm.create_session('wifi', _files())
         assert abs((session.expires_at - before).total_seconds()) < 5
 
@@ -308,3 +327,82 @@ class TestCleanupExpiredSessions:
 
         assert cleaned == 0
         assert session.session_id in db.sessions
+
+    def test_leaves_a_verified_but_unexpired_session_alone(self):
+        db = FakeDBManager()
+        sm = SessionManager(db)
+        session = sm.create_session('wifi', _files())
+        sm.verify_otp(session.session_id, session.otp)
+        assert db.sessions[session.session_id]['status'] == 'verified'
+
+        cleaned = sm.cleanup_expired_sessions()
+
+        assert cleaned == 0
+        assert session.session_id in db.sessions
+
+    def test_removes_a_session_directory_and_everything_in_it(self, tmp_path):
+        """A session's entry can be a directory rather than one file."""
+        db = FakeDBManager()
+        sm = SessionManager(db)
+        upload_dir = tmp_path / "session_dir"
+        upload_dir.mkdir()
+        (upload_dir / "page1.pdf").write_bytes(b"%PDF-1.4 a")
+        (upload_dir / "nested").mkdir()
+        (upload_dir / "nested" / "page2.pdf").write_bytes(b"%PDF-1.4 b")
+
+        session = sm.create_session('wifi', _files(path=str(upload_dir)))
+        db.sessions[session.session_id]['expires_at'] = datetime.now() - timedelta(minutes=1)
+
+        cleaned = sm.cleanup_expired_sessions()
+
+        assert cleaned == 1
+        assert session.session_id not in db.sessions
+        assert not upload_dir.exists()
+
+    def test_running_twice_is_safe(self, tmp_path):
+        db = FakeDBManager()
+        sm = SessionManager(db)
+        f = tmp_path / "upload.pdf"
+        f.write_bytes(b"%PDF-1.4 fake")
+        session = sm.create_session('wifi', _files(path=str(f)))
+        db.sessions[session.session_id]['expires_at'] = datetime.now() - timedelta(minutes=1)
+
+        assert sm.cleanup_expired_sessions() == 1
+        assert sm.cleanup_expired_sessions() == 0  # row and file are already gone
+        assert not f.exists()
+
+    def test_keeps_a_session_that_has_not_reached_its_12_hours(self, tmp_path, monkeypatch):
+        db = FakeDBManager()
+        sm = SessionManager(db)
+        f = tmp_path / "upload.pdf"
+        f.write_bytes(b"%PDF-1.4 fake")
+        created = datetime(2026, 11, 10, 9, 0, 0)
+        _freeze_at(monkeypatch, created)
+        session = sm.create_session('wifi', _files(path=str(f)))
+
+        _freeze_at(monkeypatch, created + timedelta(hours=11, minutes=59))
+        assert sm.cleanup_expired_sessions() == 0
+        assert session.session_id in db.sessions
+        assert f.exists()
+
+        _freeze_at(monkeypatch, created + timedelta(hours=12, minutes=1))
+        assert sm.cleanup_expired_sessions() == 1
+        assert session.session_id not in db.sessions
+        assert not f.exists()
+
+    def test_an_unreadable_row_does_not_stop_the_rest(self, tmp_path):
+        db = FakeDBManager()
+        sm = SessionManager(db)
+        f = tmp_path / "upload.pdf"
+        f.write_bytes(b"%PDF-1.4 fake")
+        bad = sm.create_session('wifi', _files(path=str(tmp_path / "gone.pdf")))
+        good = sm.create_session('wifi', _files(path=str(f)))
+        db.sessions[bad.session_id]['files'] = "not json"
+        for session in (bad, good):
+            db.sessions[session.session_id]['expires_at'] = datetime.now() - timedelta(minutes=1)
+
+        cleaned = sm.cleanup_expired_sessions()
+
+        assert cleaned == 2
+        assert not db.sessions
+        assert not f.exists()
