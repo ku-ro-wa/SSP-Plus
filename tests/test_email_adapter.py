@@ -4,6 +4,8 @@ otherwise) required. ImapClient/SmtpClient are replaced with in-memory fakes,
 and SessionManager is wired to the same FakeDBManager used elsewhere, so
 these exercise the full poll -> validate -> session -> reply path offline.
 """
+import json
+import os
 from email.message import EmailMessage
 
 from managers.adapters.email_adapter import EmailAdapter
@@ -14,7 +16,8 @@ PDF_BYTES = b"%PDF-1.4 fake pdf content"
 SUBJECT_KEYWORD = "DEMO_TRIGGER"
 
 
-def _make_raw_email(subject, pdf_bytes=None, sender="alice@example.com", message_id="<abc@test>"):
+def _make_raw_email(subject, pdf_bytes=None, sender="alice@example.com", message_id="<abc@test>",
+                    extra_pdfs=()):
     msg = EmailMessage()
     msg["Subject"] = subject
     msg["From"] = sender
@@ -23,6 +26,8 @@ def _make_raw_email(subject, pdf_bytes=None, sender="alice@example.com", message
     msg.set_content("body text")
     if pdf_bytes is not None:
         msg.add_attachment(pdf_bytes, maintype="application", subtype="pdf", filename="doc.pdf")
+    for i, extra in enumerate(extra_pdfs, start=2):
+        msg.add_attachment(extra, maintype="application", subtype="pdf", filename=f"doc{i}.pdf")
     return msg.as_bytes()
 
 
@@ -59,7 +64,8 @@ class FakeSmtpClient:
         self.sent.append(msg)
 
 
-def _make_adapter(tmp_path, imap_messages=None, uidvalidity=1, max_size_bytes=1024 * 1024):
+def _make_adapter(tmp_path, imap_messages=None, uidvalidity=1, max_size_bytes=1024 * 1024,
+                  max_total_bytes=50 * 1024 * 1024):
     db = FakeDBManager()
     session_manager = SessionManager(db)
     imap = FakeImapClient(uidvalidity, imap_messages or {})
@@ -71,6 +77,7 @@ def _make_adapter(tmp_path, imap_messages=None, uidvalidity=1, max_size_bytes=10
         smtp_client=smtp,
         upload_dir=str(tmp_path / "uploads"),
         max_size_bytes=max_size_bytes,
+        max_total_bytes=max_total_bytes,
         subject_keyword=SUBJECT_KEYWORD,
         from_address="kiosk@example.com",
     )
@@ -128,6 +135,48 @@ class TestHandleMessage:
 
         result = adapter._handle_message(raw)
         assert result.outcome == "rejected_attachment"
+
+    def test_two_pdfs_become_one_session_with_both_files(self, tmp_path):
+        adapter, db, imap, smtp = _make_adapter(tmp_path, imap_messages={
+            1: _make_raw_email(f"{SUBJECT_KEYWORD}: two", PDF_BYTES, extra_pdfs=[PDF_BYTES + b"2"]),
+        })
+
+        assert adapter.poll_inbox() == 1
+        assert len(os.listdir(adapter.upload_dir)) == 2
+        assert len(db.email_log) == 1
+        assert len(db.sessions) == 1
+        files = json.loads(next(iter(db.sessions.values()))["files"])
+        assert [f["original_filename"] for f in files] == ["doc.pdf", "doc2.pdf"]
+
+    def test_one_bad_pdf_rejects_whole_email_and_writes_nothing(self, tmp_path):
+        adapter, db, imap, smtp = _make_adapter(tmp_path)
+        raw = _make_raw_email(f"{SUBJECT_KEYWORD}: mixed", PDF_BYTES, extra_pdfs=[b"not a pdf"])
+
+        assert adapter._handle_message(raw).outcome == "rejected_attachment"
+        assert os.listdir(adapter.upload_dir) == []
+
+    def test_total_over_cap_rejects_whole_email_and_writes_nothing(self, tmp_path):
+        adapter, db, imap, smtp = _make_adapter(tmp_path, max_total_bytes=len(PDF_BYTES) * 2 - 1)
+        raw = _make_raw_email(f"{SUBJECT_KEYWORD}: big", PDF_BYTES, extra_pdfs=[PDF_BYTES])
+
+        assert adapter._handle_message(raw).outcome == "rejected_attachment"
+        assert os.listdir(adapter.upload_dir) == []
+
+    def test_total_exactly_at_cap_is_accepted(self, tmp_path):
+        adapter, db, imap, smtp = _make_adapter(tmp_path, max_total_bytes=len(PDF_BYTES) * 2)
+        raw = _make_raw_email(f"{SUBJECT_KEYWORD}: ok", PDF_BYTES, extra_pdfs=[PDF_BYTES])
+
+        assert adapter._handle_message(raw).outcome == "accepted"
+
+    def test_reply_for_two_pdfs_carries_one_otp_and_one_qr(self, tmp_path):
+        adapter, db, imap, smtp = _make_adapter(tmp_path, imap_messages={
+            1: _make_raw_email(f"{SUBJECT_KEYWORD}: two", PDF_BYTES, extra_pdfs=[PDF_BYTES]),
+        })
+        adapter.poll_inbox()
+
+        reply = smtp.sent[0]
+        assert len(list(reply.iter_attachments())) == 1
+        assert reply.get_body().get_content().count("Your pickup code is:") == 1
 
     def test_error_outcome_on_session_creation_failure(self, tmp_path, monkeypatch):
         adapter, db, imap, smtp = _make_adapter(tmp_path)

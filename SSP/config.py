@@ -706,6 +706,13 @@ class Config:
         except KeyError:
             return 25
 
+    @property
+    def email_max_total_attachment_mb(self) -> int:
+        try:
+            return self.get('EMAIL_MAX_TOTAL_ATTACHMENT_MB', int)
+        except KeyError:
+            return 50
+
     # Scanner module (managers/scanner.py, managers/scanner_manager.py)
 
     @property
