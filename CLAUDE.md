@@ -80,7 +80,7 @@ reader is unplugged or fails to open, `QrReaderManager` goes `unavailable`, retr
 resumes on its own; each loss and recovery writes one `error_log` row (`QR Reader`), and Kiosk Admin
 shows the status (blank port = "Not configured"). See ADR 0004.
 
-`pigpio` requires the `pigpiod` daemon. With `SIM_MODE` off, `main()` refuses to start if either is missing (`managers/gpio_check.py`), so a kiosk can never show customers the payment screen's simulated coin/bill buttons; those buttons appear only when `SIM_MODE=true`. The GPIO managers' own simulated fallbacks remain for SIM_MODE and tests. Pi install steps: "pigpio (kiosk)" in `docs/SETUP.md`.
+`pigpio` requires the `pigpiod` daemon. With `SIM_MODE` off, `main()` refuses to start if either is missing (`managers/gpio_check.py`), so a kiosk can never show customers the payment screen's simulated coin/bill buttons; those buttons appear only when `SIM_MODE=true`. The GPIO managers' own simulated fallbacks remain for SIM_MODE and tests. Pi install steps: "pigpio (kiosk)" in `docs/SETUP.md`. `main()` also refuses to start while another copy holds the single-instance lock (`managers/instance_lock.py`, an flock on `$TMPDIR/ssp-kiosk.lock`), since two copies fight over the GPIO, QR reader, port 8000 and DB; a refused copy exits 3 (`EXIT_ALREADY_RUNNING`), which the kiosk's `ssp-kiosk` user service (`scripts/install_kiosk_service.sh`, `docs/KIOSK_PI_SETUP.md` §14: started from labwc autostart, `Restart=always`) doesn't retry. Everything the app prints also goes to `SSP/logs/app.log`, timestamped (`utils/run_log.py`, rotated to `app.log.1` past 20 MB at startup); a terminal that goes away is dropped with one note instead of crashing the app (a `print` to a dead pipe raised inside Qt, which PyQt5 turns into `abort()`, skipping cleanup). SIGINT, SIGTERM and SIGHUP all close the window so `cleanup()` runs; native crashes still go to `SSP/logs/crash.log`.
 
 **`managers/payment_handler.py` is dead code.** Nothing imports it; `screens/payment/model.py` wires up `managers/persistent_gpio.py`. If you're changing acceptor behavior, edit `persistent_gpio.py`, not `payment_handler.py`.
 
@@ -92,9 +92,49 @@ The `new` model differs in coin input GPIO 17 and swapped hopper sensors (A on 2
 - Hopper A (₱1 coins): coin-out sensor GPIO 9, enable GPIO 24 (active low)
 - Hopper B (₱5 coins): coin-out sensor GPIO 26, enable GPIO 25 (active low)
 
-The coin line is noisy (sub-millisecond spikes even with no coin). With `COIN_PULSE_FILTER=true` (default) `PersistentGPIO` sets a pigpio glitch filter (`COIN_GLITCH_FILTER_US`) and counts only low pulses `COIN_PULSE_MIN_MS`–`COIN_PULSE_MAX_MS` wide; `false` falls back to falling-edge counting with a 0.1 s debounce, for checking the wiring alone. Pulse counts that match no coin are logged (`Coin ignored`) instead of dropped silently (`tests/test_persistent_gpio_coin_filter.py`). The bill line gets the same treatment (`BILL_PULSE_FILTER`, `BILL_GLITCH_FILTER_US`, `BILL_PULSE_MIN_MS`–`BILL_PULSE_MAX_MS`, default 20–150 ms): it carries sub-0.1 ms spikes in and between bills, which used to add pulses (a ₱50 read as 7, a ₱100 as 13, two stray spikes as a ₱20); real bill pulses are ~50 ms. Unmatched counts log `Bill ignored` (`tests/test_persistent_gpio_bill_filter.py`).
+The coin line is noisy (sub-millisecond spikes even with no coin). With `COIN_PULSE_FILTER=true` (default) `PersistentGPIO` sets a pigpio glitch filter (`COIN_GLITCH_FILTER_US`) and counts only low pulses `COIN_PULSE_MIN_MS`–`COIN_PULSE_MAX_MS` wide; `false` falls back to falling-edge counting with a 0.1 s debounce, for checking the wiring alone. Pulse counts that match no coin are logged (`Coin ignored`) instead of dropped silently, and so are pulses the width filter drops — a coin whose pulses are all outside the window credits nothing and would otherwise leave no trace at all (`tests/test_persistent_gpio_coin_filter.py`). The bill line gets the same treatment (`BILL_PULSE_FILTER`, `BILL_GLITCH_FILTER_US`, `BILL_PULSE_MIN_MS`–`BILL_PULSE_MAX_MS`, default 20–150 ms): it carries sub-0.1 ms spikes in and between bills, which used to add pulses (a ₱50 read as 7, a ₱100 as 13, two stray spikes as a ₱20); real bill pulses are ~50 ms. Unmatched counts log `Bill ignored`, and so do width-rejected pulses (`tests/test_persistent_gpio_bill_filter.py`).
 
 The hopper sensor lines pick up motor noise too, so `HopperController` sets a 5 ms glitch filter and counts a coin as one low pulse 20–300 ms wide (43–183 ms measured). A coin the sensor doesn't see within `DISPENSING_TIMEOUT` (1.5 s, the hoppers pay ~5 coins/s) stops that hopper with no retry, so an empty or jammed hopper, or a sensor that never registers coins, lets out a few coins at most and the rest of the change becomes a Voucher (`tests/test_hopper_controller.py`). From auto-complete until the change is out, the payment screen ignores Back and defers its timeout (`PaymentModel.is_busy()`), since leaving stops the hoppers. pigpiod keeps a motor's enable pin low after the app exits, so `main_app` stops both motors (`stop_all_hopper_motors()`) at startup and first thing in `cleanup()`, after ending any payout. A credited coin or bill restarts the payment screen's 60 s timeout.
+
+### Sessions (Wi-Fi, email, scanner intake)
+
+`managers/session_manager.py` ties one batch of already-validated, on-disk files to a 6-digit
+OTP and a QR payload (`session_id:otp`). The adapters under `managers/adapters/`
+(`wifi_adapter.py`, `email_adapter.py`, `scan_adapter.py`) validate the file and call
+`create_session()`; the kiosk's `open_session_files()` path (typed OTP or a Session QR read)
+copies the files into a private working directory for the print flow.
+
+The pickup window is **12 hours** (`DEFAULT_EXPIRY_MINUTES = 720` in `session_manager.py`),
+overridden by the `session_expiry_minutes` setting when one is set. Inside the window a
+Session is reusable without limit — no use counter, and no per-use expiry: `verify_otp()`
+answers a Session already `verified` while it still exists, so the same code opens its files
+as many times as the customer likes.
+
+Typed pickup codes have an attempt limit of their own, one counter shared by the Wi-Fi and
+Email screens (`managers/pickup_code_lockout.py`, `settings` rows
+`pickup_code_failed_attempts`/`pickup_code_locked_until`, 5 misses then 5 minutes, both
+setting-overridable via `pickup_code_max_attempts`/`pickup_code_lockout_minutes`). While it
+runs the keypad, entry field and Send are disabled and the banner counts down, and even the
+right code is refused; a correct code resets it, and the deadline is wall-clock, so leaving
+the screen or restarting doesn't clear it. Only guesses count: `SessionManager.verify_typed_otp()`
+returns an `OtpLookup` whose `matched` says whether the code belonged to any Session (of this
+Source or another), so retyping a real code that is expired, locked out, or typed on the wrong
+upload screen doesn't. QR reads never consult it — they
+keep locking the individual Session. The Portal's `/redeem` has its own per-request-address
+sliding window instead (`webapp/rate_limit.py`: 5 wrong codes in 15 minutes on one address
+→ 429 + `Retry-After`), deliberately not the kiosk's counter in either direction (ADR 0009);
+`tests/test_pickup_code_lockout.py` and `tests/test_redeem_route.py` drive both on a fake
+clock.
+
+`main_app._setup_session_cleanup()` sweeps past-expiry Sessions — their files, any session
+folder, and the DB row — once at startup and then every 5 minutes on a `QTimer`
+(`_session_cleanup_timer`, stopped in `cleanup()` next to the heartbeat timer; main-thread
+writes, so no `db_threader` hop), printing the count only when it is above zero. Only rows
+whose `expires_at` has already passed are taken, so a Session issued moments ago is safe and
+a second pass straight after the first finds nothing; a Portal download that happens to span
+its Session's expiry can still fail mid-flow with "Session expired", which is accepted rather
+than worked around. `tests/test_session_manager.py` covers the cleanup itself, the 12-hour
+default and the setting override; `tests/test_session_cleanup_schedule.py` covers the timer.
 
 ### Database
 

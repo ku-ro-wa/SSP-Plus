@@ -22,11 +22,20 @@ import secrets
 import shutil
 from dataclasses import dataclass
 from datetime import datetime, timedelta
+from typing import Optional
 
 import qrcode
 
+from database.db_manager import ACCOUNTING_SOURCES
+
 MAX_FAILED_ATTEMPTS = 5  # fixed per project_objectives.txt, not operator-configurable
-DEFAULT_EXPIRY_MINUTES = 15  # fallback if the 'session_expiry_minutes' setting is unset
+
+# The pickup window: 12 hours after a Session is created its files and row are
+# deleted (main_app runs cleanup_expired_sessions() every 5 minutes). Inside the
+# window a Session can be redeemed as many times as the customer likes — there is
+# no use counter. Fallback only; the 'session_expiry_minutes' setting wins when
+# it's set (issue #108).
+DEFAULT_EXPIRY_MINUTES = 720
 
 
 @dataclass
@@ -36,6 +45,22 @@ class Session:
     qr_bytes: bytes
     files: list  # [{"path": ..., "original_filename": ...}, ...]
     expires_at: datetime
+
+
+@dataclass
+class OtpLookup:
+    """Outcome of resolving a typed OTP to a Session (see
+    SessionManager.verify_typed_otp). `matched` is what tells a caller's
+    attempt limit (issue #104) a guess apart from a real code that simply
+    couldn't be redeemed here."""
+    success: bool
+    message: str
+    files: Optional[list] = None
+    session_id: Optional[str] = None
+    matched: bool = False  # the code belonged to a real Session
+
+
+NO_MATCH_MESSAGE = "Incorrect or expired code"
 
 
 def _hash_otp(session_id: str, otp: str) -> str:
@@ -120,20 +145,48 @@ class SessionManager:
             return False, "Malformed QR payload", None
         return self.verify_otp(session_id, otp)
 
-    def verify_otp_for_source(self, source: str, otp: str):
+    def verify_typed_otp(self, source: str, otp: str) -> OtpLookup:
         """
-        Resolve a manually-typed OTP to a session without a session_id in
-        hand (the kiosk OTP screens only collect the 6-digit code). Scans
-        pending/locked sessions for `source` and hash-compares — read-only,
-        so looping over unrelated candidates never spuriously locks them
-        out. Only a matching hash falls through to verify_otp(), which
-        performs the actual (mutating) verification. Returns
-        (success, message, files).
+        Resolve a manually-typed OTP to a Session without a session_id in hand
+        (the kiosk OTP screens only collect the 6-digit code). Scans
+        pending/locked Sessions for `source` and hash-compares — read-only, so
+        looping over unrelated candidates never spuriously locks them out. Only
+        a matching hash falls through to verify_otp(), which performs the
+        actual (mutating) verification.
+
+        The returned OtpLookup's `matched` says whether the code belonged to a
+        Session at all, this Source's or another: False means it was a guess,
+        which is what attempt limits (the kiosk's PickupCodeLockout, the Portal's
+        per-client limiter) count. A real code that can't be redeemed here — its
+        Session expired or locked out, or the code typed on the wrong Source's
+        screen — is matched, so retrying it never locks anyone out.
         """
         for row in self.db_manager.get_verifiable_sessions(source):
             if _hash_otp(row['session_id'], otp) == row['otp_hash']:
-                return self.verify_otp(row['session_id'], otp)
-        return False, "Incorrect or expired code", None
+                success, message, files = self.verify_otp(row['session_id'], otp)
+                return OtpLookup(success, message, files, row['session_id'], matched=True)
+        if self._matches_another_source(source, otp):
+            return OtpLookup(False, NO_MATCH_MESSAGE, matched=True)
+        return OtpLookup(False, NO_MATCH_MESSAGE)
+
+    def _matches_another_source(self, source: str, otp: str) -> bool:
+        """Read-only: whether `otp` hashes to a pending/locked Session of a
+        different Source, i.e. a real code typed on the wrong screen. The QR
+        path never counts such an attempt as a failure, and neither do the typed
+        limits, so a customer who picks the wrong upload screen keeps their code."""
+        for other in ACCOUNTING_SOURCES:
+            if other == source:
+                continue
+            for row in self.db_manager.get_verifiable_sessions(other):
+                if _hash_otp(row['session_id'], otp) == row['otp_hash']:
+                    return True
+        return False
+
+    def verify_otp_for_source(self, source: str, otp: str):
+        """verify_typed_otp() as a plain (success, message, files) tuple, for
+        callers with no attempt limit to feed."""
+        result = self.verify_typed_otp(source, otp)
+        return result.success, result.message, result.files
 
     def verify_otp_for_source_with_id(self, source: str, otp: str):
         """
@@ -143,11 +196,8 @@ class SessionManager:
         without asking for the OTP a second time in the same visit. Returns
         (success, message, files, session_id).
         """
-        for row in self.db_manager.get_verifiable_sessions(source):
-            if _hash_otp(row['session_id'], otp) == row['otp_hash']:
-                success, message, files = self.verify_otp(row['session_id'], otp)
-                return success, message, files, row['session_id']
-        return False, "Incorrect or expired code", None, None
+        result = self.verify_typed_otp(source, otp)
+        return result.success, result.message, result.files, result.session_id
 
     def verify_otp(self, session_id: str, otp: str):
         """
@@ -183,15 +233,30 @@ class SessionManager:
 
     def cleanup_expired_sessions(self) -> int:
         """
-        Mark past-expiry sessions as expired, delete their temp files, and
-        remove the DB row. Returns the number of sessions cleaned up.
-        Intended to run on a background schedule (see ink_analysis_threader
-        for the existing QThread pattern this can follow).
+        Delete the files, folders and DB rows of Sessions whose 12-hour pickup
+        window (DEFAULT_EXPIRY_MINUTES, or the `session_expiry_minutes` setting)
+        has passed. Returns the number of Sessions cleaned up.
+
+        Called by the kiosk app on a 5-minute QTimer (main_app, issue #108). Only
+        rows already past `expires_at` are taken, so a Session issued moments ago
+        is never touched, and a second pass straight after the first finds nothing
+        left to do. A session's `files` entries are normally single PDFs, but one
+        can be a directory, which is removed whole.
+
+        A Portal download that happens to span its Session's expiry can fail
+        mid-flow with the existing "Session expired" message. That is accepted,
+        not worked around: the window is a pickup deadline, not a lease.
         """
         expired = self.db_manager.get_expired_sessions(datetime.now())
         cleaned = 0
         for row in expired:
-            for f in json.loads(row['files']):
+            try:
+                files = json.loads(row['files'])
+            except (TypeError, ValueError) as e:
+                # One unreadable row would otherwise fail every pass from now on.
+                print(f"Error reading the files of session '{row['session_id']}': {e}")
+                files = []
+            for f in files:
                 file_path = f['path']
                 try:
                     if os.path.isdir(file_path):

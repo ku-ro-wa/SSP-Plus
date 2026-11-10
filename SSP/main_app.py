@@ -56,6 +56,8 @@ from managers.print_refund import record_print_success, refund_failed_print
 from screens.voucher.model import VoucherModel
 from managers.persistent_gpio import cleanup_persistent_gpio
 from managers.gpio_check import gpio_problem
+from managers.instance_lock import EXIT_ALREADY_RUNNING, acquire_instance_lock
+from utils.run_log import install_run_log
 from config import get_config
 from ui.scaling import apply_ui_scale, pin_render_environment
 from managers.timeout_manager import TimeoutManager
@@ -63,6 +65,11 @@ from ui.activity_filter import ActivityFilter
 from ui.tap_guard import ScreenChangeTapGuard
 from ui.timeout_warning import TimeoutWarning
 from ui.theme import apply_theme, render_summary, COLORS
+
+
+# How often past-expiry intake Sessions are swept (issue #108). The pickup window
+# itself is SessionManager's DEFAULT_EXPIRY_MINUTES (12 hours), not this.
+SESSION_CLEANUP_INTERVAL_MS = 5 * 60 * 1000
 
 
 class _QrReadBridge(QObject):
@@ -192,6 +199,7 @@ class PrintingSystemApp(QMainWindow):
 
         self._setup_qr_reader()
         self._setup_kiosk_status()
+        self._setup_session_cleanup()
 
         # Initialize printer manager (no dependencies)
         self.printer_manager = PrinterManager()
@@ -351,6 +359,34 @@ class PrintingSystemApp(QMainWindow):
             log_error("QR Reader", message, "qr_reader")
         # db_threader is thread-safe (queue-backed), so this reader-thread call is fine.
         self.db_threader.update_setting(SETTING_QR_STATUS, describe_reader_status(self.qr_reader))
+
+    def _setup_session_cleanup(self):
+        """Delete past-expiry intake Sessions (files, folders and rows) once at startup and
+        then every 5 minutes (issue #108). A Session's pickup window is 12 hours
+        (`session_expiry_minutes`), so this is what keeps `sessions` rows and the
+        `wifi_uploads`/`email_uploads` files from piling up forever.
+
+        Main-thread DB writes, like the heartbeat timer next door — no db_threader hop
+        and no extra thread. Only rows already past `expires_at` are taken, so a Session
+        issued seconds ago is safe.
+        """
+        self.session_cleanup_manager = SessionManager(DatabaseManager())
+        self._run_session_cleanup()
+        self._session_cleanup_timer = QTimer(self)
+        self._session_cleanup_timer.timeout.connect(self._run_session_cleanup)
+        self._session_cleanup_timer.start(SESSION_CLEANUP_INTERVAL_MS)
+
+    def _run_session_cleanup(self):
+        """One cleanup pass. Stays quiet when there was nothing to remove, so the console
+        isn't one line every 5 minutes; a failure is reported and never left to crash the
+        kiosk (the next pass will try again)."""
+        try:
+            cleaned = self.session_cleanup_manager.cleanup_expired_sessions()
+        except Exception as e:
+            print(f"⚠️ Session cleanup failed: {e}")
+            return
+        if cleaned:
+            print(f"🧹 Removed {cleaned} expired session(s)")
 
     def _on_qr_reader_config_error(self, detail):
         """Runs on the reader thread, once per port open where a code was NAKed or unanswered."""
@@ -953,6 +989,9 @@ class PrintingSystemApp(QMainWindow):
             if hasattr(self, '_heartbeat_timer'):
                 print("🔄 Stopping heartbeat timer...")
                 self._heartbeat_timer.stop()
+            if hasattr(self, '_session_cleanup_timer'):
+                print("🔄 Stopping session cleanup timer...")
+                self._session_cleanup_timer.stop()
             # Stop database operations first to prevent SQLite thread errors
             if hasattr(self, 'db_threader'):
                 print("🔄 Stopping database threader...")
@@ -1031,15 +1070,34 @@ def main():
     Initializes the database, creates the Qt application, and starts the main event loop.
     Shows the window in fullscreen mode for kiosk deployment.
     """
+    log_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'logs')
+    # All output goes to SSP/logs/app.log too, so the run is kept on the kiosk and
+    # a terminal that goes away (Ctrl+C killing tee, SSH dropping) can't crash the app.
+    try:
+        print(f"📝 Logging to {install_run_log(log_dir)}")
+    except OSError as e:
+        print(f"⚠️ Could not open the run log: {e}")
+
     # A native crash (segfault/abort) leaves no Python traceback; this writes
     # every thread's stack to SSP/logs/crash.log so the next one is diagnosable.
     try:
         import faulthandler
-        log_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'logs')
         os.makedirs(log_dir, exist_ok=True)
         faulthandler.enable(file=open(os.path.join(log_dir, 'crash.log'), 'a'), all_threads=True)
     except OSError as e:
         print(f"⚠️ Could not enable faulthandler: {e}")
+
+    # Held until the process exits; a second copy would fight this one for the
+    # acceptors, hoppers, QR reader, port 8000 and the database.
+    instance_lock, holder = acquire_instance_lock()
+    if instance_lock is None:
+        print(f"❌ The kiosk app is already running ({holder}). Not starting a second copy.")
+        if "launched by systemd" in holder:
+            print("   It's the ssp-kiosk service. Stop it with: systemctl --user stop ssp-kiosk")
+            print("   (works over SSH; it stays stopped until systemctl --user start ssp-kiosk or a reboot)")
+        else:
+            print("   Stop that one first (kill <pid>), then start again.")
+        sys.exit(EXIT_ALREADY_RUNNING)
 
     try:
         print("\n🔄 Initializing database...")
@@ -1073,8 +1131,9 @@ def main():
         window.show()
         print(f"🖌️ {render_summary(app)}")
 
-        # Qt's event loop runs in C++, so Python never sees Ctrl+C (SIGINT) or
-        # a systemd stop (SIGTERM) while it waits. Close the window on either,
+        # Qt's event loop runs in C++, so Python never sees Ctrl+C (SIGINT), a
+        # systemd stop (SIGTERM) or its terminal closing (SIGHUP, which would
+        # otherwise kill it with the acceptors left on) while it waits. Close the window on any,
         # which runs cleanup(), and wake Python every 200 ms so the handler
         # gets a chance to run. A second signal quits without cleanup.
         def _shut_down(signum, frame):
@@ -1087,6 +1146,8 @@ def main():
 
         signal.signal(signal.SIGINT, _shut_down)
         signal.signal(signal.SIGTERM, _shut_down)
+        if hasattr(signal, 'SIGHUP'):  # not on Windows
+            signal.signal(signal.SIGHUP, _shut_down)
         signal_wake = QTimer()
         signal_wake.timeout.connect(lambda: None)
         signal_wake.start(200)

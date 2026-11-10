@@ -67,6 +67,8 @@ def test_library_and_daemon_present_is_fine(monkeypatch):
 
 def _fake_main_deps(monkeypatch, sim_mode, problem):
     logged = []
+    monkeypatch.setattr(main_app, 'acquire_instance_lock', lambda: (object(), None))
+    monkeypatch.setattr(main_app, 'install_run_log', lambda log_dir: "(test)")
     monkeypatch.setattr(main_app, 'init_db', lambda: None)
     monkeypatch.setattr(main_app, 'get_config', lambda: types.SimpleNamespace(sim_mode=sim_mode, ui_scale=""))
     monkeypatch.setattr(main_app, 'gpio_problem', lambda: problem)

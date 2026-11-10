@@ -111,6 +111,7 @@ def test_email_session_records_the_attachment_name(tmp_path):
     adapter = EmailAdapter.__new__(EmailAdapter)
     adapter.subject_keyword = 'print'
     adapter.max_size_bytes = 10 * 1024 * 1024
+    adapter.max_total_bytes = 50 * 1024 * 1024
     adapter.upload_dir = str(tmp_path)
     adapter.session_manager = sessions
 

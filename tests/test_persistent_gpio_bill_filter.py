@@ -46,6 +46,7 @@ def bill(gpio, pulses, spikes_after=()):
 def finish_bill(gpio):
     """Let the bill timeout pass and run the timer's check."""
     gpio.bill_last_pulse_time -= gpio.BILL_TIMEOUT + 1
+    gpio.bill_last_ignored_time -= gpio.BILL_TIMEOUT + 1
     gpio.process_coin_timeout()
 
 
@@ -98,6 +99,15 @@ def test_unmatched_pulse_count_is_logged_not_credited(make_gpio, capsys, pulses)
     finish_bill(gpio)
     assert gpio.bills == []
     assert f"Bill ignored: {pulses} pulses match no bill" in capsys.readouterr().out
+
+
+def test_bill_whose_pulses_are_all_outside_the_window_is_logged(make_gpio, capsys):
+    gpio = make_gpio(BILL_PULSE_FILTER='true', BILL_PULSE_MIN_MS=20, BILL_PULSE_MAX_MS=150)
+    pulse(gpio, 0, 5)     # sub-millisecond-class spike
+    pulse(gpio, 100, 400)  # too long
+    finish_bill(gpio)
+    assert gpio.bills == []
+    assert "Bill ignored: 2 pulse(s) outside 20-150ms, nothing credited" in capsys.readouterr().out
 
 
 def test_pulses_ignored_while_payment_disabled(make_gpio):

@@ -1,13 +1,15 @@
 """
 Integration tests for GET/POST /redeem and its follow-up actions
 (/redeem/download, /redeem/email) — drives the FastAPI routes in-process via
-TestClient. get_session_manager/get_smtp_client are overridden with ones
-wired to the same in-memory FakeDBManager/FakeSmtpClient used elsewhere, so
-no real filesystem session, SQLite DB, or SMTP server is touched.
+TestClient. get_session_manager/get_smtp_client/get_db are overridden with
+ones wired to the same in-memory FakeDBManager/FakeSmtpClient used elsewhere,
+so no real filesystem session, SQLite DB, or SMTP server is touched, and the
+per-client wrong-code limit (#104) is swapped for a fresh one on a fake clock.
 """
 from SSP.webapp.main import app
 from fastapi.testclient import TestClient
-from webapp.dependencies import get_session_manager, get_smtp_client
+from webapp.dependencies import get_db, get_pickup_code_limiter, get_session_manager, get_smtp_client
+from webapp.rate_limit import MAX_ATTEMPTS, WINDOW_SECONDS, ClientAttemptLimiter
 
 from managers.session_manager import SessionManager
 from tests.test_email_adapter import FakeSmtpClient
@@ -188,3 +190,109 @@ class TestRedeemEmail:
             app.dependency_overrides.pop(get_smtp_client, None)
 
         assert response.status_code == 502
+
+
+class Clock:
+    """Monotonic seconds, as webapp.rate_limit's window expects."""
+
+    def __init__(self):
+        self.now = 1000.0
+
+    def __call__(self):
+        return self.now
+
+    def advance(self, seconds):
+        self.now += seconds
+
+
+def _override_limiter(limiter):
+    def _get():
+        return limiter
+    return _get
+
+
+def _override_db(db):
+    def _get():
+        yield db
+    return _get
+
+
+class TestRedeemWrongCodeLimit:
+    """The Portal's pick-up code is 6 digits on an unauthenticated page, so one
+    client's repeated wrong codes have to stop being free (issue #104)."""
+
+    def _post(self, db, limiter, otp, tmp_path):
+        _make_scan_session(tmp_path, db)
+        app.dependency_overrides[get_session_manager] = _override_session_manager(db)
+        app.dependency_overrides[get_pickup_code_limiter] = _override_limiter(limiter)
+        app.dependency_overrides[get_db] = _override_db(db)
+        try:
+            return client.post("/redeem", data={"otp": otp})
+        finally:
+            for dependency in (get_session_manager, get_pickup_code_limiter, get_db):
+                app.dependency_overrides.pop(dependency, None)
+
+    def test_repeated_wrong_codes_get_429(self, tmp_path):
+        db = FakeDBManager()
+        limiter = ClientAttemptLimiter(clock=Clock())
+
+        for _ in range(MAX_ATTEMPTS - 1):
+            assert self._post(db, limiter, "000000", tmp_path).status_code == 400
+        # The attempt that trips the limit is the first refused with a 429.
+        blocked = self._post(db, limiter, "000000", tmp_path)
+
+        assert blocked.status_code == 429
+        assert "Too many incorrect codes" in blocked.text
+        assert int(blocked.headers["Retry-After"]) > 0
+        assert self._post(db, limiter, "000000", tmp_path).status_code == 429
+
+    def test_the_right_code_is_also_refused_while_blocked(self, tmp_path):
+        db = FakeDBManager()
+        limiter = ClientAttemptLimiter(clock=Clock())
+        for _ in range(MAX_ATTEMPTS):
+            self._post(db, limiter, "000000", tmp_path)
+
+        session = _make_scan_session(tmp_path, db)
+        response = self._post(db, limiter, session.otp, tmp_path)
+        assert response.status_code == 429
+
+    def test_a_correct_code_clears_the_client(self, tmp_path):
+        db = FakeDBManager()
+        limiter = ClientAttemptLimiter(clock=Clock())
+        session = _make_scan_session(tmp_path, db)
+
+        for _ in range(MAX_ATTEMPTS - 1):
+            self._post(db, limiter, "000000", tmp_path)
+        assert self._post(db, limiter, session.otp, tmp_path).status_code == 200
+
+        for _ in range(MAX_ATTEMPTS - 1):
+            assert self._post(db, limiter, "000000", tmp_path).status_code == 400
+
+    def test_the_window_expires(self, tmp_path):
+        db = FakeDBManager()
+        clock = Clock()
+        limiter = ClientAttemptLimiter(clock=clock)
+        for _ in range(MAX_ATTEMPTS):
+            self._post(db, limiter, "000000", tmp_path)
+        assert self._post(db, limiter, "000000", tmp_path).status_code == 429
+
+        clock.advance(WINDOW_SECONDS + 1)
+        assert self._post(db, limiter, "000000", tmp_path).status_code == 400
+
+    def test_one_error_log_row_per_lockout(self, tmp_path):
+        db = FakeDBManager()
+        limiter = ClientAttemptLimiter(clock=Clock())
+        for _ in range(MAX_ATTEMPTS + 3):
+            self._post(db, limiter, "000000", tmp_path)
+
+        assert len(db.errors) == 1
+        assert "5 wrong pickup codes" in db.errors[0][1]
+
+    def test_clients_do_not_share_a_counter(self, tmp_path):
+        db = FakeDBManager()
+        limiter = ClientAttemptLimiter(clock=Clock())
+        for _ in range(MAX_ATTEMPTS):
+            limiter.record_failure("192.168.4.9")
+
+        # A different phone (request.client.host under TestClient) is unaffected.
+        assert self._post(db, limiter, "000000", tmp_path).status_code == 400

@@ -888,3 +888,41 @@ class TestDemoSeedScript:
         finally:
             if not pre_existing and SIM_DB_PATH.exists():
                 SIM_DB_PATH.unlink()
+
+
+# --- Secret-key startup check (issue #103) ---
+
+class _FakeConfig:
+    def __init__(self, sim_mode, key=None):
+        self.sim_mode = sim_mode
+        self._key = key
+
+    def get(self, name, typ=str):
+        if self._key is None:
+            raise KeyError(name)
+        return self._key
+
+
+def test_secret_key_refused_outside_sim_mode():
+    from admin_dashboard.startup_check import DEV_SECRET_KEY, secret_key_problem
+    for key in (None, "", "  ", DEV_SECRET_KEY):
+        problem = secret_key_problem(_FakeConfig(False, key))
+        assert problem and "ADMIN_DASHBOARD_SECRET_KEY" in problem
+
+
+def test_secret_key_real_value_allowed_outside_sim_mode():
+    from admin_dashboard.startup_check import secret_key_problem
+    assert secret_key_problem(_FakeConfig(False, "a-real-random-key")) is None
+
+
+def test_dev_secret_key_allowed_in_sim_mode():
+    from admin_dashboard.startup_check import DEV_SECRET_KEY, secret_key_problem
+    assert secret_key_problem(_FakeConfig(True, DEV_SECRET_KEY)) is None
+    assert secret_key_problem(_FakeConfig(True, None)) is None
+
+
+def test_main_exits_nonzero_without_starting_server(monkeypatch, capsys):
+    import admin_dashboard.main as dash
+    monkeypatch.setattr(dash, "config", _FakeConfig(False, None))
+    assert dash.main() == 1
+    assert "ADMIN_DASHBOARD_SECRET_KEY" in capsys.readouterr().err

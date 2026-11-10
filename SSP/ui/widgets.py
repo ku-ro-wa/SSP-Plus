@@ -344,6 +344,8 @@ class OtpEntryPanel(QWidget):
             f"QLineEdit {{ border: 1px solid {COLORS['border_strong']}; border-radius: 6px; padding: 8px; "
             f"font-size: {FONT['size_xl']}px; font-weight: 700; color: {COLORS['text']}; }}"
             f"QLineEdit:focus {{ border: 1px solid {COLORS['primary']}; }}"
+            f"QLineEdit:disabled {{ color: {COLORS['text_muted']}; "
+            f"border-color: {COLORS['border']}; background-color: {COLORS['bg_subtle']}; }}"
         )
         self.input.returnPressed.connect(self._submit)
 
@@ -363,6 +365,15 @@ class OtpEntryPanel(QWidget):
 
     def _submit(self):
         self.submitted.emit(self.input.text())
+
+    def set_locked(self, locked):
+        """Disable the whole panel while a typed-code lockout is running.
+        The field, the keypad and Send all go dead, so nothing can be typed or
+        submitted; the screen's status banner carries the countdown."""
+        self.input.setEnabled(not locked)
+        self.send_button.setEnabled(not locked)
+        for button in self.keypad.key_buttons.values():
+            button.setEnabled(not locked)
 
     def clear(self):
         self.input.clear()
