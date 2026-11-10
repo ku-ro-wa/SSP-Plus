@@ -410,7 +410,8 @@ class PrintingSystemApp(QMainWindow):
         if none of the files could be loaded."""
         from managers.usb_file_manager import USBFileManager  # same import the wifi/email controllers used
         source_paths = [f['path'] for f in files]
-        pdf_files = USBFileManager().scan_and_copy_pdf_files_by_paths(source_paths)
+        names = [f.get('original_filename') for f in files]
+        pdf_files = USBFileManager().scan_and_copy_pdf_files_by_paths(source_paths, names)
         if not pdf_files:
             return False
         self.file_browser_screen.set_source(source)
@@ -1030,6 +1031,16 @@ def main():
     Initializes the database, creates the Qt application, and starts the main event loop.
     Shows the window in fullscreen mode for kiosk deployment.
     """
+    # A native crash (segfault/abort) leaves no Python traceback; this writes
+    # every thread's stack to SSP/logs/crash.log so the next one is diagnosable.
+    try:
+        import faulthandler
+        log_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'logs')
+        os.makedirs(log_dir, exist_ok=True)
+        faulthandler.enable(file=open(os.path.join(log_dir, 'crash.log'), 'a'), all_threads=True)
+    except OSError as e:
+        print(f"⚠️ Could not enable faulthandler: {e}")
+
     try:
         print("\n🔄 Initializing database...")
         init_db()
