@@ -14,7 +14,7 @@
 
 from config import get_config
 from database.db_manager import DatabaseManager, SIM_DB_NAME
-from database.models import migrate_dashboard_roles
+from database.models import migrate_dashboard_roles, migrate_transaction_files
 
 
 def open_db() -> DatabaseManager:
@@ -29,6 +29,7 @@ def open_db() -> DatabaseManager:
     db = DatabaseManager(db_name=SIM_DB_NAME) if get_config().sim_mode else DatabaseManager()
     if db.conn:
         migrate_dashboard_roles(db.conn)
+        migrate_transaction_files(db.conn)
     return db
 
 
