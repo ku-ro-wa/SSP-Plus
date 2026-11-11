@@ -2,10 +2,12 @@
 from pathlib import Path
 
 from fastapi import FastAPI, Request
+from fastapi.templating import Jinja2Templates
 from fastapi.responses import RedirectResponse
 from fastapi.staticfiles import StaticFiles
 
 from config import get_config
+from webapp import upload_guard as upload_guard_module
 from webapp.captive import captive_clients
 from webapp.routers import health, redeem, upload
 
@@ -30,6 +32,31 @@ app.mount("/static", StaticFiles(directory=BASE_DIR / "static"), name="static")
 @app.middleware("http")
 async def release_captive_client(request: Request, call_next):
     captive_clients.release(request.client.host if request.client else None)
+    return await call_next(request)
+
+
+# Per-phone upload limit and storage floor, checked before the body is read
+# (a route dependency would run only after FastAPI has received the files).
+upload_guard = upload_guard_module.from_config()
+_templates = Jinja2Templates(directory=BASE_DIR / "templates")
+
+
+@app.middleware("http")
+async def guard_uploads(request: Request, call_next):
+    if request.method == "POST" and request.url.path == "/upload":
+        client = request.client.host if request.client else "unknown"
+        try:
+            declared = int(request.headers.get("content-length", "0"))
+        except ValueError:
+            declared = 0
+        refusal = upload_guard.check(client, declared)
+        if refusal:
+            status, message, retry_after = refusal
+            headers = {"Retry-After": str(int(retry_after))} if retry_after else None
+            return _templates.TemplateResponse(
+                request, "index.html", {"request": request, "error": message},
+                status_code=status, headers=headers,
+            )
     return await call_next(request)
 
 
