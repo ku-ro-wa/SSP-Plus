@@ -81,8 +81,8 @@ DUPLICATE_WINDOW_SECONDS = 3.0
 MSG_CANT_READ = "Couldn't read that, type your code."
 MSG_CANT_USE_HERE = "This code can't be used here."
 MSG_VOUCHER_AT_PAYMENT = "Vouchers can only be used at payment."
-# Same wording a typed code gets for a session that is gone or already used.
-MSG_NOT_FOUND_OR_USED = "Incorrect or expired code"
+# Same wording a typed code gets for a session that is gone.
+MSG_NOT_FOUND = "Incorrect or expired code"
 
 
 @dataclass
@@ -129,13 +129,11 @@ def decide_qr_read(read: QrRead, screen: str, session_manager) -> QrReadOutcome:
     # Checked before verification so a wrong-source Session never gets an attempt counted.
     source = session_manager.get_session_source(read.session_id)
     if source is None:
-        return QrReadOutcome("rejected", message=MSG_NOT_FOUND_OR_USED)
+        return QrReadOutcome("rejected", message=MSG_NOT_FOUND)
     if source not in _KIOSK_SOURCES:
         return QrReadOutcome("rejected", message=MSG_CANT_USE_HERE)
-    # A typed code never resolves a used Session, so a read must not reopen its files.
-    if session_manager.get_session_status(read.session_id) == "verified":
-        return QrReadOutcome("rejected", message=MSG_NOT_FOUND_OR_USED)
-
+    # A used Session opens again: a code works as many times as the customer
+    # likes until the Session expires (#111), by QR as by typing.
     success, message, files = session_manager.verify_otp(read.session_id, read.otp)
     if not success:
         return QrReadOutcome("rejected", message=message)

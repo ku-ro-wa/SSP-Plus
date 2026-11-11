@@ -148,8 +148,9 @@ class SessionManager:
     def verify_typed_otp(self, source: str, otp: str) -> OtpLookup:
         """
         Resolve a manually-typed OTP to a Session without a session_id in hand
-        (the kiosk OTP screens only collect the 6-digit code). Scans
-        pending/locked Sessions for `source` and hash-compares — read-only, so
+        (the kiosk OTP screens only collect the 6-digit code). Scans the
+        pending/verified/locked Sessions for `source` (verified ones too, since a
+        code works as many times as the customer likes) and hash-compares — read-only, so
         looping over unrelated candidates never spuriously locks them out. Only
         a matching hash falls through to verify_otp(), which performs the
         actual (mutating) verification.
@@ -170,7 +171,7 @@ class SessionManager:
         return OtpLookup(False, NO_MATCH_MESSAGE)
 
     def _matches_another_source(self, source: str, otp: str) -> bool:
-        """Read-only: whether `otp` hashes to a pending/locked Session of a
+        """Read-only: whether `otp` hashes to a live Session of a
         different Source, i.e. a real code typed on the wrong screen. The QR
         path never counts such an attempt as a failure, and neither do the typed
         limits, so a customer who picks the wrong upload screen keeps their code."""
@@ -218,15 +219,17 @@ class SessionManager:
             self.db_manager.set_session_status(session_id, 'expired')
             return False, "Session expired", None
 
-        if row['status'] == 'verified':
-            return True, "Session already verified", json.loads(row['files'])
-
+        # The hash is checked before the 'verified' answer, so a used Session
+        # still needs its own code: a session_id alone (it's in the QR) opens nothing.
         if _hash_otp(session_id, otp) != row['otp_hash']:
             attempts = self.db_manager.increment_session_failed_attempts(session_id)
             if attempts is not None and attempts >= MAX_FAILED_ATTEMPTS:
                 self.db_manager.set_session_status(session_id, 'locked')
                 return False, "Incorrect OTP — session now locked", None
             return False, "Incorrect OTP", None
+
+        if row['status'] == 'verified':
+            return True, "Session already verified", json.loads(row['files'])
 
         self.db_manager.set_session_status(session_id, 'verified')
         return True, "Session verified", json.loads(row['files'])
