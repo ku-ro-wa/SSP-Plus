@@ -16,6 +16,7 @@ from utils.error_logger import log_error
 PAID = 'paid'
 COMPLETED = 'completed'
 PRINT_FAILED = 'print_failed'
+PARTLY_PRINTED = 'partly_printed'  # some files of a multi-file print printed, the rest were refunded
 DIGITAL_FAILED = 'digital_failed'  # a digital-only sale whose copy couldn't be made
 
 
@@ -71,6 +72,46 @@ def refund_failed_print(db, payment_ref, error_message="", already_refunded=0):
     issued = (row['voucher_issued'] or 0) + (outcome.voucher.value if outcome.voucher else 0)
     outcome.applied = db.update_transaction_outcome(
         payment_ref, PRINT_FAILED, from_status=PAID,
+        voucher_issued=issued, error_message=error_message or None)
+    return outcome
+
+
+def refund_partly_printed(db, payment_ref, failed_position, error_message=""):
+    """paid -> partly_printed. Marks `failed_position` `failed` and every other
+    still-`pending` file `not_printed`, then issues one Voucher for the cost of
+    every file that isn't `printed`. Costs are read from transaction_files, so
+    it survives a restart. Applies at most once (from_status=PAID).
+
+    A partly printed transaction has 2+ files, so never a Digital Copy fee. The
+    amount is rounded once on the sum, not per file: prices are floats."""
+    row = db.get_transaction_by_ref(payment_ref)
+    if not row or row['status'] != PAID:
+        return RefundOutcome()
+
+    for f in db.get_transaction_files(payment_ref):
+        if f['position'] == failed_position and f['status'] != 'printed':
+            db.set_transaction_file_status(payment_ref, f['position'], 'failed')
+        elif f['status'] == 'pending':
+            db.set_transaction_file_status(payment_ref, f['position'], 'not_printed')
+    unprinted = [f for f in db.get_transaction_files(payment_ref) if f['status'] != 'printed']
+
+    amount = int(round(sum(f['cost'] for f in unprinted)))
+    outcome = RefundOutcome(amount=amount)
+    if amount > 0 and db.get_setting('vouchers_enabled', 1):
+        try:
+            outcome.voucher = VoucherManager(db).issue(amount, payment_ref=payment_ref)
+        except Exception as e:
+            outcome.voucher_failed = True
+            _alert(f"Could not issue a P{amount} refund voucher for a partly printed job "
+                   f"(payment_ref={payment_ref}): {e}", amount, payment_ref)
+    elif amount > 0:
+        outcome.voucher_failed = True
+        _alert(f"Vouchers are off: P{amount} not refunded for a partly printed job "
+               f"(payment_ref={payment_ref})", amount, payment_ref)
+
+    issued = (row['voucher_issued'] or 0) + (outcome.voucher.value if outcome.voucher else 0)
+    outcome.applied = db.update_transaction_outcome(
+        payment_ref, PARTLY_PRINTED, from_status=PAID,
         voucher_issued=issued, error_message=error_message or None)
     return outcome
 
