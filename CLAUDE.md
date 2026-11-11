@@ -208,6 +208,10 @@ See `docs/adr/0002-admin-dashboard-auth-and-remote-access-architecture.md` and C
 
 `managers/settings_catalog.py` lists the seven operator-editable `settings` keys (Voucher expiry/lockout, pickup window, max change, coin reserves, low-change warning) with label, unit, min/max and default; `validate_many`/`save_many` are all-or-nothing and reject rather than clamp. Kiosk Admin's `settings` screen (`screens/settings/`, button on the admin screen) and the Dashboard's `/settings` (`admin` writes, `operator` reads) both render and save through it. `vouchers_enabled` is deliberately not in the catalog. `tests/test_settings_catalog.py` fails if a default drifts from the manager that reads it.
 
+### Logs on both sides (issue #131)
+
+The Dashboard's `/logs` and the touchscreen data viewer (`screens/data_viewer/`) show the same transaction and error columns (`managers/log_pages.py`: `TRANSACTION_COLUMNS`, `ERROR_COLUMNS`, `PAGE_SIZE`; the viewer adds an ID first), read with `DatabaseManager.get_transaction_page()`/`get_error_page()` newest first, with Newer/Older paging on both. `tests/test_data_viewer_columns.py` compares the rendered headers, rows and pages with `/logs`.
+
 ### Configuration
 
 All runtime config comes from `.env` via `config.py`'s `get_config()` (global `Config` singleton). `Config._load_env_file()` uses `os.environ.setdefault`, so a shell-exported var always overrides `.env` (this is how `make run-sim` forces `SIM_MODE=true` without editing `.env`). Accessing an unset key raises `KeyError` (see `Config.get`) — there are no silent defaults except `sim_mode`, which returns `False` if unset.

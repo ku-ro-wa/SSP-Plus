@@ -13,7 +13,7 @@
 <section id="transactions">
     <h2>Transactions</h2>
     <div class="scroll"><table>
-        <thead><tr><th>Time</th><th>File</th><th>Source</th><th class="numeric">Pages</th><th class="numeric">Copies</th><th>Colour</th><th class="numeric">Cost</th><th class="numeric">Paid</th><th class="numeric">Change</th><th>Status</th></tr></thead>
+        <thead><tr>{% for c in logs.columns.transactions %}<th{% if c in logs.columns.numeric %} class="numeric"{% endif %}>{{ c }}</th>{% endfor %}</tr></thead>
         <tbody>
         {% for t in logs.transactions.rows %}
             <tr><td>{{ t.timestamp }}</td><td>{{ t.file_name }}</td><td>{{ t.source or '' }}</td><td class="numeric">{{ t.pages }}</td><td class="numeric">{{ t.copies }}</td><td>{{ t.color_mode }}</td><td class="numeric">₱{{ "%.2f"|format(t.total_cost) }}</td><td class="numeric">₱{{ "%.2f"|format(t.amount_paid) }}</td><td class="numeric">₱{{ "%.2f"|format(t.change_given) }}</td><td>{{ t.status }}</td></tr>
@@ -42,7 +42,7 @@
 <section id="error-log">
     <h2>Error log</h2>
     <div class="scroll"><table>
-        <thead><tr><th>Time</th><th>Type</th><th>Message</th><th>Screen</th><th>Resolved</th></tr></thead>
+        <thead><tr>{% for c in logs.columns.errors %}<th>{{ c }}</th>{% endfor %}</tr></thead>
         <tbody>
         {% for e in logs.errors.rows %}
             <tr><td>{{ e.timestamp }}</td><td>{{ e.error_type }}</td><td>{{ e.error_message }}</td><td>{{ e.screen_name }}</td><td>{{ 'yes' if e.resolved else 'no' }}</td></tr>
