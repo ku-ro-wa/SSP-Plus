@@ -42,6 +42,7 @@ class AdminController(QWidget):
         self.view.back_clicked.connect(self._go_back)
         self.view.view_data_logs_clicked.connect(self._show_data_viewer)
         self.view.settings_clicked.connect(lambda: self.main_app.show_screen('settings'))
+        self.view.reports_clicked.connect(lambda: self.main_app.show_screen('reports'))
         self.view.paper_decreased.connect(self.model.decrease_paper_count)
         self.view.paper_increased.connect(self.model.increase_paper_count)
         self.view.reset_paper_clicked.connect(self.model.reset_paper_count)
