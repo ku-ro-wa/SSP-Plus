@@ -12,6 +12,8 @@
 
 import email
 import os
+import shutil
+import smtplib
 import uuid
 from dataclasses import dataclass
 from email.header import decode_header, make_header
@@ -83,6 +85,23 @@ class EmailAdapter:
                 raw = client.fetch(uid)
                 result = self._handle_message(raw)
 
+                # Reply BEFORE logging/marking Seen. If the send fails (flaky
+                # 4G, DNS, SMTP hiccup) the session is discarded and the email
+                # stays unlogged and UNSEEN, so the next poll retries it —
+                # otherwise the sender would never get their code.
+                if result.outcome == "accepted" and result.session and result.sender:
+                    try:
+                        self.send_response(result.sender, result.session)
+                    except smtplib.SMTPRecipientsRefused as e:
+                        # Permanent: retrying can't help. Log it and move on.
+                        print(f"Email reply to {result.sender!r} refused, giving up: {e}")
+                        self._discard_session(result.session)
+                        result = MessageResult("error", None, result.message_id, result.sender)
+                    except Exception as e:
+                        print(f"Email reply to {result.sender!r} failed, will retry next poll: {e}")
+                        self._discard_session(result.session)
+                        continue
+
                 inserted = self.db_manager.log_email_intake(
                     uidvalidity=uidvalidity,
                     uid=uid,
@@ -96,10 +115,20 @@ class EmailAdapter:
                 client.mark_seen(uid)
                 processed += 1
 
-                if result.outcome == "accepted" and result.session and result.sender:
-                    self.send_response(result.sender, result.session)
-
         return processed
+
+    def _discard_session(self, session: Session):
+        """Undo an accepted message whose reply couldn't be sent: files and DB row."""
+        for f in session.files:
+            try:
+                path = f["path"]
+                if os.path.isdir(path):
+                    shutil.rmtree(path, ignore_errors=True)
+                elif os.path.isfile(path):
+                    os.remove(path)
+            except OSError as e:
+                print(f"Error removing file of discarded session: {e}")
+        self.db_manager.delete_session(session.session_id)
 
     def _handle_message(self, raw: bytes) -> MessageResult:
         """
