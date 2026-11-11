@@ -42,6 +42,7 @@ class DataViewerController(QWidget):
         self.view.refresh_error_log_clicked.connect(lambda: self.model.load_error_log())
         self.view.previous_transactions_clicked.connect(self.model.previous_transactions_page)
         self.view.next_transactions_clicked.connect(self.model.next_transactions_page)
+        self.view.resolve_error_clicked.connect(self.model.mark_error_resolved)
         self.view.previous_errors_clicked.connect(self.model.previous_errors_page)
         self.view.next_errors_clicked.connect(self.model.next_errors_page)
         self.view.refresh_admin_actions_clicked.connect(lambda: self.model.load_admin_actions(1))

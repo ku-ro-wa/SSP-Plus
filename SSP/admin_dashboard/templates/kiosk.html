@@ -102,10 +102,10 @@
     <h2>Unresolved errors ({{ o.error_total }})</h2>
     {% if o.errors %}
     <div class="scroll"><table>
-        <thead><tr><th>Time</th><th>Type</th><th>Message</th><th>Screen</th></tr></thead>
+        <thead><tr><th>Time</th><th>Type</th><th>Message</th><th>Screen</th>{% if can_edit %}<th></th>{% endif %}</tr></thead>
         <tbody>
         {% for e in o.errors %}
-            <tr><td>{{ e.timestamp }}</td><td>{{ e.error_type }}</td><td>{{ e.error_message }}</td><td>{{ e.screen_name }}</td></tr>
+            <tr><td>{{ e.timestamp }}</td><td>{{ e.error_type }}</td><td>{{ e.error_message }}</td><td>{{ e.screen_name }}</td>{% if can_edit %}<td><button type="button" class="btn resolve" data-resolve="{{ e.id }}">Mark resolved</button></td>{% endif %}</tr>
         {% endfor %}
         </tbody>
     </table></div>
@@ -154,6 +154,15 @@ document.querySelectorAll("form[data-edit]").forEach((form) => {
             const result = await send(button.dataset.refill);
             result.ok ? done(name) : say(name, false, failure(result));
         });
+    });
+});
+
+document.querySelectorAll("[data-resolve]").forEach((button) => {
+    button.addEventListener("click", async () => {
+        button.disabled = true;
+        const result = await send(`/errors/${button.dataset.resolve}/resolve`);
+        if (result.ok) location.reload();
+        else { button.disabled = false; button.textContent = failure(result); }
     });
 });
 

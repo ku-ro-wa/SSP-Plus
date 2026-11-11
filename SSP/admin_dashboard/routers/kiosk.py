@@ -15,6 +15,7 @@ from admin_dashboard.dependencies import get_db
 from admin_dashboard.kiosk_overview import build_overview
 from admin_dashboard.templating import templates
 from managers import inventory_edits as edits
+from managers.error_resolution import resolve_error
 from managers.log_pages import (
     ERROR_COLUMNS, NUMERIC_COLUMNS, PAGE_SIZE, TRANSACTION_COLUMNS, page_count,
 )
@@ -80,7 +81,10 @@ def logs_page(
 ):
     return templates.TemplateResponse(
         request, "logs.html",
-        {"request": request, "active": "logs", "logs": build_logs(db, tx_page, err_page, act_page)},
+        {
+            "request": request, "active": "logs", "logs": build_logs(db, tx_page, err_page, act_page),
+            "can_edit": current_user["role"] == WRITE_ROLE,
+        },
     )
 
 
@@ -182,6 +186,16 @@ def refill_ink(request: Request, user: dict = Depends(require_write_role), db=De
     except edits.EditError as e:
         return _refused(e)
     return {"levels": levels}
+
+
+@router.post("/errors/{error_id}/resolve")
+def resolve_error_route(error_id: int, request: Request, user: dict = Depends(require_write_role), db=Depends(get_db)):
+    """Mark one error_log row resolved (issue #136). Marking one that is already
+    resolved is not an error: 200 with `changed: false`, nothing written."""
+    outcome = resolve_error(db, error_id, _who(request, user))
+    if outcome == "missing":
+        return JSONResponse({"error": "No such error."}, status_code=404)
+    return {"resolved": True, "changed": outcome == "resolved", "unresolved": db.count_unresolved_errors()}
 
 
 @router.get("/kiosk/collect-cash/preview")

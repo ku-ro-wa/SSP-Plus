@@ -49,6 +49,7 @@ class ThankYouModel(QObject):
         self.current_state = "initial"
         self.print_job_started = False
         self.error_type = None
+        self.error_id = None  # the error_log row this screen wrote, for the PIN override
 
     def _on_timer_timeout(self):
         """Handle redirect timer timeout."""
@@ -85,6 +86,7 @@ class ThankYouModel(QObject):
         self.redirect_timer.stop()
 
         # Hide admin override button when starting new print job
+        self.error_id = None
         self.admin_override_hidden.emit()
 
         # Connect to printer manager signals
@@ -173,7 +175,7 @@ class ThankYouModel(QObject):
         # Log error to database
         try:
             from utils.error_logger import log_error
-            log_error("Printing Error", message, "thank_you_screen")
+            self.error_id = log_error("Printing Error", message, "thank_you_screen")
         except Exception as db_error:
             print(f"⚠️ Failed to log error to database: {db_error}")
 
@@ -240,7 +242,9 @@ class ThankYouModel(QObject):
         self.admin_override_requested.emit()
 
     def handle_admin_override(self):
-        """Handle admin override - navigates to admin screen."""
+        """Handle admin override: marks the error this screen logged resolved
+        (issue #136), then navigates to the admin screen."""
+        self._resolve_logged_error()
         self.current_state = "admin_override"
         self.status_updated.emit(
             "ADMIN OVERRIDE",
@@ -251,6 +255,22 @@ class ThankYouModel(QObject):
         # Navigate directly to admin screen
         if hasattr(self, 'main_app') and self.main_app:
             self.main_app.show_screen('admin')
+
+    def _resolve_logged_error(self):
+        error_id, self.error_id = self.error_id, None
+        if error_id is None:
+            return
+        try:
+            from database.db_manager import DatabaseManager
+            from managers.admin_actions import ACTOR_KIOSK, WHERE_TOUCHSCREEN
+            from managers.error_resolution import resolve_error
+            db = DatabaseManager()
+            try:
+                resolve_error(db, error_id, {"actor": ACTOR_KIOSK, "where": WHERE_TOUCHSCREEN})
+            finally:
+                db.close()
+        except Exception as e:
+            print(f"⚠️ Could not mark error #{error_id} resolved: {e}")
 
     def _on_print_success(self):
         """Handle successful print completion."""

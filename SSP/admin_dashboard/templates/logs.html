@@ -1,6 +1,9 @@
 {% extends "base.html" %}
 {% block title %}Logs{% endblock %}
 {% block heading %}Logs{% endblock %}
+{% block style %}
+        .btn { font-size: 14px; padding: 8px 14px; min-height: 40px; border: 0; border-radius: 8px; background: #000; color: #fff; cursor: pointer; margin-left: 8px; }
+{% endblock %}
 {% block content %}
 {% macro pager(p, own, anchor) %}
 {% set pages = {'tx_page': logs.transactions.page, 'err_page': logs.errors.page, 'act_page': logs.actions.page} %}
@@ -46,7 +49,7 @@
         <thead><tr>{% for c in logs.columns.errors %}<th>{{ c }}</th>{% endfor %}</tr></thead>
         <tbody>
         {% for e in logs.errors.rows %}
-            <tr><td>{{ e.timestamp }}</td><td>{{ e.error_type }}</td><td>{{ e.error_message }}</td><td>{{ e.screen_name }}</td><td>{{ 'yes' if e.resolved else 'no' }}</td></tr>
+            <tr><td>{{ e.timestamp }}</td><td>{{ e.error_type }}</td><td>{{ e.error_message }}</td><td>{{ e.screen_name }}</td><td>{{ 'yes' if e.resolved else 'no' }}{% if can_edit and not e.resolved %} <button type="button" class="btn resolve" data-resolve="{{ e.id }}">Mark resolved</button>{% endif %}</td></tr>
         {% else %}
             <tr><td colspan="5" class="muted">No errors.</td></tr>
         {% endfor %}
@@ -69,4 +72,18 @@
     </table></div>
     {{ pager(logs.actions, 'act_page', 'admin-actions') }}
 </section>
+{% endblock %}
+{% block scripts %}
+{% if can_edit %}
+<script>
+document.querySelectorAll("[data-resolve]").forEach((button) => {
+    button.addEventListener("click", async () => {
+        button.disabled = true;
+        const response = await fetch(`/errors/${button.dataset.resolve}/resolve`, {method: "POST"});
+        if (response.ok) location.reload();
+        else { button.disabled = false; button.textContent = "Could not save (" + response.status + ")"; }
+    });
+});
+</script>
+{% endif %}
 {% endblock %}

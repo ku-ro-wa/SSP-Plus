@@ -100,6 +100,7 @@ class AdminController(QWidget):
         self.model.load_cmyk_levels()
         self.view.update_qr_reader_status(self.main_app.qr_reader_status_text())
         self.view.update_printer_status(*read_printer_status())
+        self.view.update_unresolved_errors(self.model.db_manager.count_unresolved_errors())
         # Debug: Show what paper count is loaded
         print(f"Admin on_enter: Paper count loaded as {self.model.paper_count}")
         print(f"Admin on_enter: Fresh DB value: {self.model.db_manager.get_setting('paper_count', default=100)}")

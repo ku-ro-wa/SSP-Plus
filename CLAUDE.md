@@ -220,6 +220,10 @@ See `docs/adr/0002-admin-dashboard-auth-and-remote-access-architecture.md` and C
 
 The Dashboard's `/logs` and the touchscreen data viewer (`screens/data_viewer/`) show the same transaction and error columns (`managers/log_pages.py`: `TRANSACTION_COLUMNS`, `ERROR_COLUMNS`, `PAGE_SIZE`; the viewer adds an ID first), read with `DatabaseManager.get_transaction_page()`/`get_error_page()` newest first, with Newer/Older paging on both. `tests/test_data_viewer_columns.py` compares the rendered headers, rows and pages with `/logs`.
 
+### Resolving errors (issue #136)
+
+`error_log.resolved` is set only by an operator, never automatically after a later success (ADR 0005). `managers/error_resolution.py` `resolve_error()` marks one row (`DatabaseManager.mark_error_resolved`) and writes an `error_resolved` `admin_actions` row (`#id Type: message` → `resolved`); marking an already-resolved row changes and writes nothing. Callers: `POST /errors/{id}/resolve` (`admin` only; buttons on `/kiosk` and `/logs`), the data viewer's "Mark selected resolved", and the thank-you screen's PIN override, which resolves the row its own `show_printing_error` logged (`ThankYouModel.error_id`; jam / no-paper screens that log nothing resolve nothing). `/kiosk`'s "Unresolved errors" and Kiosk Admin's "Errors:" both read `DatabaseManager.count_unresolved_errors()`. `tests/test_mark_resolved.py`.
+
 ### Configuration
 
 All runtime config comes from `.env` via `config.py`'s `get_config()` (global `Config` singleton). `Config._load_env_file()` uses `os.environ.setdefault`, so a shell-exported var always overrides `.env` (this is how `make run-sim` forces `SIM_MODE=true` without editing `.env`). Accessing an unset key raises `KeyError` (see `Config.get`) — there are no silent defaults except `sim_mode`, which returns `False` if unset.
