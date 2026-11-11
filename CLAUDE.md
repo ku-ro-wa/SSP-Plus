@@ -208,6 +208,22 @@ See `docs/adr/0002-admin-dashboard-auth-and-remote-access-architecture.md` and C
 
 `managers/settings_catalog.py` lists the seven operator-editable `settings` keys (Voucher expiry/lockout, pickup window, max change, coin reserves, low-change warning) with label, unit, min/max and default; `validate_many`/`save_many` are all-or-nothing and reject rather than clamp. Kiosk Admin's `settings` screen (`screens/settings/`, button on the admin screen) and the Dashboard's `/settings` (`admin` writes, `operator` reads) both render and save through it. `vouchers_enabled` is deliberately not in the catalog. `tests/test_settings_catalog.py` fails if a default drifts from the manager that reads it.
 
+### Admin actions (issue #134)
+
+`admin_actions` (`managers/admin_actions.py`, created by `init_db()` and the dashboard's `open_db()`) is the audit trail of operator changes: time, who (dashboard username, or `kiosk` behind `ADMIN_PIN`), where (`dashboard` + source IP, or `touchscreen`), action, old and new value. `record_action()` skips a save that doesn't change the value and never raises (a failed write is logged). Recorded today: paper, coin and ink edits and Collect cash (`screens/admin/model.py`), settings changes (touchscreen `SettingsModel.save` and the Dashboard's `POST /settings`, one row per changed key) and `/paper-reset`. Automatic changes (a print using paper, change leaving the hoppers, the printer reporting the tray empty) aren't operator actions. Shown newest first, `PAGE_SIZE` per page, on `/logs` and in the data viewer's Admin Actions tab, both reading `DatabaseManager.get_admin_action_page()`. Operator writes go through `managers/inventory_edits.py` (below) or call `record_action()` themselves (#136 adds mark-resolved). `tests/test_admin_actions.py`.
+
+### Remote edits (issue #135)
+
+`/kiosk` has edit controls for the `admin` role only (`operator` sees the values without them; a POST gets 403): paper (set, Refill), ₱1/₱5 coins (set, Refill All), ink (set, Refill All) and Collect cash (a preview and confirm, then `POST /kiosk/collect-cash` with the confirmed `expected_total`, refused with 409 if the counts moved). `managers/inventory_edits.py` holds the ranges, validation, refill values and writes; `screens/admin/model.py` and `admin_dashboard/routers/kiosk.py` both call it, so the two sides can't disagree, and each edit writes its `admin_actions` row there. A touchscreen open during a remote edit keeps the old value until reopened (ADR 0005); paper writes reread the DB first. `tests/test_dashboard_edits.py`.
+
+### Logs on both sides (issue #131)
+
+The Dashboard's `/logs` and the touchscreen data viewer (`screens/data_viewer/`) show the same transaction and error columns (`managers/log_pages.py`: `TRANSACTION_COLUMNS`, `ERROR_COLUMNS`, `PAGE_SIZE`; the viewer adds an ID first), read with `DatabaseManager.get_transaction_page()`/`get_error_page()` newest first, with Newer/Older paging on both. `tests/test_data_viewer_columns.py` compares the rendered headers, rows and pages with `/logs`.
+
+### Resolving errors (issue #136)
+
+`error_log.resolved` is set only by an operator, never automatically after a later success (ADR 0005). `managers/error_resolution.py` `resolve_error()` marks one row (`DatabaseManager.mark_error_resolved`) and writes an `error_resolved` `admin_actions` row (`#id Type: message` → `resolved`); marking an already-resolved row changes and writes nothing. Callers: `POST /errors/{id}/resolve` (`admin` only; buttons on `/kiosk` and `/logs`), the data viewer's "Mark selected resolved", and the thank-you screen's PIN override, which resolves the row its own `show_printing_error` logged (`ThankYouModel.error_id`; jam / no-paper screens that log nothing resolve nothing). `/kiosk`'s "Unresolved errors" and Kiosk Admin's "Errors:" both read `DatabaseManager.count_unresolved_errors()`. `tests/test_mark_resolved.py`.
+
 ### Configuration
 
 All runtime config comes from `.env` via `config.py`'s `get_config()` (global `Config` singleton). `Config._load_env_file()` uses `os.environ.setdefault`, so a shell-exported var always overrides `.env` (this is how `make run-sim` forces `SIM_MODE=true` without editing `.env`). Accessing an unset key raises `KeyError` (see `Config.get`) — there are no silent defaults except `sim_mode`, which returns `False` if unset.

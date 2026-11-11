@@ -303,6 +303,10 @@ class AdminScreenView(QWidget):
         layout.addWidget(self._section_label("QR Reader:"))
         self.qr_reader_status_label = self._status_value_label()
         layout.addWidget(self.qr_reader_status_label)
+        layout.addSpacing(40)
+        layout.addWidget(self._section_label("Errors:"))
+        self.unresolved_errors_label = self._status_value_label()
+        layout.addWidget(self.unresolved_errors_label)
         layout.addStretch(1)
         return group
 
@@ -310,6 +314,14 @@ class AdminScreenView(QWidget):
 
     def update_qr_reader_status(self, text):
         self.qr_reader_status_label.setText(text)
+
+    def update_unresolved_errors(self, count):
+        """'None unresolved' / 'N unresolved': the same count as the Dashboard's /kiosk."""
+        self.unresolved_errors_label.setText(f"{count} unresolved" if count else "None unresolved")
+        tint = COLORS["danger"] if count else COLORS["success"]
+        self.unresolved_errors_label.setStyleSheet(
+            f"color: {tint}; font-size: {FONT['size_md']}px; font-weight: 700;"
+        )
 
     def update_printer_status(self, text, level):
         """Printer status from CUPS, tinted by level: 'success' | 'warning' | 'error'."""

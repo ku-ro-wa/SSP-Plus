@@ -19,6 +19,7 @@ from fastapi.responses import HTMLResponse
 from admin_dashboard.auth import get_current_user, get_current_user_page, require_write_role
 from admin_dashboard.dependencies import get_db
 from admin_dashboard.templating import templates
+from managers.admin_actions import ACTION_PAPER_RESET, WHERE_DASHBOARD, record_action
 
 router = APIRouter()
 
@@ -120,11 +121,17 @@ def accounting_page(
 
 @router.post("/paper-reset")
 def paper_reset(
+    request: Request,
     current_user: dict = Depends(require_write_role),
     db=Depends(get_db),
 ):
     """Resets the kiosk's paper count — the fallback for the SMS
     fuzzy-match reset flow from Phase 8 (issue #17). `admin`-only: require_write_role
     returns 401 unauthenticated, 403 for the read-only `operator` role."""
+    old = db.get_setting('paper_count', default=None)
     db.update_paper_count(PAPER_FULL_COUNT)
+    record_action(
+        db, ACTION_PAPER_RESET, old, PAPER_FULL_COUNT, actor=current_user["username"],
+        where=WHERE_DASHBOARD, ip=request.client.host if request.client else None,
+    )
     return {"paper_count": PAPER_FULL_COUNT}

@@ -281,8 +281,33 @@ class DatabaseManager(VoucherDBMixin, CashCollectionDBMixin):
                 (datetime.now(), error_type, message, context, False)
             )
             self.conn.commit()
+            return cursor.lastrowid
         except sqlite3.Error as e:
             print(f"Error logging error: {e}")
+            return None
+
+    def mark_error_resolved(self, error_id):
+        """Set one error_log row resolved. Returns (row, changed): the row as it
+        was (None if there is no such id) and whether this call changed it."""
+        if not self.conn:
+            return None, False
+        try:
+            cursor = self.conn.cursor()
+            cursor.execute("SELECT * FROM error_log WHERE id = ?", (int(error_id),))
+            row = cursor.fetchone()
+            if row is None:
+                return None, False
+            if row["resolved"]:
+                return row, False
+            cursor.execute("UPDATE error_log SET resolved = 1 WHERE id = ? AND resolved = 0", (int(error_id),))
+            self.conn.commit()
+            return row, cursor.rowcount > 0
+        except sqlite3.Error as e:
+            print(f"Error marking error resolved: {e}")
+            return None, False
+
+    def count_unresolved_errors(self):
+        return self.get_error_page(1, unresolved_only=True)[1]
 
     def get_error_log(self):
         if not self.conn:
@@ -693,6 +718,28 @@ class DatabaseManager(VoucherDBMixin, CashCollectionDBMixin):
         except sqlite3.Error as e:
             print(f"Error resetting failed attempts for '{username}': {e}")
             return False
+
+    def record_admin_action(self, actor, location, source_ip, action, old_value, new_value):
+        """Append one row to the operator-change audit trail (issue #134)."""
+        if not self.conn:
+            return False
+        try:
+            cursor = self.conn.cursor()
+            cursor.execute(
+                "INSERT INTO admin_actions "
+                "(timestamp, actor, location, source_ip, action, old_value, new_value) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?)",
+                (datetime.now(), actor, location, source_ip, action, old_value, new_value)
+            )
+            self.conn.commit()
+            return True
+        except sqlite3.Error as e:
+            print(f"Error recording admin action '{action}': {e}")
+            return False
+
+    def get_admin_action_page(self, limit, offset=0):
+        """One page of admin_actions, newest first, plus the total row count."""
+        return self._get_page("admin_actions", "", limit, offset)
 
     def record_login_attempt(self, username, success, source_ip):
         """Append a row to the dashboard login audit log. Called for every
