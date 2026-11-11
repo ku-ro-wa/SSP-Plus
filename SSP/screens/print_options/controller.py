@@ -30,41 +30,29 @@ class PrintOptionsController(QWidget):
         self.view.back_button_clicked.connect(self._go_back)
         self.view.voucher_balance_clicked.connect(self.main_app.open_voucher_balance)
         self.view.continue_button_clicked.connect(self._continue_to_payment)
-        self.view.bw_mode_clicked.connect(self._set_bw_mode)
-        self.view.color_mode_clicked.connect(self._set_color_mode)
-        self.view.copies_decreased.connect(self._decrease_copies)
-        self.view.copies_increased.connect(self._increase_copies)
+        self.view.item_color_clicked.connect(self._set_item_color_mode)
+        self.view.item_copies_step.connect(self._step_item_copies)
 
         # --- Model -> View ---
         self.model.cost_updated.connect(self.view.update_cost_display)
+        self.model.item_changed.connect(self._on_item_changed)
         self.model.analysis_started.connect(self._on_analysis_started)
         self.model.analysis_completed.connect(self._on_analysis_completed)
         self.model.analysis_error.connect(self._on_analysis_error)
         self.model.show_message.connect(self._show_message)
 
-    def _set_bw_mode(self):
-        """Sets black and white mode."""
-        self.model.set_color_mode("Black and White")
-        self.view.set_bw_mode()
+    def _set_item_color_mode(self, index, mode):
+        """Sets one file's color mode."""
+        self.model.set_item_color_mode(index, mode)
         self._check_paper_availability()
 
-    def _set_color_mode(self):
-        """Sets color mode."""
-        self.model.set_color_mode("Color")
-        self.view.set_color_mode()
+    def _step_item_copies(self, index, delta):
+        """Changes one file's copies."""
+        self.model.change_item_copies(index, delta)
         self._check_paper_availability()
 
-    def _decrease_copies(self):
-        """Decreases the number of copies."""
-        self.model.change_copies(-1)
-        self.view.update_copies_display(self.model.get_copies())
-        self._check_paper_availability()
-
-    def _increase_copies(self):
-        """Increases the number of copies."""
-        self.model.change_copies(1)
-        self.view.update_copies_display(self.model.get_copies())
-        self._check_paper_availability()
+    def _on_item_changed(self, index):
+        self.view.update_item(index, self.model.items[index])
 
     def _on_analysis_started(self):
         """Handles when analysis starts."""
@@ -77,8 +65,8 @@ class PrintOptionsController(QWidget):
     def _on_analysis_completed(self, results):
         """Handles when analysis is completed."""
         print("Analysis completed, enabling continue button and checking paper availability")
-        self.view.set_continue_button_enabled(True)
         # Check paper availability after analysis is complete with a small delay
+        # (it also enables Continue once nothing is still being analysed)
         from PyQt5.QtCore import QTimer
         QTimer.singleShot(100, self._check_paper_availability)
 
@@ -91,7 +79,12 @@ class PrintOptionsController(QWidget):
         """Continues to the payment screen."""
         payment_data = self.model.get_payment_data()
         if not payment_data:
-            QMessageBox.warning(self, "Please Wait", "Cost calculation is still in progress.")
+            # Still pricing (or a price failed): never a popup the customer can't clear.
+            # Price anything that has stalled, keep Continue off and say so in the banner.
+            self.model.reprice_unpriced()
+            self.view.set_continue_button_enabled(False)
+            self.view.set_analysis_status(
+                "Still calculating the price...", "Continue will come back in a moment.")
             return
         payment_data['source'] = self.source
 
@@ -128,8 +121,7 @@ class PrintOptionsController(QWidget):
         scan's digital-copy fee to the total (see ScanDestinationController)."""
         self.source = source
         self.model.set_items(items, digital_fee=digital_fee)
-        self.view.update_copies_display(self.model.get_copies())
-        self.view.set_bw_mode()
+        self.view.set_items(self.model.items)
         # Clear any existing warnings when setting new PDF data
         self.view.clear_paper_warning()
         # Check paper availability immediately after setting PDF data
@@ -171,21 +163,16 @@ class PrintOptionsController(QWidget):
     def _check_paper_availability(self):
         """Checks if there's enough paper for the current print job."""
         print("Paper check: Starting paper availability check...")
-        # Get current state from model even if payment data isn't ready
-        selected_pages = getattr(self.model, 'selected_pages', None)
-        copies = getattr(self.model, '_copies', 1)
-
-        if not selected_pages:
-            print("Paper check: No selected pages available yet")
+        if not self.model.items:
+            print("Paper check: No files available yet")
             return
 
-        total_pages = len(selected_pages) * copies
+        total_pages = self.model.total_sheets()
         admin_screen = self.main_app.admin_screen
 
         if hasattr(admin_screen, 'get_paper_count'):
             available_paper = admin_screen.get_paper_count()
             print(f"Paper check: Available={available_paper}, Required={total_pages}")
-            print(f"Paper check: Admin screen type: {type(admin_screen)}")
 
             if available_paper < total_pages:
                 # Show warning and disable continue button
@@ -195,6 +182,9 @@ class PrintOptionsController(QWidget):
                 # Clear any existing warning
                 print("Paper check: Sufficient paper available, clearing any warnings")
                 self.view.clear_paper_warning()
+                # Continue waits until every file is priced
+                if not self.model.is_priced():
+                    self.view.set_continue_button_enabled(False)
         else:
             print("Paper check: Admin screen not available")
 

@@ -179,7 +179,6 @@ def pay(main_app, model, change):
     """print_options -> payment -> auto-complete -> dispense, as on the kiosk.
     Returns once the voucher or thank-you screen is showing."""
     options = PrintOptionsModel()
-    options.set_color_mode("Black and White")
     options.set_items([PrintItem({'path': PDF}, [1])])
     payment_data = options.get_payment_data()
     payment_data['source'] = 'usb'  # what PrintOptionsController adds
@@ -230,7 +229,6 @@ def test_reentering_payment_credits_each_coin_once(kiosk):
     connect its signals again (each extra connection credited every coin again)."""
     main_app, model = kiosk
     options = PrintOptionsModel()
-    options.set_color_mode("Black and White")
     options.set_items([PrintItem({'path': PDF}, [1])])
     model.set_payment_data(options.get_payment_data())
     for _ in range(3):
@@ -249,7 +247,6 @@ def test_back_is_ignored_while_change_is_dispensing(kiosk, db, monkeypatch):
     locked = []
     model.payment_locked.connect(locked.append)
     options = PrintOptionsModel()
-    options.set_color_mode("Black and White")
     options.set_items([PrintItem({'path': PDF}, [1])])
     payment_data = options.get_payment_data()
     model.set_payment_data(payment_data)
@@ -274,7 +271,6 @@ def test_inserted_money_restarts_the_payment_timeout(kiosk):
     screen = PaymentController(main_app)
     main_app.stacked_widget = SimpleNamespace(currentWidget=lambda: screen)
     options = PrintOptionsModel()
-    options.set_color_mode("Black and White")
     options.set_items([PrintItem({'path': PDF}, [1])])
     screen.set_payment_data(options.get_payment_data())
     screen.on_enter()
@@ -298,7 +294,6 @@ class TestCheckedVouchersAtPayment:
         screen = PaymentController(main_app)
         main_app.stacked_widget = SimpleNamespace(currentWidget=lambda: screen)
         options = PrintOptionsModel()
-        options.set_color_mode("Black and White")
         options.set_items([PrintItem({'path': PDF}, [1])])
         screen.set_payment_data(options.get_payment_data())
         screen.on_enter()
@@ -558,7 +553,6 @@ class TestVoucherScreenTiming:
 def job(source='usb'):
     """payment_data for a 1-page B&W job, as PrintOptionsController builds it."""
     options = PrintOptionsModel()
-    options.set_color_mode("Black and White")
     options.set_items([PrintItem({'path': PDF}, [1])])
     payment_data = options.get_payment_data()
     payment_data['source'] = source
@@ -1117,7 +1111,6 @@ def scan(kiosk, db, tmp_path, monkeypatch):
 
 def scan_print_plus_digital_data(fee):
     options = PrintOptionsModel()
-    options.set_color_mode("Black and White")
     options.set_items([PrintItem({'path': PDF}, [1])], digital_fee=fee)
     payment_data = options.get_payment_data()
     payment_data['source'] = 'scanner'
@@ -1151,7 +1144,6 @@ def test_digital_only_scan_pays_the_flat_fee_before_a_session_exists(scan, db):
 def test_scan_print_plus_digital_adds_the_fee_and_shows_the_otp_after_payment(scan, db):
     main_app, model, destination, scan_dir = scan
     options = PrintOptionsModel()
-    options.set_color_mode("Black and White")
     options.set_items([PrintItem({'path': PDF}, [1])])
     print_only = options.get_payment_data()
     options.set_items([PrintItem({'path': PDF}, [1])], digital_fee=5)

@@ -297,3 +297,27 @@ class TestThankYouSafetyTimer:
 
         assert shown == ["Your document is being processed."]
         model.redirect_timer.stop()
+
+
+def test_two_back_and_returns_keep_the_cash_and_a_later_abandon_still_issues_the_voucher(kiosk, db):
+    from tests.test_payment_change_flow import (
+        VoucherManager, displayed, leave_payment, start_priced_payment)
+    main_app, model = kiosk
+    start_priced_payment(model)
+    main_app.acceptors.coin_inserted.emit(5)
+
+    leave_payment(main_app, model, 'printing_options')      # back, change the job, return
+    start_priced_payment(model, 40)
+    assert model.amount_received == 5
+    leave_payment(main_app, model, 'printing_options')      # and once more
+    start_priced_payment(model, 30)
+    assert model.amount_received == 5 and model.amount_owed == 25
+    assert db.get_transaction_history() == []                # nothing cancelled yet
+
+    leave_payment(main_app, model, 'printing_options')
+    main_app.show_screen('homepage')                         # now they walk away
+
+    assert main_app.screens[-1] == 'voucher'
+    assert VoucherManager(db).balance(displayed(main_app).code).remaining == 5
+    [row] = db.get_transaction_history()
+    assert (row['status'], row['voucher_issued']) == ('cancelled_partial_payment', 5)

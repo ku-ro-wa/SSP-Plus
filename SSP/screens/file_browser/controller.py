@@ -69,32 +69,27 @@ class FileBrowserController(QWidget):
         self.main_app.show_screen('homepage')
 
     def _continue_to_payment(self):
-        """Handles continue to print options button click."""
-        print("🔍 Continue button clicked")
-        print(f"🔍 Selected PDF: {self.view.selected_pdf}")
-        print(f"🔍 Selected pages: {self.view.selected_pages}")
+        """Handles continue to print options button click: the ticked files, in tick order."""
+        files = self.view.ticked_files()
+        print(f"🔍 Continue clicked with {len(files)} ticked file(s)")
 
-        if not self.view.selected_pdf:
-            QMessageBox.warning(self, "No PDF Selected", "Please select a PDF file.")
+        if not files:
+            QMessageBox.warning(self, "No PDF Selected", "Please tick at least one file to print.")
             return
 
-        if self.view.selected_pdf.get('error'):
-            QMessageBox.warning(self, "File Can't Be Opened",
-                                "This file can't be printed. Please choose another file.")
-            return
+        for pdf_data, pages in files:
+            if pdf_data.get('error'):
+                QMessageBox.warning(self, "File Can't Be Opened",
+                                    "This file can't be printed. Please choose another file.")
+                return
+            if not pages:
+                QMessageBox.warning(self, "No Pages Selected",
+                                    f"Please select at least one page of {pdf_data['filename']}.")
+                return
 
-        # Get selected pages from the view
-        selected_pages_list = [page for page, selected in self.view.selected_pages.items() if selected]
-        print(f"🔍 Selected pages list: {selected_pages_list}")
-
-        if not selected_pages_list:
-            QMessageBox.warning(self, "No Pages Selected", "Please select at least one page to print.")
-            return
-
-        # Pass data to print options screen
-        print(f"🔍 Calling set_items with PDF: {self.view.selected_pdf['filename']} and pages: {selected_pages_list}")
-        options_screen = self.main_app.printing_options_screen
-        options_screen.set_items([PrintItem(self.view.selected_pdf, sorted(selected_pages_list))], self.source)
+        items = [PrintItem(pdf_data, pages) for pdf_data, pages in files]
+        print(f"🔍 Calling set_items with {[i.file_name for i in items]}")
+        self.main_app.printing_options_screen.set_items(items, self.source)
         print("🔍 Switching to print options screen")
         self.main_app.show_screen('printing_options')
 
