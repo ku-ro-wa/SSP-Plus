@@ -134,7 +134,7 @@ _Avoid_: copy job, scan job.
 
 **Digital Copy**:
 A scan delivered to the customer's own device (download or email) through an OTP session. It
-costs a flat fee (`SCAN_DIGITAL_FEE`, default ₱5; Kiosk Admin's `scan_digital_fee` setting
+costs a flat fee (`SCAN_DIGITAL_FEE`, default ₱5; the `scan_digital_fee` setting (Settings)
 overrides it), paid before the session exists. If the session can't be created after
 payment, the fee comes back as a Voucher.
 

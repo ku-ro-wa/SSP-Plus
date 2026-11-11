@@ -53,8 +53,6 @@ class AdminScreenView(QWidget):
     # +/- button functionality
     paper_decreased = pyqtSignal()
     paper_increased = pyqtSignal()
-    digital_fee_decreased = pyqtSignal()
-    digital_fee_increased = pyqtSignal()
     coin_1_decreased = pyqtSignal()
     coin_1_increased = pyqtSignal()
     coin_5_decreased = pyqtSignal()
@@ -126,7 +124,7 @@ class AdminScreenView(QWidget):
         return label
 
     def _create_paper_management_group(self):
-        group = QGroupBox("Paper & Pricing")
+        group = QGroupBox("Paper")
         group.setStyleSheet(GROUPBOX_QSS)
         layout = QVBoxLayout(group)
         layout.setSpacing(10)
@@ -144,14 +142,6 @@ class AdminScreenView(QWidget):
         reset_paper_btn.setMinimumHeight(44)
         reset_paper_btn.clicked.connect(self.reset_paper_clicked.emit)
         row.addWidget(reset_paper_btn)
-
-        # Same row, so the screen stays within 800 logical px.
-        row.addSpacing(40)
-        row.addWidget(self._section_label("Digital Copy Fee (₱)"))
-        row.addWidget(self._stepper("−", self.digital_fee_decreased.emit))
-        self.digital_fee_label = self._count_label()
-        row.addWidget(self.digital_fee_label)
-        row.addWidget(self._stepper("+", self.digital_fee_increased.emit))
 
         layout.addLayout(row)
         return group
@@ -319,8 +309,6 @@ class AdminScreenView(QWidget):
             f"color: {tint}; font-size: {FONT['size_md']}px; font-weight: 700;"
         )
 
-    def update_digital_fee_display(self, fee):
-        self.digital_fee_label.setText(str(fee))
 
     def update_paper_count_display(self, count, color=None):
         """Updates the paper count label, tinted by remaining level."""

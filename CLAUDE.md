@@ -178,7 +178,7 @@ Login issues a signed cookie session with a 10-hour sliding inactivity timeout
 `DatabaseManager.get_accounting_summary()` — a `scanner`-sourced row only exists when the scan's
 destination was print (a Photocopy) and/or a paid Digital Copy (`copies` = 0 when it's the
 Digital Copy alone). The scan's digital copy (download/email) costs a flat fee
-(`managers/digital_fee.py`: Kiosk Admin's `scan_digital_fee` setting, else `SCAN_DIGITAL_FEE`),
+(`managers/digital_fee.py`: the `scan_digital_fee` setting (Settings screen or Dashboard), else `SCAN_DIGITAL_FEE`),
 and nothing is delivered before payment: `scan_destination` routes print-only to
 `printing_options`, print + digital to `printing_options` with the fee added, and digital-only
 straight to `payment` (`print_job: False`). `PaymentModel._prepare_digital_copy()` creates the
@@ -206,7 +206,7 @@ See `docs/adr/0002-admin-dashboard-auth-and-remote-access-architecture.md` and C
 
 ### Runtime settings (issue #106)
 
-`managers/settings_catalog.py` lists the seven operator-editable `settings` keys (Voucher expiry/lockout, pickup window, max change, coin reserves, low-change warning) with label, unit, min/max and default; `validate_many`/`save_many` are all-or-nothing and reject rather than clamp. Kiosk Admin's `settings` screen (`screens/settings/`, button on the admin screen) and the Dashboard's `/settings` (`admin` writes, `operator` reads) both render and save through it. `vouchers_enabled` is deliberately not in the catalog. `tests/test_settings_catalog.py` fails if a default drifts from the manager that reads it.
+`managers/settings_catalog.py` lists the eight operator-editable `settings` keys (Voucher expiry/lockout, pickup window, max change, coin reserves, low-change warning, Digital Copy fee; the fee's unset default is the `SCAN_DIGITAL_FEE` env value, via `default_source`) with label, unit, min/max and default; `validate_many`/`save_many` are all-or-nothing and reject rather than clamp. Kiosk Admin's `settings` screen (`screens/settings/`, button on the admin screen) and the Dashboard's `/settings` (`admin` writes, `operator` reads) both render and save through it. `vouchers_enabled` is deliberately not in the catalog. `tests/test_settings_catalog.py` fails if a default drifts from the manager that reads it.
 
 ### Configuration
 
