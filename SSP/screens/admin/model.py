@@ -3,10 +3,7 @@
 from PyQt5.QtCore import QObject, pyqtSignal
 from config import get_config
 from database.db_manager import DatabaseManager
-from managers.admin_actions import (
-    ACTION_COINS_1, ACTION_COINS_5, ACTION_COLLECT_CASH, ACTION_INK, ACTION_PAPER, format_ink,
-    record_touchscreen_action,
-)
+from managers import inventory_edits as edits
 from managers.digital_fee import get_digital_fee, set_digital_fee
 from managers.sms_manager import get_sms_manager
 
@@ -37,23 +34,15 @@ class AdminModel(QObject):
         by a stale in-memory count here."""
         self.paper_count = self.db_manager.get_setting('paper_count', default=100)
 
-    def _audit(self, action, old, new):
-        """One admin_actions row for an operator change made here (issue #134)."""
-        record_touchscreen_action(self.db_manager, action, old, new)
-
     def _write_paper_count(self, new_count):
         """Store an operator's paper count and audit it. Callers refresh first,
         so the old value is the DB's, not a stale in-memory one."""
-        old = self.paper_count
         self.paper_count = new_count
-        self.db_manager.update_setting('paper_count', new_count)
-        self._audit(ACTION_PAPER, old, new_count)
+        edits.set_paper(self.db_manager, new_count, edits.TOUCHSCREEN)
 
     def _set_coin_count(self, denomination, count, coin_type='coin'):
         """Store an operator's coin count and audit it."""
-        old = dict(zip((1, 5), self.get_coin_counts())).get(denomination, 0)
-        self.db_manager.update_cash_inventory(denomination, count, coin_type)
-        self._audit(ACTION_COINS_1 if denomination == 1 else ACTION_COINS_5, old, count)
+        edits.set_coin_count(self.db_manager, denomination, count, edits.TOUCHSCREEN, coin_type)
 
     def load_digital_fee(self):
         self.digital_fee_changed.emit(get_digital_fee(self.db_manager))
@@ -105,12 +94,7 @@ class AdminModel(QObject):
     def update_paper_count_from_string(self, count_str: str):
         """Validates and updates the paper count from user input string."""
         try:
-            new_count = int(count_str)
-            if not (0 <= new_count <= 100):
-                self.show_message.emit("Invalid Input", "Paper count must be between 0 and 100.")
-                self.load_paper_count()  # Revert display to current value
-                return
-
+            new_count = edits.parse_paper(count_str)
             self._refresh_paper_count()
             old_count = self.paper_count
             self._write_paper_count(new_count)
@@ -122,9 +106,9 @@ class AdminModel(QObject):
             self.load_paper_count()  # Reload to emit signal
             print(f"Paper count updated from {old_count} to {new_count} sheets.")
 
-        except ValueError:
-            self.show_message.emit("Invalid Input", "Please enter a valid number.")
-            self.load_paper_count()  # Revert display
+        except edits.EditError as e:
+            self.show_message.emit("Invalid Input", str(e))
+            self.load_paper_count()  # Revert display to current value
 
     def check_paper_availability(self, pages_to_print: int) -> bool:
         """Checks if there's enough paper for a print job. Returns True if available."""
@@ -199,35 +183,25 @@ class AdminModel(QObject):
     def update_coin_1_count(self, count_str: str):
         """Validates and updates the ₱1 coin count from user input."""
         try:
-            new_count = int(count_str)
-            if not (0 <= new_count <= 1000):
-                self.show_message.emit("Invalid Input", "₱1 coin count must be between 0 and 1000.")
-                self.load_coin_counts()
-                return
-
+            new_count = edits.parse_coin_count(count_str, 1)
             self._set_coin_count(1, new_count, 'coin')
             self.load_coin_counts()
             print(f"₱1 coin count updated to {new_count}")
 
-        except ValueError:
-            self.show_message.emit("Invalid Input", "Please enter a valid number for ₱1 coins.")
+        except edits.EditError as e:
+            self.show_message.emit("Invalid Input", str(e))
             self.load_coin_counts()
 
     def update_coin_5_count(self, count_str: str):
         """Validates and updates the ₱5 coin count from user input."""
         try:
-            new_count = int(count_str)
-            if not (0 <= new_count <= 1000):
-                self.show_message.emit("Invalid Input", "₱5 coin count must be between 0 and 1000.")
-                self.load_coin_counts()
-                return
-
+            new_count = edits.parse_coin_count(count_str, 5)
             self._set_coin_count(5, new_count, 'coin')
             self.load_coin_counts()
             print(f"₱5 coin count updated to {new_count}")
 
-        except ValueError:
-            self.show_message.emit("Invalid Input", "Please enter a valid number for ₱5 coins.")
+        except edits.EditError as e:
+            self.show_message.emit("Invalid Input", str(e))
             self.load_coin_counts()
 
     def reset_coin_counts(self):
@@ -252,12 +226,11 @@ class AdminModel(QObject):
         """Record the current counts as a cash collection and zero them (issue #110).
         Returns True when it was recorded. Coins stay at 0, so the kiosk gives no
         change until the operator enters the hopper counts after refilling."""
-        total = self.db_manager.get_collection_preview()['total']
-        collection_id = self.db_manager.record_cash_collection()
-        if collection_id is None:
-            self.show_message.emit("Database Error", "Could not record the cash collection. Nothing was changed.")
+        try:
+            collection_id = edits.collect_cash(self.db_manager, edits.TOUCHSCREEN)
+        except edits.EditError as e:
+            self.show_message.emit("Database Error", str(e))
             return False
-        self._audit(ACTION_COLLECT_CASH, f"₱{total:g} counted", f"collection #{collection_id}")
         self.load_coin_counts()
         print(f"Cash collection #{collection_id} recorded; all counts set to 0")
         return True
@@ -421,22 +394,21 @@ class AdminModel(QObject):
     def update_cmyk_levels(self, cyan: float, magenta: float, yellow: float, black: float):
         """Updates CMYK ink levels in the database."""
         try:
-            # Validate ranges
-            if not (0.0 <= cyan <= 100.0 and 0.0 <= magenta <= 100.0 and
-                    0.0 <= yellow <= 100.0 and 0.0 <= black <= 100.0):
-                self.show_message.emit("Invalid Input", "CMYK values must be between 0.0 and 100.0")
+            try:
+                levels = edits.check_ink(
+                    {'cyan': cyan, 'magenta': magenta, 'yellow': yellow, 'black': black})
+            except edits.EditError as e:
+                self.show_message.emit("Invalid Input", str(e))
                 self.load_cmyk_levels()
                 return
 
-            old = format_ink(self.db_manager.get_cmyk_ink_levels())
-            success = self.db_manager.update_cmyk_ink_levels(cyan, magenta, yellow, black)
-            if success:
-                self._audit(ACTION_INK, old, format_ink(
-                    {'cyan': cyan, 'magenta': magenta, 'yellow': yellow, 'black': black}))
-                self.load_cmyk_levels()
-                print(f"CMYK levels updated: C:{cyan:.1f}% M:{magenta:.1f}% Y:{yellow:.1f}% K:{black:.1f}%")
-            else:
-                self.show_message.emit("Database Error", "Failed to update CMYK levels")
+            try:
+                edits.set_ink(self.db_manager, levels, edits.TOUCHSCREEN)
+            except edits.EditError as e:
+                self.show_message.emit("Database Error", str(e))
+                return
+            self.load_cmyk_levels()
+            print(f"CMYK levels updated: C:{cyan:.1f}% M:{magenta:.1f}% Y:{yellow:.1f}% K:{black:.1f}%")
 
         except Exception as e:
             print(f"Error updating CMYK levels: {e}")
@@ -445,15 +417,9 @@ class AdminModel(QObject):
     def reset_cmyk_levels(self):
         """Resets all CMYK ink levels to 100%."""
         try:
-            old = format_ink(self.db_manager.get_cmyk_ink_levels())
-            success = self.db_manager.update_cmyk_ink_levels(100.0, 100.0, 100.0, 100.0)
-            if success:
-                self._audit(ACTION_INK, old, format_ink(
-                    {'cyan': 100.0, 'magenta': 100.0, 'yellow': 100.0, 'black': 100.0}))
-                self.load_cmyk_levels()
-                print("CMYK levels reset to 100%")
-            else:
-                self.show_message.emit("Database Error", "Failed to reset CMYK levels")
+            edits.refill_ink(self.db_manager, edits.TOUCHSCREEN)
+            self.load_cmyk_levels()
+            print("CMYK levels reset to 100%")
         except Exception as e:
             print(f"Error resetting CMYK levels: {e}")
             self.show_message.emit("Error", f"Failed to reset CMYK levels: {e}")
