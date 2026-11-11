@@ -694,6 +694,28 @@ class DatabaseManager(VoucherDBMixin, CashCollectionDBMixin):
             print(f"Error resetting failed attempts for '{username}': {e}")
             return False
 
+    def record_admin_action(self, actor, location, source_ip, action, old_value, new_value):
+        """Append one row to the operator-change audit trail (issue #134)."""
+        if not self.conn:
+            return False
+        try:
+            cursor = self.conn.cursor()
+            cursor.execute(
+                "INSERT INTO admin_actions "
+                "(timestamp, actor, location, source_ip, action, old_value, new_value) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?)",
+                (datetime.now(), actor, location, source_ip, action, old_value, new_value)
+            )
+            self.conn.commit()
+            return True
+        except sqlite3.Error as e:
+            print(f"Error recording admin action '{action}': {e}")
+            return False
+
+    def get_admin_action_page(self, limit, offset=0):
+        """One page of admin_actions, newest first, plus the total row count."""
+        return self._get_page("admin_actions", "", limit, offset)
+
     def record_login_attempt(self, username, success, source_ip):
         """Append a row to the dashboard login audit log. Called for every
         login attempt, successful or not, including unknown usernames."""

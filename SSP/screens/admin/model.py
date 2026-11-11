@@ -3,6 +3,10 @@
 from PyQt5.QtCore import QObject, pyqtSignal
 from config import get_config
 from database.db_manager import DatabaseManager
+from managers.admin_actions import (
+    ACTION_COINS_1, ACTION_COINS_5, ACTION_COLLECT_CASH, ACTION_INK, ACTION_PAPER, format_ink,
+    record_touchscreen_action,
+)
 from managers.digital_fee import get_digital_fee, set_digital_fee
 from managers.sms_manager import get_sms_manager
 
@@ -33,6 +37,24 @@ class AdminModel(QObject):
         by a stale in-memory count here."""
         self.paper_count = self.db_manager.get_setting('paper_count', default=100)
 
+    def _audit(self, action, old, new):
+        """One admin_actions row for an operator change made here (issue #134)."""
+        record_touchscreen_action(self.db_manager, action, old, new)
+
+    def _write_paper_count(self, new_count):
+        """Store an operator's paper count and audit it. Callers refresh first,
+        so the old value is the DB's, not a stale in-memory one."""
+        old = self.paper_count
+        self.paper_count = new_count
+        self.db_manager.update_setting('paper_count', new_count)
+        self._audit(ACTION_PAPER, old, new_count)
+
+    def _set_coin_count(self, denomination, count, coin_type='coin'):
+        """Store an operator's coin count and audit it."""
+        old = dict(zip((1, 5), self.get_coin_counts())).get(denomination, 0)
+        self.db_manager.update_cash_inventory(denomination, count, coin_type)
+        self._audit(ACTION_COINS_1 if denomination == 1 else ACTION_COINS_5, old, count)
+
     def load_digital_fee(self):
         self.digital_fee_changed.emit(get_digital_fee(self.db_manager))
 
@@ -56,8 +78,8 @@ class AdminModel(QObject):
 
     def reset_paper_count(self):
         """Resets the paper count to 100."""
-        self.paper_count = 100
-        self.db_manager.update_setting('paper_count', self.paper_count)
+        self._refresh_paper_count()
+        self._write_paper_count(100)
         self.sms_alert_sent = False
         print("Paper count reset to 100, SMS alert flag reset.")
         self.load_paper_count()  # Reload to emit signal
@@ -66,8 +88,7 @@ class AdminModel(QObject):
         """Increases the paper count by 1."""
         self._refresh_paper_count()
         if self.paper_count < 100:
-            self.paper_count += 1
-            self.db_manager.update_setting('paper_count', self.paper_count)
+            self._write_paper_count(self.paper_count + 1)
             color = self._get_color_for_count(self.paper_count)
             self.paper_count_changed.emit(self.paper_count, color)
             print(f"Paper count increased to {self.paper_count}")
@@ -76,8 +97,7 @@ class AdminModel(QObject):
         """Decreases the paper count by 1."""
         self._refresh_paper_count()
         if self.paper_count > 0:
-            self.paper_count -= 1
-            self.db_manager.update_setting('paper_count', self.paper_count)
+            self._write_paper_count(self.paper_count - 1)
             color = self._get_color_for_count(self.paper_count)
             self.paper_count_changed.emit(self.paper_count, color)
             print(f"Paper count decreased to {self.paper_count}")
@@ -93,8 +113,7 @@ class AdminModel(QObject):
 
             self._refresh_paper_count()
             old_count = self.paper_count
-            self.paper_count = new_count
-            self.db_manager.update_setting('paper_count', self.paper_count)
+            self._write_paper_count(new_count)
 
             if new_count > old_count and new_count > 10:
                 self.sms_alert_sent = False
@@ -186,7 +205,7 @@ class AdminModel(QObject):
                 self.load_coin_counts()
                 return
 
-            self.db_manager.update_cash_inventory(1, new_count, 'coin')
+            self._set_coin_count(1, new_count, 'coin')
             self.load_coin_counts()
             print(f"₱1 coin count updated to {new_count}")
 
@@ -203,7 +222,7 @@ class AdminModel(QObject):
                 self.load_coin_counts()
                 return
 
-            self.db_manager.update_cash_inventory(5, new_count, 'coin')
+            self._set_coin_count(5, new_count, 'coin')
             self.load_coin_counts()
             print(f"₱5 coin count updated to {new_count}")
 
@@ -213,15 +232,15 @@ class AdminModel(QObject):
 
     def reset_coin_counts(self):
         """Resets both coin counts to default values."""
-        self.db_manager.update_cash_inventory(1, 100, 'coin')  # Default 100 ₱1 coins
-        self.db_manager.update_cash_inventory(5, 50, 'coin')   # Default 50 ₱5 coins
+        self._set_coin_count(1, 100, 'coin')  # Default 100 ₱1 coins
+        self._set_coin_count(5, 50, 'coin')   # Default 50 ₱5 coins
         self.load_coin_counts()
         print("Coin counts reset to defaults: ₱1=100, ₱5=50")
 
     def empty_coin_counts(self):
         """Sets both coin counts to 0 (SIM_MODE testing: forces a Shortfall)."""
-        self.db_manager.update_cash_inventory(1, 0, 'coin')
-        self.db_manager.update_cash_inventory(5, 0, 'coin')
+        self._set_coin_count(1, 0, 'coin')
+        self._set_coin_count(5, 0, 'coin')
         self.load_coin_counts()
         print("Coin counts emptied: ₱1=0, ₱5=0")
 
@@ -233,10 +252,12 @@ class AdminModel(QObject):
         """Record the current counts as a cash collection and zero them (issue #110).
         Returns True when it was recorded. Coins stay at 0, so the kiosk gives no
         change until the operator enters the hopper counts after refilling."""
+        total = self.db_manager.get_collection_preview()['total']
         collection_id = self.db_manager.record_cash_collection()
         if collection_id is None:
             self.show_message.emit("Database Error", "Could not record the cash collection. Nothing was changed.")
             return False
+        self._audit(ACTION_COLLECT_CASH, f"₱{total:g} counted", f"collection #{collection_id}")
         self.load_coin_counts()
         print(f"Cash collection #{collection_id} recorded; all counts set to 0")
         return True
@@ -253,7 +274,7 @@ class AdminModel(QObject):
 
             if current_count < 1000:  # Max limit
                 new_count = current_count + 1
-                self.db_manager.update_cash_inventory(1, new_count, 'coin')
+                self._set_coin_count(1, new_count, 'coin')
                 self.load_coin_counts()
                 print(f"₱1 coin count increased to {new_count}")
         except Exception as e:
@@ -271,7 +292,7 @@ class AdminModel(QObject):
 
             if current_count > 0:  # Min limit
                 new_count = current_count - 1
-                self.db_manager.update_cash_inventory(1, new_count, 'coin')
+                self._set_coin_count(1, new_count, 'coin')
                 self.load_coin_counts()
                 print(f"₱1 coin count decreased to {new_count}")
         except Exception as e:
@@ -289,7 +310,7 @@ class AdminModel(QObject):
 
             if current_count < 1000:  # Max limit
                 new_count = current_count + 1
-                self.db_manager.update_cash_inventory(5, new_count, 'coin')
+                self._set_coin_count(5, new_count, 'coin')
                 self.load_coin_counts()
                 print(f"₱5 coin count increased to {new_count}")
         except Exception as e:
@@ -307,7 +328,7 @@ class AdminModel(QObject):
 
             if current_count > 0:  # Min limit
                 new_count = current_count - 1
-                self.db_manager.update_cash_inventory(5, new_count, 'coin')
+                self._set_coin_count(5, new_count, 'coin')
                 self.load_coin_counts()
                 print(f"₱5 coin count decreased to {new_count}")
         except Exception as e:
@@ -407,8 +428,11 @@ class AdminModel(QObject):
                 self.load_cmyk_levels()
                 return
 
+            old = format_ink(self.db_manager.get_cmyk_ink_levels())
             success = self.db_manager.update_cmyk_ink_levels(cyan, magenta, yellow, black)
             if success:
+                self._audit(ACTION_INK, old, format_ink(
+                    {'cyan': cyan, 'magenta': magenta, 'yellow': yellow, 'black': black}))
                 self.load_cmyk_levels()
                 print(f"CMYK levels updated: C:{cyan:.1f}% M:{magenta:.1f}% Y:{yellow:.1f}% K:{black:.1f}%")
             else:
@@ -421,8 +445,11 @@ class AdminModel(QObject):
     def reset_cmyk_levels(self):
         """Resets all CMYK ink levels to 100%."""
         try:
+            old = format_ink(self.db_manager.get_cmyk_ink_levels())
             success = self.db_manager.update_cmyk_ink_levels(100.0, 100.0, 100.0, 100.0)
             if success:
+                self._audit(ACTION_INK, old, format_ink(
+                    {'cyan': 100.0, 'magenta': 100.0, 'yellow': 100.0, 'black': 100.0}))
                 self.load_cmyk_levels()
                 print("CMYK levels reset to 100%")
             else:

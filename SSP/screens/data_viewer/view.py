@@ -1,11 +1,12 @@
 # screens/data_viewer/view.py
 
 from PyQt5.QtWidgets import (
-    QWidget, QVBoxLayout, QTabWidget,
+    QWidget, QVBoxLayout, QHBoxLayout, QLabel, QTabWidget,
     QTableWidget, QTableWidgetItem, QHeaderView
 )
 from PyQt5.QtCore import Qt, pyqtSignal
 
+from managers.admin_actions import where_text
 from ui.theme import COLORS, TABLE_QSS, TAB_QSS
 from ui.widgets import BackButton, Header, SecondaryButton, nav_row
 
@@ -16,6 +17,9 @@ class DataViewerScreenView(QWidget):
     refresh_transactions_clicked = pyqtSignal()
     refresh_cash_inventory_clicked = pyqtSignal()
     refresh_error_log_clicked = pyqtSignal()
+    refresh_admin_actions_clicked = pyqtSignal()
+    previous_actions_clicked = pyqtSignal()
+    next_actions_clicked = pyqtSignal()
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -42,6 +46,7 @@ class DataViewerScreenView(QWidget):
         self.tab_widget.addTab(self.create_transactions_tab(), "Transactions")
         self.tab_widget.addTab(self.create_cash_inventory_tab(), "Cash Inventory")
         self.tab_widget.addTab(self.create_error_log_tab(), "Error Log")
+        self.tab_widget.addTab(self.create_admin_actions_tab(), "Admin Actions")
         body_layout.addWidget(self.tab_widget, 1)
 
         # Bottom navigation row.
@@ -64,6 +69,8 @@ class DataViewerScreenView(QWidget):
             self.refresh_cash_inventory_clicked.emit()
         elif current_index == 2:  # Error Log
             self.refresh_error_log_clicked.emit()
+        elif current_index == 3:  # Admin Actions
+            self.refresh_admin_actions_clicked.emit()
 
     def _make_table(self):
         table = QTableWidget()
@@ -124,6 +131,52 @@ class DataViewerScreenView(QWidget):
         layout.setContentsMargins(10, 10, 10, 10)
         layout.addWidget(self.error_log_table)
         return widget
+
+    def create_admin_actions_tab(self):
+        """Creates the admin actions tab: the audit trail, newest first, paged."""
+        self.admin_actions_table = self._make_table()
+
+        self.previous_actions_button = SecondaryButton("Newer")
+        self.previous_actions_button.setMinimumHeight(44)
+        self.previous_actions_button.clicked.connect(self.previous_actions_clicked.emit)
+        self.next_actions_button = SecondaryButton("Older")
+        self.next_actions_button.setMinimumHeight(44)
+        self.next_actions_button.clicked.connect(self.next_actions_clicked.emit)
+        self.actions_page_label = QLabel("")
+        self.actions_page_label.setAlignment(Qt.AlignCenter)
+        self.actions_page_label.setStyleSheet(f"color: {COLORS['text']};")
+
+        pager = QHBoxLayout()
+        pager.addWidget(self.previous_actions_button)
+        pager.addWidget(self.actions_page_label, 1)
+        pager.addWidget(self.next_actions_button)
+
+        widget = QWidget()
+        layout = QVBoxLayout(widget)
+        layout.setContentsMargins(10, 10, 10, 10)
+        layout.addWidget(self.admin_actions_table)
+        layout.addLayout(pager)
+        return widget
+
+    def update_admin_actions_table(self, actions, page, pages):
+        """Updates the admin actions table; same columns as the Dashboard's /logs."""
+        self.admin_actions_table.clear()
+        self.admin_actions_table.setColumnCount(6)
+        self.admin_actions_table.setHorizontalHeaderLabels(["Time", "Who", "Where", "Action", "Old", "New"])
+        self.admin_actions_table.setRowCount(len(actions))
+
+        for i, action in enumerate(actions):
+            self.admin_actions_table.setItem(i, 0, self._item(action['timestamp']))
+            self.admin_actions_table.setItem(i, 1, self._item(action['actor']))
+            self.admin_actions_table.setItem(i, 2, self._item(where_text(action)))
+            self.admin_actions_table.setItem(i, 3, self._item(action['action']))
+            self.admin_actions_table.setItem(i, 4, self._item(action['old_value'] or ''))
+            self.admin_actions_table.setItem(i, 5, self._item(action['new_value'] or ''))
+
+        self._fit_columns(self.admin_actions_table, stretch_column=5)
+        self.actions_page_label.setText(f"Page {page} of {pages}")
+        self.previous_actions_button.setEnabled(page > 1)
+        self.next_actions_button.setEnabled(page < pages)
 
     def update_transactions_table(self, transactions):
         """Updates the transactions table with new data."""
