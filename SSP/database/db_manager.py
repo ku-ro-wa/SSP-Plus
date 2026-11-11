@@ -4,6 +4,7 @@ import json
 import sqlite3
 import os
 from datetime import datetime
+from database.cash_collection_db import CashCollectionDBMixin
 from database.voucher_db import VoucherDBMixin
 
 # Canonical Source vocabulary (CONTEXT.md's Source term) — the fixed
@@ -18,7 +19,7 @@ ACCOUNTING_SOURCES = ("usb", "wifi", "email", "scanner")
 SIM_DB_NAME = "ssp_database.sim.db"
 
 
-class DatabaseManager(VoucherDBMixin):
+class DatabaseManager(VoucherDBMixin, CashCollectionDBMixin):
     def __init__(self, db_name="ssp_database.db", db_path=None):
         # db_path lets callers (tests, the demo/fixture DB) point at an
         # arbitrary SQLite file instead of the fixed database/ directory

@@ -132,6 +132,26 @@ def init_db(db_path=None):
     ''')
     print("OK - Created cash_inventory table")
 
+    # Cash collections (issue #110): what the operator counted and took out,
+    # recorded just before every cash_inventory count is zeroed. Additive only.
+    cursor.execute('''
+    CREATE TABLE IF NOT EXISTS cash_collections (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        collected_at DATETIME NOT NULL,
+        total REAL NOT NULL,
+        note TEXT
+    )
+    ''')
+    cursor.execute('''
+    CREATE TABLE IF NOT EXISTS cash_collection_items (
+        collection_id INTEGER NOT NULL,
+        denomination REAL NOT NULL,
+        type TEXT NOT NULL,
+        count INTEGER NOT NULL
+    )
+    ''')
+    print("OK - Created cash_collections tables")
+
     # Create ErrorLog table
     cursor.execute('''
     CREATE TABLE IF NOT EXISTS error_log (

@@ -28,7 +28,7 @@ SIM_MODE (set via `.env` or as a shell var, which takes precedence — see `make
 
 ### Screen navigation (MVC + QStackedWidget)
 
-`PrintingSystemApp` (`SSP/main_app.py`) owns a `QStackedWidget` and navigates via `show_screen(screen_name)`. `SCREEN_MAP` maps name → index: `idle`, `usb`, `file_browser`, `printing_options`, `payment`, `admin`, `data_viewer`, `thank_you`. Always navigate through `show_screen()` — it calls `on_leave()` on the outgoing screen and `on_enter()` on the incoming one, and (except for `admin`/`thank_you`) redirects to `thank_you` with an error if paper is low (`paper_count <= 3`) or any CMYK cartridge is critically low (`<= 20%`).
+`PrintingSystemApp` (`SSP/main_app.py`) owns a `QStackedWidget` and navigates via `show_screen(screen_name)`. `SCREEN_MAP` maps name → index: `idle`, `usb`, `file_browser`, `printing_options`, `payment`, `admin`, `settings`, `data_viewer`, `thank_you` (plus the others in `main_app.py`). Always navigate through `show_screen()` — it calls `on_leave()` on the outgoing screen and `on_enter()` on the incoming one, and (except for `admin`/`thank_you`) redirects to `thank_you` with an error if paper is low (`paper_count <= 3`) or any CMYK cartridge is critically low (`<= 20%`).
 
 Each screen under `screens/<name>/` follows MVC with three files:
 - `controller.py` — wires view signals to model methods, calls `show_screen()` for navigation
@@ -139,6 +139,7 @@ default and the setting override; `tests/test_session_cleanup_schedule.py` cover
 ### Database
 
 SQLite at `SSP/database/ssp_database.db` (path is derived from `models.py`'s own location, so it's stable regardless of CWD — unlike `.env`). Schema is created by `database/models.py:init_db()`, called once at startup from `main()`. Tables: `transactions` (has a `source` column, see Admin Dashboard below), `cash_inventory`,
+`cash_collections` + `cash_collection_items` (a Kiosk Admin "Collect cash" records the counts, then zeroes `cash_inventory`; coin figures are a physical count, not coins received; listed read-only on `/accounting`, issue #110),
 `error_log`, `printer_status`, `cmyk_ink_levels`, `settings`, `sessions`, `email_intake_log`,
 `transaction_files` (one row per file of a multi-file transaction, with `transactions.file_count`;
 no rows for older transactions, which read as one file; created by `migrate_transaction_files()`,
@@ -205,6 +206,10 @@ real HTTP requests against the real app, no mocked business logic.
 
 See `docs/adr/0002-admin-dashboard-auth-and-remote-access-architecture.md` and CONTEXT.md's
 "Admin Dashboard" glossary section for the full design and rationale.
+
+### Runtime settings (issue #106)
+
+`managers/settings_catalog.py` lists the seven operator-editable `settings` keys (Voucher expiry/lockout, pickup window, max change, coin reserves, low-change warning) with label, unit, min/max and default; `validate_many`/`save_many` are all-or-nothing and reject rather than clamp. Kiosk Admin's `settings` screen (`screens/settings/`, button on the admin screen) and the Dashboard's `/settings` (`admin` writes, `operator` reads) both render and save through it. `vouchers_enabled` is deliberately not in the catalog. `tests/test_settings_catalog.py` fails if a default drifts from the manager that reads it.
 
 ### Configuration
 

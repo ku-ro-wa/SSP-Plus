@@ -1,0 +1,65 @@
+{% extends "base.html" %}
+{% block title %}Settings{% endblock %}
+{% block heading %}Settings{% endblock %}
+{% block style %}
+        .field { display: grid; grid-template-columns: 1fr 160px; gap: 12px; align-items: center; padding: 12px 0; }
+        .field + .field { border-top: 1px solid #eee; }
+        .field input { font-size: 16px; padding: 8px 10px; border: 1px solid #bbb; border-radius: 8px; width: 100%; }
+        .field input.invalid { border-color: #b3261e; }
+        .field .err { color: #b3261e; font-size: 13px; grid-column: 1 / -1; }
+        button { font-size: 15px; padding: 10px 22px; border: 0; border-radius: 8px; background: #000; color: #fff; cursor: pointer; margin-top: 14px; }
+        #msg { margin-top: 12px; }
+{% endblock %}
+{% block content %}
+<section>
+    <div class="card">
+        {% if not can_edit %}<div class="muted">Read-only: only the admin role can change these.</div>{% endif %}
+        <form id="settings-form">
+        {% for s in settings %}
+        <div class="field" data-key="{{ s.key }}">
+            <label for="f-{{ s.key }}">{{ s.label }}{% if s.unit %} ({{ s.unit }}){% endif %}
+                <div class="muted">{{ s.help }} Allowed {{ s.minimum }}–{{ s.maximum }}; default {{ s.default }}.</div>
+            </label>
+            <input id="f-{{ s.key }}" name="{{ s.key }}" inputmode="numeric" value="{{ s.value }}"{% if not can_edit %} disabled{% endif %}>
+            <div class="err" hidden></div>
+        </div>
+        {% endfor %}
+        {% if can_edit %}<button type="submit">Save</button>{% endif %}
+        </form>
+        <div id="msg" class="muted"></div>
+        <div class="muted">Changes apply on the kiosk straight away; no restart needed.</div>
+    </div>
+</section>
+{% endblock %}
+{% block scripts %}
+{% if can_edit %}
+<script>
+document.getElementById("settings-form").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const values = {};
+    for (const input of e.target.querySelectorAll("input")) values[input.name] = input.value;
+    for (const el of e.target.querySelectorAll(".err")) el.hidden = true;
+    for (const el of e.target.querySelectorAll("input")) el.classList.remove("invalid");
+    const msg = document.getElementById("msg");
+    const response = await fetch("/settings", {
+        method: "POST", headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({values}),
+    });
+    if (response.ok) { msg.className = "ok"; msg.textContent = "Saved."; return; }
+    msg.className = "bad";
+    if (response.status === 422) {
+        const {errors} = await response.json();
+        for (const [key, text] of Object.entries(errors)) {
+            const row = document.querySelector(`.field[data-key="${key}"]`);
+            if (!row) continue;
+            row.querySelector("input").classList.add("invalid");
+            const err = row.querySelector(".err"); err.textContent = text; err.hidden = false;
+        }
+        msg.textContent = "Nothing was saved. Fix the marked fields.";
+    } else {
+        msg.textContent = "Could not save (" + response.status + ").";
+    }
+});
+</script>
+{% endif %}
+{% endblock %}

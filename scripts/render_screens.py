@@ -33,6 +33,7 @@ SCREENS = {
     "voucher": "VoucherController",
     "thank_you": "ThankYouController",
     "admin": "AdminController",
+    "settings": "SettingsController",
 }
 
 
@@ -85,6 +86,9 @@ def fill_live_content(name, screen):
         names = ["Thesis chapter 3 - final draft (revised) v12.pdf"] + [f"Form {n}.pdf" for n in range(2, 11)]
         screen.set_items([PrintItem({'path': pdf, 'filename': n}, [1, 2]) for n in names[:MAX_FILES_PER_TRANSACTION]],
                          source="usb")
+    if name == "settings":
+        screen.on_enter()
+        screen.view.show_errors({"max_change_limit": "Maximum change must be between 0 and 1000 ₱."})
     if name == "thank_you":
         screen.model.show_no_paper_error(0)  # its longest message: the admin's refill hint
 
@@ -146,7 +150,11 @@ def build_screen(name):
         return build_popup_preview(name)
 
     module = importlib.import_module(f"screens.{name}")
-    screen = getattr(module, SCREENS[name])(MagicMock())
+    main_app = MagicMock()
+    if name == "settings":
+        from database.db_manager import DatabaseManager
+        main_app.admin_screen.db_manager = DatabaseManager()  # the settings screen reads real rows
+    screen = getattr(module, SCREENS[name])(main_app)
     fill_live_content(name, screen)
     return screen
 
