@@ -1,13 +1,15 @@
 from PyQt5.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel, QScrollArea,
+    QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel,
     QFrame, QGridLayout, QCheckBox, QSizePolicy, QStackedLayout
 )
-from PyQt5.QtCore import Qt, pyqtSignal, QThread, QPoint
-from PyQt5.QtGui import QPixmap, QImage, QTouchEvent
+from PyQt5.QtCore import Qt, pyqtSignal, QThread
+from PyQt5.QtGui import QPixmap, QImage
 
 from .pdf_preview_widget import PDFPreviewWidget
 from ui.icons import icon_path
 from ui.theme import COLORS, RADIUS, FONT
+from ui.touch_scroll import SCROLLBAR_QSS, DragScrollArea  # noqa: F401
+from managers.print_items import MAX_FILES_PER_TRANSACTION
 from ui.widgets import Header, BackButton, PrimaryButton, SecondaryButton, nav_row
 
 try:
@@ -66,87 +68,6 @@ QPushButton {{
 QPushButton:hover {{ border-color: {COLORS["primary"]}; color: {COLORS["primary"]}; }}
 """
 
-SCROLLBAR_QSS = f"""
-QScrollArea {{ border: none; background-color: transparent; }}
-QScrollBar:vertical {{
-    background-color: {COLORS["bg_subtle"]}; width: 28px; border: none;
-    border-radius: {RADIUS["md"]}px; margin: 2px;
-}}
-QScrollBar::handle:vertical {{
-    background-color: {COLORS["border_strong"]}; border: none; border-radius: {RADIUS["md"]}px;
-    min-height: 30px; margin: 2px;
-}}
-QScrollBar::handle:vertical:hover {{ background-color: {COLORS["text_muted"]}; }}
-QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {{ height: 0px; border: none; background: transparent; }}
-QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {{ background: transparent; }}
-"""
-
-
-class DragScrollArea(QScrollArea):
-    """Custom scroll area that supports mouse/touch drag scrolling."""
-
-    def __init__(self, parent=None):
-        super().__init__(parent)
-        self.dragging = False
-        self.last_drag_position = QPoint()
-        self.setMouseTracking(True)
-
-    def mousePressEvent(self, event):
-        if event.button() == Qt.LeftButton:
-            self.dragging = True
-            self.last_drag_position = event.globalPos()
-            self.setCursor(Qt.ClosedHandCursor)
-        super().mousePressEvent(event)
-
-    def mouseMoveEvent(self, event):
-        if self.dragging and event.buttons() == Qt.LeftButton:
-            delta = event.globalPos() - self.last_drag_position
-            scroll_value = self.verticalScrollBar().value() - delta.y()
-            self.verticalScrollBar().setValue(scroll_value)
-            self.last_drag_position = event.globalPos()
-        super().mouseMoveEvent(event)
-
-    def mouseReleaseEvent(self, event):
-        if event.button() == Qt.LeftButton:
-            self.dragging = False
-            self.setCursor(Qt.ArrowCursor)
-        super().mouseReleaseEvent(event)
-
-    def wheelEvent(self, event):
-        """Handle mouse wheel scrolling."""
-        delta = event.angleDelta().y()
-        scroll_amount = delta // 8
-        self.verticalScrollBar().setValue(
-            self.verticalScrollBar().value() - scroll_amount
-        )
-        event.accept()
-
-    def enterEvent(self, event):
-        if not self.dragging:
-            self.setCursor(Qt.OpenHandCursor)
-        super().enterEvent(event)
-
-    def leaveEvent(self, event):
-        if not self.dragging:
-            self.setCursor(Qt.ArrowCursor)
-        super().leaveEvent(event)
-
-    def touchEvent(self, event):
-        """Handle touch events for touch screens."""
-        if event.touchPoints():
-            touch_point = event.touchPoints()[0]
-            if event.type() == QTouchEvent.TouchBegin:
-                self.dragging = True
-                self.last_drag_position = touch_point.pos().toPoint()
-            elif event.type() == QTouchEvent.TouchUpdate and self.dragging:
-                delta = touch_point.pos().toPoint() - self.last_drag_position
-                scroll_value = self.verticalScrollBar().value() - delta.y()
-                self.verticalScrollBar().setValue(scroll_value)
-                self.last_drag_position = touch_point.pos().toPoint()
-            elif event.type() == QTouchEvent.TouchEnd:
-                self.dragging = False
-        event.accept()
-
 
 class PDFButton(QPushButton):
     pdf_selected = pyqtSignal(dict)
@@ -165,7 +86,7 @@ class PDFButton(QPushButton):
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
         self.setStyleSheet(self.get_normal_style())
         self.clicked.connect(self.on_click)
-        self.setMinimumWidth(280)
+        self.setMinimumWidth(200)
         self.setFixedHeight(72)
 
     def get_normal_style(self):
@@ -207,6 +128,46 @@ class PDFButton(QPushButton):
         else:
             self.setStyleSheet(self.get_normal_style())
             self.setEnabled(True)
+
+
+TICK_SIZE = 64
+
+TICK_QSS = f"""
+QPushButton {{
+    background-color: {COLORS["bg"]}; color: {COLORS["bg"]}; border: 2px solid {PAGE_OUTLINE_COLOR};
+    border-radius: {RADIUS["md"]}px; font-size: {FONT["size_md"]}px; font-weight: 700; padding: 0;
+}}
+QPushButton:checked {{ background-color: {PAGE_SELECTED_COLOR}; border-color: {PAGE_SELECTED_COLOR}; }}
+QPushButton:disabled {{ background-color: {COLORS["bg_subtle"]}; border-color: {COLORS["border"]}; }}
+"""
+
+
+class PDFFileRow(QWidget):
+    """One file in the list: a tick box (print this file; shows its place in the
+    print order) and the file button (preview it)."""
+    tick_clicked = pyqtSignal(dict)
+
+    def __init__(self, pdf_data):
+        super().__init__()
+        self.pdf_data = pdf_data
+        self.setStyleSheet("background-color: transparent;")
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(6)
+        self.tick_btn = QPushButton("")
+        self.tick_btn.setCheckable(True)
+        self.tick_btn.setStyleSheet(TICK_QSS)
+        self.tick_btn.setFixedSize(TICK_SIZE, 72)
+        self.tick_btn.setEnabled(not pdf_data.get('error'))
+        self.tick_btn.clicked.connect(lambda: self.tick_clicked.emit(self.pdf_data))
+        self.pdf_button = PDFButton(pdf_data)
+        layout.addWidget(self.tick_btn)
+        layout.addWidget(self.pdf_button, 1)
+
+    def set_position(self, position):
+        """position: 1-based place in the print order, or None when not ticked."""
+        self.tick_btn.setChecked(position is not None)
+        self.tick_btn.setText(str(position) if position else "")
 
 
 class PDFPageWidget(QFrame):
@@ -386,6 +347,8 @@ class FileBrowserView(QWidget):
         self.pdf_files_data = []
         self.selected_pdf = None
         self.pdf_buttons = []
+        self.file_rows = []
+        self.ticked = []   # pdf_data of the files to print, in tick (= print) order
         self.page_widgets = []
         self.page_widget_map = {}
         self.selected_pages = None
@@ -412,7 +375,7 @@ class FileBrowserView(QWidget):
 
         # LEFT PANEL
         left_panel = QFrame()
-        left_panel.setFixedWidth(360)
+        left_panel.setFixedWidth(420)
         left_panel.setStyleSheet("QFrame { background-color: transparent; border: none; }")
         left_layout = QVBoxLayout(left_panel)
         left_layout.setContentsMargins(10, 16, 10, 20)
@@ -424,6 +387,14 @@ class FileBrowserView(QWidget):
         )
         self.file_header.setFixedHeight(32)
         left_layout.addWidget(self.file_header, 0, Qt.AlignLeft)
+        self.tick_hint = QLabel("")
+        self.tick_hint.setWordWrap(True)
+        self.tick_hint.setStyleSheet(
+            f"QLabel {{ color: {COLORS['text_secondary']}; font-size: {FONT['size_sm']}px; font-weight: 600; "
+            f"background-color: transparent; padding-left: 13px; }}"
+        )
+        self.tick_hint.setFixedHeight(44)
+        left_layout.addWidget(self.tick_hint)
 
         file_container = QWidget()
         file_container.setStyleSheet("background-color: transparent;")
@@ -722,11 +693,21 @@ class FileBrowserView(QWidget):
         self.file_header.setText(f"PDF Files ({len(self.pdf_files_data)} files)")
         self.clear_file_list()
         self.pdf_buttons = []
+        self.file_rows = []
+        self.ticked = []
         for pdf_data in self.pdf_files_data:
-            pdf_btn = PDFButton(pdf_data)
-            pdf_btn.pdf_selected.connect(self.pdf_button_clicked.emit)
-            self.pdf_buttons.append(pdf_btn)
-            self.file_list_layout.insertWidget(self.file_list_layout.count() - 1, pdf_btn)
+            row = PDFFileRow(pdf_data)
+            row.pdf_button.pdf_selected.connect(self.pdf_button_clicked.emit)
+            row.tick_clicked.connect(self.toggle_tick)
+            self.pdf_buttons.append(row.pdf_button)
+            self.file_rows.append(row)
+            self.file_list_layout.insertWidget(self.file_list_layout.count() - 1, row)
+
+        # The first readable file is ticked, so the one-file flow needs no extra tap
+        first_readable = next((p for p in self.pdf_files_data if not p.get('error')), None)
+        if first_readable:
+            self.ticked.append(first_readable)
+        self._refresh_ticks()
 
         if self.pdf_files_data:
             first_pdf = self.pdf_files_data[0]
@@ -737,8 +718,74 @@ class FileBrowserView(QWidget):
             self.selected_pdf = None
             self.selected_pages = None
             self.clear_preview()
+            self.refresh_continue()
             self.page_info.setText("Select a PDF to preview pages")
             self.preview_header.setText("Select a PDF file to preview pages")
+
+    def toggle_tick(self, pdf_data):
+        """Ticks or unticks a file. Tick order is print order; unticking renumbers the rest."""
+        if pdf_data.get('error'):
+            return
+        path = pdf_data['path']
+        if any(p['path'] == path for p in self.ticked):
+            self.ticked = [p for p in self.ticked if p['path'] != path]
+            self._refresh_ticks()
+        elif len(self.ticked) >= MAX_FILES_PER_TRANSACTION:
+            self._refresh_ticks()
+            self._set_hint(f"You can print up to {MAX_FILES_PER_TRANSACTION} files at a time.", warn=True)
+        else:
+            self.ticked.append(pdf_data)
+            self._refresh_ticks()
+
+    def _refresh_ticks(self):
+        positions = {p['path']: i for i, p in enumerate(self.ticked, 1)}
+        for row in self.file_rows:
+            row.set_position(positions.get(row.pdf_data['path']))
+        self.refresh_continue()
+
+    def _set_hint(self, text, warn=False):
+        color = COLORS['danger'] if warn else COLORS['text_secondary']
+        self.tick_hint.setStyleSheet(
+            f"QLabel {{ color: {color}; font-size: {FONT['size_sm']}px; font-weight: 600; "
+            f"background-color: transparent; padding-left: 13px; }}"
+        )
+        self.tick_hint.setText(text)
+
+    def pages_for(self, pdf_data):
+        """The pages selected for a file: the one on screen, one seen earlier, or all
+        of them if the customer never opened it."""
+        path = pdf_data['path']
+        if self.selected_pdf and self.selected_pdf['path'] == path and self.selected_pages is not None:
+            chosen = self.selected_pages
+        elif path in self.pdf_page_selections:
+            chosen = self.pdf_page_selections[path]
+        else:
+            chosen = {i: True for i in range(1, pdf_data.get('pages', 1) + 1)}
+        return sorted(page for page, on in chosen.items() if on)
+
+    def ticked_files(self):
+        """[(pdf_data, [pages])] in print order."""
+        return [(p, self.pages_for(p)) for p in self.ticked]
+
+    def file_without_pages(self):
+        """The first ticked file with no page selected, or None."""
+        return next((p for p, pages in self.ticked_files() if not pages), None)
+
+    def refresh_continue(self):
+        """Continue: at least one file ticked and every ticked file has a page."""
+        self.continue_btn.setVisible(bool(self.pdf_files_data))
+        empty = self.file_without_pages()
+        if not self.ticked:
+            self.continue_btn.setEnabled(False)
+            text = "Tick the files you want to print." if self.pdf_files_data else ""
+        elif empty:
+            self.continue_btn.setEnabled(False)
+            text = f"Select at least one page of {empty['filename']}."
+        else:
+            self.continue_btn.setEnabled(True)
+            n = len(self.ticked)
+            text = f"{n} file{'s' if n != 1 else ''} to print" + (" — in the order ticked" if n > 1 else "")
+        self._set_hint(text)
 
     def clear_file_list(self):
         """Clears the file list."""
@@ -790,7 +837,7 @@ class FileBrowserView(QWidget):
             widget.hide()
         self.view_all_btn.hide()
         self.view_single_btn.hide()
-        self.continue_btn.setEnabled(False)
+        self.refresh_continue()
         self.page_info.setText("This file can't be printed")
 
         message = QLabel(
@@ -876,8 +923,8 @@ class FileBrowserView(QWidget):
         self.page_widget_map.clear()
         self.select_all_btn.setVisible(False)
         self.deselect_all_btn.setVisible(False)
-        self.continue_btn.setVisible(False)
         self.selected_count_label.setText("")
+        self.refresh_continue()
 
     def show_single_page(self):
         """Shows the single page view."""
@@ -948,7 +995,7 @@ class FileBrowserView(QWidget):
             return
         selected_count = sum(1 for selected in self.selected_pages.values() if selected)
         self.selected_count_label.setText(f"Selected: {selected_count}/{len(self.selected_pages)} pages")
-        self.continue_btn.setEnabled(selected_count > 0)
+        self.refresh_continue()
 
     def select_all_pages(self):
         """Selects all pages."""
@@ -1007,8 +1054,8 @@ class FileBrowserView(QWidget):
             self.zoom_label.setText(f"{int(zoom_factor * 100)}%")
 
     def set_continue_button_enabled(self, enabled):
-        """Enables or disables the continue button."""
-        self.continue_btn.setEnabled(enabled)
+        """The Continue button follows the ticks, whatever else finishes loading."""
+        self.refresh_continue()
 
     def show_analysis_loading(self, filename):
         """Shows loading state for analysis."""

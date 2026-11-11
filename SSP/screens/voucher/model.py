@@ -23,6 +23,7 @@ class VoucherModel:
     CHANGE = "change"    # change the hoppers couldn't give (a Shortfall)
     UNSPENT = "unspent"  # cash put in for a payment that wasn't completed
     REFUND = "refund"    # a paid print that failed (#59)
+    PARTIAL_REFUND = "partial_refund"  # some of a multi-file print didn't print (#119)
     DIGITAL_REFUND = "digital_refund"  # a paid-for digital copy that couldn't be made
 
     def __init__(self):
@@ -35,8 +36,15 @@ class VoucherModel:
         self.display_code = ""
         self.qr_bytes = None
         self.expires_at = None
+        self.printed_files = 0   # PARTIAL_REFUND only: "<k> of <n> files printed"
+        self.total_files = 0
 
     # ---- loading --------------------------------------------------------
+
+    def set_file_counts(self, printed, total):
+        """For PARTIAL_REFUND; call after set_voucher()/set_failure()."""
+        self.printed_files = printed
+        self.total_files = total
 
     def set_voucher(self, voucher, reason=CHANGE):
         """Show a successfully issued voucher (an IssuedVoucher)."""
@@ -70,6 +78,8 @@ class VoucherModel:
             return "We couldn't issue your voucher"
         if self.reason == self.REFUND:
             return "Sorry, your print failed"
+        if self.reason == self.PARTIAL_REFUND:
+            return "Some of your files didn't print"
         if self.reason == self.DIGITAL_REFUND:
             return "Here's your refund voucher"
         return "Here's your voucher" if self.reason == self.UNSPENT else "Here's your change voucher"
@@ -81,6 +91,12 @@ class VoucherModel:
                 return (f"Your document didn't print and we couldn't issue a refund voucher for "
                         f"{amount}. Please contact the attendant and mention this amount.")
             return f"Your document didn't print, so we've issued a refund voucher worth {amount}."
+        if self.reason == self.PARTIAL_REFUND:
+            done = f"{self.printed_files} of {self.total_files} files printed."
+            if self.state == self.FAILED:
+                return (f"{done} We couldn't issue a refund voucher for the rest, worth {amount}. "
+                        f"Please contact the attendant and mention this amount.")
+            return f"{done} We've issued a refund voucher worth {amount} for the rest."
         if self.reason == self.DIGITAL_REFUND:
             if self.state == self.FAILED:
                 return (
