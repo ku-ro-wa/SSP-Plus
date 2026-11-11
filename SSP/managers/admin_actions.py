@@ -13,9 +13,9 @@ the change it describes.
 Action names: `paper`, `paper_reset` (the dashboard's /paper-reset), `coins_1`,
 `coins_5`, `ink`, `collect_cash` and `setting:<key>`.
 """
+from managers.log_pages import PAGE_SIZE  # noqa: F401  (one page size, shared)
 from utils.error_logger import log_error
 
-PAGE_SIZE = 25  # rows per page on /logs and in the touchscreen data viewer
 
 ACTOR_KIOSK = "kiosk"
 WHERE_TOUCHSCREEN = "touchscreen"
