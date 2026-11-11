@@ -84,6 +84,13 @@ def fill_live_content(name, screen):
     if name == "reports":
         seed_report_rows(screen.model.db_manager)
         screen.on_enter()
+    if name == "print_options":
+        # Ten files, each priced: the list's tallest state (it scrolls instead of growing)
+        from managers.print_items import MAX_FILES_PER_TRANSACTION, PrintItem
+        pdf = os.path.join(SSP_DIR, "..", "test_pdfs", "Rootlocus-Plotting-1.pdf")
+        names = ["Thesis chapter 3 - final draft (revised) v12.pdf"] + [f"Form {n}.pdf" for n in range(2, 11)]
+        screen.set_items([PrintItem({'path': pdf, 'filename': n}, [1, 2]) for n in names[:MAX_FILES_PER_TRANSACTION]],
+                         source="usb")
     if name == "settings":
         screen.on_enter()
         screen.view.show_errors({"max_change_limit": "Maximum change must be between 0 and 1000 ₱."})

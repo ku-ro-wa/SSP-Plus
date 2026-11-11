@@ -139,6 +139,11 @@ costs a flat fee (`SCAN_DIGITAL_FEE`, default ₱5; the `scan_digital_fee` setti
 overrides it), paid before the session exists. If the session can't be created after
 payment, the fee comes back as a Voucher.
 
+**Partly printed**:
+The status of a multi-file transaction where some files printed and some didn't (`partly_printed`).
+The files that didn't print are refunded as one Voucher; only the printed files count as revenue
+(read from `transaction_files`). See #119.
+
 ### Vouchers
 
 **Voucher**:

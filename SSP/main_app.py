@@ -57,7 +57,7 @@ from managers.session_manager import SessionManager
 from managers.session_vouchers import SessionVouchers
 from database.db_manager import DatabaseManager
 from managers.sms_manager import cleanup_sms
-from managers.print_refund import record_print_success, refund_failed_print
+from managers.print_refund import record_print_success, refund_failed_print, refund_partly_printed
 from screens.voucher.model import VoucherModel
 from managers.persistent_gpio import cleanup_persistent_gpio
 from managers.gpio_check import gpio_problem
@@ -232,9 +232,6 @@ class PrintingSystemApp(QMainWindow):
         self.settings_screen = SettingsController(self)
         self.reports_screen = ReportsController(self)
 
-        # Connect payment completion to the print workflow once screens exist.
-        self.payment_screen.payment_completed.connect(self.on_payment_completed)
-
         # Add all screens to stacked widget in order (see SCREEN_MAP)
         self.stacked_widget.addWidget(self.idle_screen)
         self.stacked_widget.addWidget(self.homepage_screen)
@@ -302,6 +299,8 @@ class PrintingSystemApp(QMainWindow):
 
         # Connect printer manager signals immediately after initialization
         print("DEBUG: Connecting printer manager signals after initialization")
+        self.printer_manager.file_started.connect(self.on_file_started)
+        self.printer_manager.file_printed.connect(self.on_file_printed)
         self.printer_manager.print_job_successful.connect(self.on_print_successful)
         self.printer_manager.print_job_failed.connect(self.on_print_failed)
         self.printer_manager.print_job_waiting.connect(self.on_print_waiting)
@@ -681,40 +680,40 @@ class PrintingSystemApp(QMainWindow):
                 import traceback
                 traceback.print_exc()
 
-    def on_payment_completed(self, payment_info):
-        """
-        Handle successful payment and initiate print job.
+    def on_file_started(self, position, total):
+        """A file's CUPS job is about to be submitted. Remembered so a failure knows which file it was."""
+        job = getattr(self, 'current_print_job', None)
+        if job:
+            job['current_position'] = position
 
-        This is called after payment is processed and change is dispensed.
-        The screen transition to thank_you is handled by the payment dialog.
-
-        Args:
-            payment_info: Dictionary containing:
-                - pdf_data: Dict with 'path' and 'filename'
-                - copies: Number of copies to print
-                - color_mode: 'Color' or 'Black and White'
-                - selected_pages: List of page numbers to print
-        """
-        print(f"Payment completed. Starting print job for {payment_info['pdf_data']['filename']}")
-
-        # Paper count check is now handled in show_screen method
-
-        self.printer_manager.print_file(
-            file_path=payment_info['pdf_data']['path'],
-            copies=payment_info['copies'],
-            color_mode=payment_info['color_mode'],
-            selected_pages=payment_info['selected_pages']
-        )
+    def on_file_printed(self, position, temp_pdf_path):
+        """One file's job has left the printer queue: mark it, take its sheets off the paper
+        count, and analyse its temporary PDF for ink (the callback deletes it)."""
+        job = getattr(self, 'current_print_job', None) or {}
+        items = job.get('items') or []
+        item = items[position - 1] if 0 < position <= len(items) else None
+        if job.get('payment_ref'):
+            try:
+                self.payment_screen.model.db_manager.set_transaction_file_status(
+                    job['payment_ref'], position, 'printed')
+            except Exception as e:
+                print(f"⚠️ Could not mark file {position} printed: {e}")
+        job.setdefault('printed', []).append(position)
+        if item is None:
+            self.printer_manager.cleanup_temp_pdf(temp_pdf_path)
+            return
+        self._update_paper_count_after_print(item.sheets)
+        self._trigger_ink_analysis(item, temp_pdf_path)
 
     def on_print_successful(self):
         """
         Handle successful print job completion.
 
-        Triggers ink analysis and updates the thank you screen to show completion status.
-        If not currently on the thank you screen, navigates to it first.
+        Every file's paper count and ink analysis already ran in on_file_printed.
+        Updates the thank you screen to show completion status; if not currently on
+        it, navigates there first.
         """
         print("✅ Print job successfully completed")
-        print("DEBUG: on_print_successful called, about to trigger ink analysis")
 
         # The transaction was logged and the cash inventory updated at
         # settlement; the print outcome only completes the row (#59).
@@ -723,13 +722,6 @@ class PrintingSystemApp(QMainWindow):
             record_print_success(self.payment_screen.model.db_manager, job.get('payment_ref'))
         except Exception as e:
             print(f"⚠️ Could not mark transaction completed: {e}")
-
-        # Update paper count immediately after print success (don't wait for ink analysis)
-        self._update_paper_count_after_print()
-
-        # Trigger ink analysis for the printed job (if print job info available).
-        # It reads current_print_job, so this must run before the job is cleared.
-        self._trigger_ink_analysis()
 
         # Clear the print job after successful completion to prevent re-printing
         print("DEBUG: Clearing current_print_job after successful completion")
@@ -745,50 +737,38 @@ class PrintingSystemApp(QMainWindow):
             self.show_screen('thank_you')
             QTimer.singleShot(100, lambda: self.thank_you_screen.finish_printing())
 
-    def _trigger_ink_analysis(self):
+    def _trigger_ink_analysis(self, item, temp_pdf_path):
         """
-        Trigger ink usage analysis for the completed print job.
+        Trigger ink usage analysis for one printed file.
 
         Uses the temporary PDF created by the printer (which contains only
-        the selected pages that were actually printed). This ensures ink
-        analysis works even if the USB drive is removed.
-
-        After analysis completes, the temporary PDF is cleaned up.
+        the selected pages that were actually printed), so analysis works even
+        if the USB drive is removed. The path is bound into the callback, which
+        runs on the ink worker thread, and deletes it when analysis is done.
         """
-        print("DEBUG: _trigger_ink_analysis called")
-        if not hasattr(self, 'current_print_job') or not self.current_print_job:
-            print("⚠️ No print job info available for ink analysis")
+        if not temp_pdf_path:
             return
-
-        # Get the temp PDF path from printer manager
-        if not hasattr(self.printer_manager, 'last_temp_pdf_path') or not self.printer_manager.last_temp_pdf_path:
-            print("⚠️ No temp PDF available for ink analysis")
-            return
-
-        temp_pdf_path = self.printer_manager.last_temp_pdf_path
-
         try:
-            # Use temp PDF (already has only selected pages!) instead of original file
-            # This works even if USB drive is removed
             self.ink_analysis_threader.analyze_and_update(
                 pdf_path=temp_pdf_path,
                 selected_pages=None,  # All pages in temp PDF (already filtered)
-                copies=self.current_print_job['copies'],
+                copies=item.copies,
                 dpi=150,
-                color_mode=self.current_print_job['color_mode'],
-                callback=self._on_ink_analysis_completed
+                color_mode=item.color_mode,
+                callback=lambda operation, path=temp_pdf_path: self._on_ink_analysis_completed(operation, path)
             )
         except Exception as e:
             print(f"⚠️ Error triggering ink analysis: {e}")
             # Clean up temp PDF even if analysis fails
-            self.printer_manager.cleanup_last_temp_pdf()
+            self.printer_manager.cleanup_temp_pdf(temp_pdf_path)
 
-    def _on_ink_analysis_completed(self, operation):
+    def _on_ink_analysis_completed(self, operation, temp_pdf_path):
         """
-        Handle ink analysis completion and clean up temporary PDF.
+        Handle ink analysis completion and clean up that file's temporary PDF.
 
         Args:
             operation: InkAnalysisOperation object with result or error
+            temp_pdf_path: the temporary PDF that was analysed
         """
         print(f"DEBUG: _on_ink_analysis_completed called with operation: {operation}")
 
@@ -809,27 +789,17 @@ class PrintingSystemApp(QMainWindow):
         print("DEBUG: Ink analysis completed, database updates already done after print success")
 
         # Always clean up temp PDF after analysis completes
-        self.printer_manager.cleanup_last_temp_pdf()
+        self.printer_manager.cleanup_temp_pdf(temp_pdf_path)
 
-    def _update_paper_count_after_print(self):
+    def _update_paper_count_after_print(self, total_pages):
         """
-        Update paper count in database after successful printing.
+        Take a printed file's sheets (pages x copies) off the paper count.
 
-        This method is called after ink analysis completes, ensuring that
-        paper count is only decremented after the print job actually succeeds.
+        Called per file as it finishes, so a job that fails partway still
+        counts the paper the printed files used.
         """
-        if not hasattr(self, 'current_print_job') or not self.current_print_job:
-            print("⚠️ No print job info available for paper count update")
-            return
-
         try:
-            # Calculate total pages printed
-            selected_pages = self.current_print_job.get('selected_pages', [])
-            copies = self.current_print_job.get('copies', 1)
-            total_pages = len(selected_pages) * copies
-
-            print(f"📄 Updating paper count: -{total_pages} pages (pages: {len(selected_pages)}, copies: {copies})")
-            print(f"DEBUG: current_print_job details: {self.current_print_job}")
+            print(f"📄 Updating paper count: -{total_pages} sheets")
 
             # Use direct database access instead of async threader
             if hasattr(self, 'admin_screen') and self.admin_screen:
@@ -933,9 +903,18 @@ class PrintingSystemApp(QMainWindow):
         ref = (job or {}).get('payment_ref')
         if not ref:
             return False
+        db = self.payment_screen.model.db_manager
+        printed = job.get('printed') or []
+        total = len(job.get('items') or [])
         try:
-            outcome = refund_failed_print(self.payment_screen.model.db_manager, ref, error_message,
-                                          already_refunded=job.get('digital_fee_refunded', 0))
+            if printed:
+                outcome = refund_partly_printed(db, ref, job.get('current_position'), error_message)
+                reason = VoucherModel.PARTIAL_REFUND
+            else:
+                outcome = refund_failed_print(db, ref, error_message,
+                                              already_refunded=job.get('digital_fee_refunded', 0),
+                                              failed_position=job.get('current_position'))
+                reason = VoucherModel.REFUND
         except Exception as e:
             print(f"CRITICAL: refund for failed print {ref} errored: {e}")
             return False
@@ -944,10 +923,13 @@ class PrintingSystemApp(QMainWindow):
         try:
             def to_idle():
                 self.show_screen('idle')
+            counts = (len(printed), total) if reason == VoucherModel.PARTIAL_REFUND else None
             if outcome.voucher:
-                self.voucher_screen.show_issued(outcome.voucher, reason=VoucherModel.REFUND, on_continue=to_idle)
+                self.voucher_screen.show_issued(outcome.voucher, reason=reason, on_continue=to_idle,
+                                                file_counts=counts)
             elif outcome.voucher_failed:
-                self.voucher_screen.show_failure(outcome.amount, reason=VoucherModel.REFUND, on_continue=to_idle)
+                self.voucher_screen.show_failure(outcome.amount, reason=reason, on_continue=to_idle,
+                                                 file_counts=counts)
             else:
                 return False
             self.show_screen('voucher')

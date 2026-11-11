@@ -14,7 +14,7 @@ import pytest
 
 from managers.adapters.email_adapter import EmailAdapter, attachment_filename
 from managers.usb_file_manager import USBFileManager, display_filename
-from screens.payment.model import _document_name
+from managers.print_items import PrintItem
 
 
 def _pdf_bytes():
@@ -74,8 +74,8 @@ def test_display_filename(original, expected):
 
 def test_payment_uses_the_original_name_not_the_stored_one():
     pdf_data = {'path': '/tmp/x/0f3a9c.pdf', 'filename': 'Resume.pdf'}
-    assert _document_name(pdf_data) == 'Resume.pdf'
-    assert _document_name({'path': '/tmp/x/0f3a9c.pdf'}) == '0f3a9c.pdf'
+    assert PrintItem(pdf_data, [1]).file_name == 'Resume.pdf'
+    assert PrintItem({'path': '/tmp/x/0f3a9c.pdf'}, [1]).file_name == '0f3a9c.pdf'
 
 
 def _email_with_attachment(filename_header):
