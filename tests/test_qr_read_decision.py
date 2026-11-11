@@ -113,11 +113,20 @@ class TestDecideQrRead:
         assert (outcome.action, outcome.message) == ("rejected", "Session expired")
 
     @pytest.mark.parametrize("screen", ACCEPTING_SCREENS)
-    def test_used_session_is_rejected_like_a_typed_code(self, sessions, screen):
+    def test_used_session_opens_again(self, sessions, screen):
+        # A pickup code is reusable until its Session expires (#111).
         session = sessions.create_session("wifi", FILES)
         assert decide_qr_read(_read(session), "idle", sessions).action == "open_files"
         outcome = decide_qr_read(_read(session), screen, sessions)
-        assert (outcome.action, outcome.message) == ("rejected", "Incorrect or expired code")
+        assert (outcome.action, outcome.files) == ("open_files", FILES)
+
+    def test_used_session_still_needs_its_own_code(self, sessions):
+        # The session_id is in the QR; on its own it must not open a used Session.
+        session = sessions.create_session("wifi", FILES)
+        decide_qr_read(_read(session), "idle", sessions)
+        outcome = decide_qr_read(_read(session, otp=_wrong_otp(session)), "idle", sessions)
+        assert (outcome.action, outcome.message) == ("rejected", "Incorrect OTP")
+        assert _failed_attempts(sessions, session) == 1
 
     @pytest.mark.parametrize("screen", ACCEPTING_SCREENS)
     def test_scanner_source_rejected_without_an_attempt(self, sessions, screen):

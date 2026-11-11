@@ -36,9 +36,10 @@ sweep deletes its files and its row. One session can carry several files.
 _Avoid_: job, ticket, upload, transfer.
 
 **OTP**:
-The 6-digit one-time code that identifies a session to the person collecting the printout.
+The 6-digit code that identifies a session to the person collecting the printout.
 Shown once at creation (on the upload success page, or emailed back), never recoverable from
-storage. The salted hash is what's persisted.
+storage. The salted hash is what's persisted. Despite the name it isn't single-use: it opens
+its session as many times as needed, typed or read as a QR, until the session expires.
 _Avoid_: PIN, passcode, token (a "token" here is the raw session id, not the OTP).
 
 **Pickup code**:

@@ -479,14 +479,15 @@ class DatabaseManager(VoucherDBMixin, CashCollectionDBMixin):
             return None
 
     def get_verifiable_sessions(self, source):
-        """Sessions for `source` not yet in a terminal state, for OTP
-        resolution when no session_id is known (manual kiosk entry)."""
+        """Sessions for `source` a typed code can still resolve to (pending,
+        verified or locked; a verified Session is reused until it expires), for
+        OTP resolution when no session_id is known (manual entry)."""
         if not self.conn:
             return []
         try:
             cursor = self.conn.cursor()
             cursor.execute(
-                "SELECT * FROM sessions WHERE source = ? AND status IN ('pending', 'locked') "
+                "SELECT * FROM sessions WHERE source = ? AND status IN ('pending', 'verified', 'locked') "
                 "ORDER BY created_at DESC", (source,)
             )
             return cursor.fetchall()
