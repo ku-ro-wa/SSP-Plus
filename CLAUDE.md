@@ -126,6 +126,13 @@ sliding window instead (`webapp/rate_limit.py`: 5 wrong codes in 15 minutes on o
 `tests/test_pickup_code_lockout.py` and `tests/test_redeem_route.py` drive both on a fake
 clock.
 
+The Portal's `POST /upload` has two limits of its own, checked by a middleware before the body
+is read (`webapp/upload_guard.py`): `PORTAL_UPLOADS_PER_PHONE` requests (default 10) per
+`PORTAL_UPLOAD_WINDOW_MINUTES` (10) from one address, then 429 + `Retry-After`; and 507 when the
+upload would leave less than `MIN_FREE_STORAGE_MB` (1024) free, with one `error_log` row
+(`Wi-Fi Portal`) per hour. Per address and in memory, like `/redeem`'s. `tests/conftest.py`
+gives every test a fresh guard; `tests/test_upload_guard.py` covers it.
+
 `main_app._setup_session_cleanup()` sweeps past-expiry Sessions — their files, any session
 folder, and the DB row — once at startup and then every 5 minutes on a `QTimer`
 (`_session_cleanup_timer`, stopped in `cleanup()` next to the heartbeat timer; main-thread
