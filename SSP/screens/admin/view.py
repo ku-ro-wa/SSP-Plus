@@ -309,7 +309,6 @@ class AdminScreenView(QWidget):
             f"color: {tint}; font-size: {FONT['size_md']}px; font-weight: 700;"
         )
 
-
     def update_paper_count_display(self, count, color=None):
         """Updates the paper count label, tinted by remaining level."""
         self.paper_count_label.setText(str(count))
