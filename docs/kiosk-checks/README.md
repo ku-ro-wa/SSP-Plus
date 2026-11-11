@@ -15,7 +15,7 @@ before they can be merged. This walkthrough:
    transaction (Part 5);
 4. puts the kiosk back the way it was (Part 6).
 
-**Time:** about 1.5 hours for Parts 1–4 and 6, plus about an hour for Part 5.
+**Time:** about 2 hours for Parts 1–4 and 6, plus about an hour for Part 5.
 
 **If something goes wrong:** don't try to fix the code. Write down what you saw: take a
 photo of the screen and copy the last 50 lines of the log (Part 2, step 4). Then put the
@@ -44,7 +44,9 @@ kiosk back on `main` (Part 6) and tell Riley. A failed check is a useful result.
   file**. Put the same four files on the phone as well.
 - **The kiosk login and the admin PIN**, from the team's credential store. The kiosk's
   user name is `group-c` and its network name is `aio-spark-kiosk`.
-- **Paper:** about 20 sheets for Part 4, plus about 80 more for Part 5.
+- **Paper:** about 20 sheets for Part 4, about 45 for the printer timing (4.10), plus about
+  80 more for Part 5.
+- **A phone stopwatch** for 4.10.
 - **Cash** for test payments: ₱1, ₱5 and ₱10 coins, and ₱20/₱50/₱100 bills. Part 4 costs
   very little. Part 5 costs about ₱300 in all (a 20-page color file is ₱100), but it all goes
   into the cash box, so you get it back.
@@ -428,6 +430,54 @@ fine; write "test collection" in the results.
    cd ~/SSP-Plus && git log --oneline -1 && systemctl --user status ssp-kiosk --no-pager | head -3
    ```
 
+### 4.10 Printer timing, for the thesis (about 20 minutes, no coins)
+
+The approved proposal promised printer speed targets: the first page out within 20 s for
+black-and-white and 30 s for color, and at least 10 pages a minute for black-and-white. This
+measures them. It prints straight to the printer from SSH, so the app isn't involved and
+nothing is charged. Use a phone stopwatch, and write every time down.
+
+1. Load at least 45 sheets. From the laptop's PowerShell, in the folder where you saved the
+   test PDFs, copy two of them to the kiosk:
+
+   ```powershell
+   scp A-color-1-page.pdf C-bw-5-pages.pdf group-c@aio-spark-kiosk.local:
+   ```
+
+2. **First page out, black-and-white, 10 times.** In the kiosk's SSH window, type this
+   command but don't press Enter yet:
+
+   ```bash
+   lp -d HP_Smart_Tank -o page-ranges=1 -o print-color-mode=monochrome ~/C-bw-5-pages.pdf
+   ```
+
+   Press Enter and start the stopwatch at the same moment. Stop it when the sheet has fully
+   landed in the output tray. Write the time down. Wait until the printer is quiet, then
+   press the up arrow and Enter to run it again. Do this 10 times in all.
+3. **First page out, color, 10 times.** Same as step 2, with this command:
+
+   ```bash
+   lp -d HP_Smart_Tank ~/A-color-1-page.pdf
+   ```
+
+4. **Pages a minute, black-and-white.** This prints the 5-page file 4 times, as one 20-page
+   job:
+
+   ```bash
+   lp -d HP_Smart_Tank -n 4 -o collate=true -o print-color-mode=monochrome ~/C-bw-5-pages.pdf
+   ```
+
+   Start the stopwatch when the **first** sheet lands and stop it when the **last** (20th)
+   lands. Write down the time and how many sheets came out.
+5. If `lp` says the printer doesn't exist, run `lpstat -p` and use the name it shows instead
+   of `HP_Smart_Tank`.
+6. These sheets bypassed the app, so its paper count is now too high. In Kiosk Admin, set the
+   paper count to the sheets actually left in the tray.
+7. Clean up: `rm ~/A-color-1-page.pdf ~/C-bw-5-pages.pdf`
+
+Put all 21 times in the results (Part 7). 4.6's email reply time also goes into the thesis,
+so time it with the stopwatch rather than guessing.
+
 ---
 
 ## Part 5 (optional). Test the open PRs: print order and several files
@@ -590,6 +640,9 @@ done**, plus a note.
 | 4.7 | `/logs` pages; `/settings` change shows on touchscreen; `/accounting` screenshot | | |
 | 4.8 | Collect cash dialog fits; Cancel changes nothing; confirm zeroes counts; Collected table on `/accounting`; hopper counts restored | | |
 | 4.9 | Reboot: app back on its own | | seconds: |
+| 4.10 | First page out, B/W, 10 times (s) | | |
+| 4.10 | First page out, color, 10 times (s) | | |
+| 4.10 | 20-page B/W job: seconds from first to last sheet; sheets out | | |
 | 5.2.1 | 3 pages × 2 copies: stack 1,2,3,1,2,3 from top | | |
 | 5.2.2 | Pages 2 and 4 only | | |
 | 5.2.3 | 20-page color: thank-you stays up; paper and ink updated; `/tmp/printjob-*.pdf` gone | | |
