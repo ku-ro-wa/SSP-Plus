@@ -39,7 +39,7 @@ Customer flow: `idle` → `usb` → `file_browser` → `printing_options` → `p
 
 ### Inactivity timeout
 
-One timeout for the whole kiosk: `main_app.timeouts` (`managers/timeout_manager.py`), not a timer per screen. A screen declares a `timeout_policy()` on its controller (a `TimeoutPolicy`: seconds, the `action` to run on expiry, an optional `busy()` check, `warn`, `taps_reset`); `show_screen()` hands it over via `_enter_timeout()`. No `timeout_policy()` means no timeout and no label: `idle`, `thank_you`, `admin`, `data_viewer`. The "Remaining Time" label and the expiry read the same deadline, so they can't drift apart, and an expiry only acts if its screen is still the one showing (`_on_screen_timeout`).
+One timeout for the whole kiosk: `main_app.timeouts` (`managers/timeout_manager.py`), not a timer per screen. A screen declares a `timeout_policy()` on its controller (a `TimeoutPolicy`: seconds, the `action` to run on expiry, an optional `busy()` check, `warn`, `taps_reset`); `show_screen()` hands it over via `_enter_timeout()`. No `timeout_policy()` means no timeout and no label: `idle`, `thank_you`, `admin`, `data_viewer`, `settings`, `reports`. The "Remaining Time" label and the expiry read the same deadline, so they can't drift apart, and an expiry only acts if its screen is still the one showing (`_on_screen_timeout`).
 
 Any tap anywhere restarts it (`ui/activity_filter.py`, an app-wide filter, so screens don't wire buttons to a timer); coins, bills and QR reads call `main_app.note_activity()`. With `TIMEOUT_WARNING_SECONDS` (15) left a modal "Still there?" prompt (`ui/timeout_warning.py`) offers `TIMEOUT_EXTEND_SECONDS` (30) more; on payment it says what happens to cash already inserted. A `busy()` screen never expires (payment while change is dispensing, the scanner mid-scan, homepage behind the PIN dialog). `voucher` (3 min) and `scan_result` (60 s) have fixed countdowns: no prompt, taps don't restart them.
 
@@ -172,6 +172,8 @@ Login issues a signed cookie session with a 10-hour sliding inactivity timeout
 (`ADMIN_DASHBOARD_SESSION_HOURS`); 5 consecutive failed attempts locks the account for
 `ADMIN_DASHBOARD_LOCKOUT_MINUTES`; every attempt (success or failure) is written to
 `dashboard_login_log`.
+
+The figures (`range_start`, voucher and collection totals) live in `managers/accounting_report.py`, shared with Kiosk Admin's Reports screen (`screens/reports`, issue #130), so the two can't disagree.
 
 `/accounting` (HTML) and `/accounting/data?range=today|week|month|all` (JSON) show per-Source
 (`usb`/`wifi`/`email`/`scanner`) revenue and transaction-count aggregates via
