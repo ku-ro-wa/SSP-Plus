@@ -24,86 +24,114 @@ def parse_printer_alerts(lpstat_output):
     return []
 
 
+def remove_temp_pdf(path):
+    if path and os.path.exists(path):
+        try:
+            os.remove(path)
+        except OSError as e:
+            print(f"Error cleaning up temp file: {e}")
+
+
 class PrinterThread(QThread):
-    print_success = pyqtSignal(str)  # Emits temp_pdf_path for ink analysis
+    """Prints a transaction's items (managers/print_items.py): one CUPS job per
+    item, last item first, each item's pages last first (#118), so the tray
+    stack reads item 1 page 1 on top. Positions are 1-based print order.
+
+    Every temporary PDF is built before the first job is submitted: the source
+    files live in a Session folder that another customer's timeout can delete."""
+    file_started = pyqtSignal(int, int)    # position, total: before each submission
+    file_printed = pyqtSignal(int, str)    # position, temp PDF path (kept for ink analysis)
+    print_success = pyqtSignal()           # after the last item
     print_failed = pyqtSignal(str)
     print_waiting = pyqtSignal()
     paper_empty = pyqtSignal()  # the printer itself says the tray is empty (sent just before print_failed)
 
-    def __init__(self, file_path, copies, color_mode, selected_pages, printer_name):
+    def __init__(self, items, printer_name):
         super().__init__()
-        self.file_path = file_path
-        self.copies = copies
-        self.color_mode = color_mode
-        self.selected_pages = sorted(selected_pages)
+        self.items = list(items)
         self.printer_name = printer_name
-        self.temp_pdf_path = None
+        self.temp_pdfs = {}     # position -> temp PDF path, until printed or cleaned up
 
     def run(self):
         sim_mode = os.getenv('SIM_MODE', 'false').lower() in ('true', '1', 'yes')
+        total = len(self.items)
 
         if not PYMUPDF_AVAILABLE:
             if sim_mode:
-                print("[SIM] PyMuPDF unavailable — simulating print job without temp PDF.")
-                self._print_succeeded = True
-                self.print_success.emit("")
+                print("[SIM] PyMuPDF unavailable — simulating print job without temp PDFs.")
+                for position in range(total, 0, -1):
+                    self.file_started.emit(position, total)
+                    self.file_printed.emit(position, "")
+                self.print_success.emit()
                 return
             self.print_failed.emit("PyMuPDF library is not installed.")
             return
 
         try:
-            self.create_temp_pdf_with_selected_pages()
-            if not self.temp_pdf_path:
-                return
+            for position, item in enumerate(self.items, start=1):
+                self.temp_pdfs[position] = self.create_temp_pdf(item)
+        except Exception as e:
+            print(f"Failed to create temporary PDF: {e}")
+            self._cleanup_pending()
+            self.print_failed.emit(f"Failed to create temporary PDF: {e}")
+            return
 
-            command = self.build_print_command()
-
-            total_physical_pages = len(self.selected_pages) * self.copies
-            print(f"Printing: {len(self.selected_pages)} pages x {self.copies} copies = {total_physical_pages} total pages")
-            print(f"Command: {' '.join(command)}")
-            print(f"Temp PDF: {self.temp_pdf_path}")
-
-            if not os.path.exists(self.temp_pdf_path):
-                raise FileNotFoundError(f"Temporary PDF not found: {self.temp_pdf_path}")
-
-            if sim_mode:
-                print(f"[SIM] Skipping CUPS submission. Would run: {' '.join(command)}")
-                time.sleep(1)
-                self._print_succeeded = True
-                self.print_success.emit(self.temp_pdf_path)
-                return
-
-            # No timeout — large jobs can take a long time to spool
-            process = subprocess.run(
-                command,
-                capture_output=True,
-                text=True,
-                check=True
-            )
-
-            if not process.stdout or "request id is" not in process.stdout:
-                self.print_failed.emit("Print job was not accepted by CUPS. Check printer connection.")
-                return
-
-            job_id = self._extract_job_id(process.stdout)
-            if not job_id:
-                return
-
-            self.print_waiting.emit()
-            if not self.wait_for_print_completion(job_id):
-                # The job was reported failed (and the customer refunded), so
-                # it must not print later once the fault is cleared.
-                self._cancel_cups_job(job_id)
-                return
-
-            self._print_succeeded = True
-            self.print_success.emit(self.temp_pdf_path)
-
+        try:
+            for position in range(total, 0, -1):
+                item = self.items[position - 1]
+                temp_path = self.temp_pdfs[position]
+                if not self._print_item(position, total, item, temp_path, sim_mode):
+                    return
+                del self.temp_pdfs[position]   # printed: the receiver owns it now
+                self.file_printed.emit(position, temp_path)
+            self.print_success.emit()
         except Exception as e:
             self._handle_print_error(f"An unexpected error occurred: {str(e)}")
         finally:
-            if not hasattr(self, '_print_succeeded'):
-                self.cleanup_temp_pdf()
+            self._cleanup_pending()
+
+    def _print_item(self, position, total, item, temp_path, sim_mode):
+        """Submit one item's job and wait for it. True if it printed; on False
+        print_failed has been emitted (or raised into run())."""
+        command = self.build_print_command(item, temp_path)
+        print(f"Printing file {position} of {total}: {len(item.pages)} pages x {item.copies} copies = {item.sheets} total pages")
+        print(f"Command: {' '.join(command)}")
+        print(f"Temp PDF: {temp_path}")
+
+        if not os.path.exists(temp_path):
+            raise FileNotFoundError(f"Temporary PDF not found: {temp_path}")
+
+        self.file_started.emit(position, total)
+
+        if sim_mode:
+            print(f"[SIM] Skipping CUPS submission. Would run: {' '.join(command)}")
+            time.sleep(1)
+            return True
+
+        # No timeout — large jobs can take a long time to spool
+        process = subprocess.run(command, capture_output=True, text=True, check=True)
+
+        if not process.stdout or "request id is" not in process.stdout:
+            self.print_failed.emit("Print job was not accepted by CUPS. Check printer connection.")
+            return False
+
+        job_id = self._extract_job_id(process.stdout)
+        if not job_id:
+            return False
+
+        self.print_waiting.emit()
+        if not self.wait_for_print_completion(job_id):
+            # The job was reported failed (and the customer refunded), so
+            # it must not print later once the fault is cleared.
+            self._cancel_cups_job(job_id)
+            return False
+        return True
+
+    def _cleanup_pending(self):
+        """Delete the temporary PDFs of items that were not printed."""
+        for path in self.temp_pdfs.values():
+            remove_temp_pdf(path)
+        self.temp_pdfs.clear()
 
     def _cancel_cups_job(self, job_id):
         try:
@@ -143,46 +171,42 @@ class PrinterThread(QThread):
 
         self.print_failed.emit(error_message)
 
-    def create_temp_pdf_with_selected_pages(self):
+    def create_temp_pdf(self, item):
+        """The item's selected pages, last page first, in a temporary PDF. Returns its path."""
+        pages = sorted(item.pages)
+        print(f"Creating temp PDF with pages: {pages}")
+
+        if not item.path or not os.path.exists(item.path):
+            raise FileNotFoundError(f"Source PDF file not found: {item.path}")
+
+        original_doc = fitz.open(item.path)
+        temp_path = None
         try:
-            print(f"Creating temp PDF with pages: {self.selected_pages}")
-
-            if not os.path.exists(self.file_path):
-                raise FileNotFoundError(f"Source PDF file not found: {self.file_path}")
-
-            original_doc = fitz.open(self.file_path)
             max_page = len(original_doc)
-
-            invalid_pages = [p for p in self.selected_pages if p < 1 or p > max_page]
+            invalid_pages = [p for p in pages if p < 1 or p > max_page]
             if invalid_pages:
                 raise ValueError(f"Invalid page numbers: {invalid_pages}")
 
             # Last page first: the HP Smart Tank puts each sheet face up on top of the
             # last, so sending the pages in reading order leaves the stack reversed
-            # (issue #118). Keep the ascending sort above; the reversal lives here only.
-            pages_0_indexed = [p - 1 for p in reversed(self.selected_pages)]
+            # (issue #118). The reversal lives here only.
             temp_doc = fitz.open()
-
-            for page_num in pages_0_indexed:
+            for page_num in (p - 1 for p in reversed(pages)):
                 temp_doc.insert_pdf(original_doc, from_page=page_num, to_page=page_num)
 
-            if len(temp_doc) != len(self.selected_pages):
-                raise ValueError(f"Page count mismatch! Expected {len(self.selected_pages)}, got {len(temp_doc)}")
+            if len(temp_doc) != len(pages):
+                raise ValueError(f"Page count mismatch! Expected {len(pages)}, got {len(temp_doc)}")
 
-            fd, self.temp_pdf_path = tempfile.mkstemp(suffix=".pdf", prefix="printjob-")
+            fd, temp_path = tempfile.mkstemp(suffix=".pdf", prefix="printjob-")
             os.close(fd)
-
-            temp_doc.save(self.temp_pdf_path, garbage=4, deflate=True)
+            temp_doc.save(temp_path, garbage=4, deflate=True)
             temp_doc.close()
+            return temp_path
+        except Exception:
+            remove_temp_pdf(temp_path)
+            raise
+        finally:
             original_doc.close()
-
-            if not os.path.exists(self.temp_pdf_path):
-                raise Exception("Temp PDF file was not created")
-
-        except Exception as e:
-            print(f"Failed to create temporary PDF: {str(e)}")
-            self.print_failed.emit(f"Failed to create temporary PDF: {str(e)}")
-            self.temp_pdf_path = None
 
     def wait_for_print_completion(self, job_id):
         min_print_time = 15       # Enforce minimum to avoid false-positive completion at startup
@@ -288,8 +312,8 @@ class PrinterThread(QThread):
         except Exception:
             return True
 
-    def build_print_command(self):
-        mode_str = "color" if self.color_mode == "Color" else "monochrome"
+    def build_print_command(self, item, temp_path):
+        mode_str = "color" if item.color_mode == "Color" else "monochrome"
         return [
             "lp",
             "-d", self.printer_name,
@@ -297,13 +321,6 @@ class PrinterThread(QThread):
             "-o", "job-sheets=none",
             # Whole sets (1,2,3,1,2,3) rather than the printer's default per-page order
             "-o", "collate=true",
-            "-n", str(self.copies),
-            self.temp_pdf_path,
+            "-n", str(item.copies),
+            temp_path,
         ]
-
-    def cleanup_temp_pdf(self):
-        if self.temp_pdf_path and os.path.exists(self.temp_pdf_path):
-            try:
-                os.remove(self.temp_pdf_path)
-            except OSError as e:
-                print(f"Error cleaning up temp file: {e}")
