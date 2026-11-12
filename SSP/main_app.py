@@ -14,6 +14,7 @@ Key Components:
 import sys
 import os
 import signal
+import threading
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
 from PyQt5 import QtCore
@@ -49,7 +50,9 @@ from managers.webapp_thread import WebAppThreadManager
 from managers.email_poller_thread import EmailPollerThreadManager
 from managers.qr_reader import (CONNECTED, DuplicateReadFilter, QrReaderManager, classify_payload, decide_qr_read,
                                 describe_reader_status, should_log_status_change)
-from managers.kiosk_status import SETTING_LAST_SEEN, SETTING_QR_STATUS, heartbeat_timestamp
+from managers.printer_status import read_printer_status
+from managers.kiosk_status import (SETTING_LAST_SEEN, SETTING_PRINTER_AT, SETTING_PRINTER_LEVEL, SETTING_PRINTER_STATUS,
+                                   SETTING_QR_STATUS, heartbeat_timestamp)
 from managers.session_manager import SessionManager
 from managers.session_vouchers import SessionVouchers
 from database.db_manager import DatabaseManager
@@ -345,12 +348,35 @@ class PrintingSystemApp(QMainWindow):
         a failure never disturbs the kiosk (issue #42)."""
         self._write_heartbeat()
         self._write_qr_reader_status()
+        self._write_printer_status()
         self._heartbeat_timer = QTimer(self)
         self._heartbeat_timer.timeout.connect(self._write_heartbeat)
+        self._heartbeat_timer.timeout.connect(self._write_printer_status)
         self._heartbeat_timer.start(60_000)
 
     def _write_heartbeat(self):
         self.db_threader.update_setting(SETTING_LAST_SEEN, heartbeat_timestamp())
+
+    def _write_printer_status(self):
+        """Persist Kiosk Admin's printer status for the dashboard (issue #132).
+        `lpstat` can take up to 5 s, so it is read off the main thread; the
+        writes still go through db_threader."""
+        if getattr(self, '_printer_status_busy', False):
+            return
+        self._printer_status_busy = True
+
+        def work():
+            try:
+                text, level = read_printer_status()
+                self.db_threader.update_setting(SETTING_PRINTER_STATUS, text)
+                self.db_threader.update_setting(SETTING_PRINTER_LEVEL, level)
+                self.db_threader.update_setting(SETTING_PRINTER_AT, heartbeat_timestamp())
+            except Exception as e:
+                print(f"Printer status write skipped: {e}")
+            finally:
+                self._printer_status_busy = False
+
+        threading.Thread(target=work, name="printer-status", daemon=True).start()
 
     def _write_qr_reader_status(self):
         """Persist the same one-line status Kiosk Admin shows."""

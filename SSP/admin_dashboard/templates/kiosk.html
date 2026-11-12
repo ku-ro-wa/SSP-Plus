@@ -6,6 +6,10 @@
     <div class="card">
         <span class="{{ 'ok' if o.online else 'bad' }}" id="last-seen">{{ o.last_seen }}</span>
         <div class="muted">QR reader: <span id="qr-reader">{{ o.qr_reader }}</span></div>
+        <div class="muted">Printer:
+            {% if o.printer %}<span id="printer" class="{{ {'success': 'ok', 'warning': 'warn'}.get(o.printer.level, 'bad') }}">{{ o.printer.text }}</span>{% if o.printer.as_of %} <span id="printer-as-of">as of {{ o.printer.as_of }}</span>{% endif %}
+            {% else %}<span id="printer">Unknown</span>{% endif %}
+        </div>
         {% if not o.online %}
         <div class="muted">The numbers below were last written by the kiosk before it went offline.</div>
         {% endif %}
