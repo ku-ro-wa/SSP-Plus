@@ -14,7 +14,9 @@
 # tests/test_settings_catalog.py fails if the two ever differ.
 
 from dataclasses import dataclass
-from typing import Optional, Tuple
+from typing import Callable, Optional, Tuple
+
+from config import get_config
 
 KIOSK = 'kiosk'
 DASHBOARD = 'dashboard'
@@ -34,6 +36,17 @@ class Setting:
     default: int
     help: str = ''
     surfaces: Tuple[str, ...] = (KIOSK, DASHBOARD)
+    # For a setting whose unset value comes from the environment (.env), not a constant.
+    default_source: Optional[Callable[[], int]] = None
+
+    def current_default(self) -> int:
+        """What applies while the setting is unset (`default` unless `default_source` says otherwise)."""
+        if self.default_source is None:
+            return self.default
+        try:
+            return max(self.minimum, min(self.maximum, int(self.default_source())))
+        except (TypeError, ValueError):
+            return self.default
 
     def range_text(self) -> str:
         unit = f' {self.unit}' if self.unit else ''
@@ -79,6 +92,9 @@ CATALOG: Tuple[Setting, ...] = (
             'Coins left in the ₱5 hopper that change dispensing will not use.'),
     Setting('low_change_warning_threshold', 'Low-change warning', '₱', 0, 1000, 20,
             'Warn customers when the change available falls below this.'),
+    Setting('scan_digital_fee', 'Digital Copy fee', '₱', 0, 100, 5,
+            'Flat fee for the digital copy (download or email) of a scan.',
+            default_source=lambda: get_config().scan_digital_fee),
 )
 
 _BY_KEY = {s.key: s for s in CATALOG}
@@ -103,7 +119,7 @@ def get_value(db_manager, key: str) -> int:
     try:
         return setting.validate(stored if stored is not None else '')
     except SettingError:
-        return setting.default
+        return setting.current_default()
 
 
 def save_value(db_manager, key: str, raw, surface: Optional[str] = None) -> int:

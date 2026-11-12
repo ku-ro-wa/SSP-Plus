@@ -7,7 +7,6 @@ from managers.admin_actions import (
     ACTION_COINS_1, ACTION_COINS_5, ACTION_COLLECT_CASH, ACTION_INK, ACTION_PAPER, format_ink,
     record_touchscreen_action,
 )
-from managers.digital_fee import get_digital_fee, set_digital_fee
 from managers.sms_manager import get_sms_manager
 
 
@@ -17,7 +16,6 @@ class AdminModel(QObject):
     coin_count_changed = pyqtSignal(int, int)   # Emits coin_1_count, coin_5_count
     cmyk_levels_changed = pyqtSignal(float, float, float, float)  # Emits cyan, magenta, yellow, black
     show_message = pyqtSignal(str, str)         # Emits message title and text
-    digital_fee_changed = pyqtSignal(int)       # Flat fee (₱) for a scan's digital copy
 
     def __init__(self):
         super().__init__()
@@ -54,20 +52,6 @@ class AdminModel(QObject):
         old = dict(zip((1, 5), self.get_coin_counts())).get(denomination, 0)
         self.db_manager.update_cash_inventory(denomination, count, coin_type)
         self._audit(ACTION_COINS_1 if denomination == 1 else ACTION_COINS_5, old, count)
-
-    def load_digital_fee(self):
-        self.digital_fee_changed.emit(get_digital_fee(self.db_manager))
-
-    def change_digital_fee(self, delta):
-        """Steps the digital copy fee by delta pesos (never below 0)."""
-        fee = set_digital_fee(self.db_manager, get_digital_fee(self.db_manager) + delta)
-        self.digital_fee_changed.emit(fee)
-
-    def increase_digital_fee(self):
-        self.change_digital_fee(1)
-
-    def decrease_digital_fee(self):
-        self.change_digital_fee(-1)
 
     def load_paper_count(self):
         """Loads the paper count from the database and emits a signal."""

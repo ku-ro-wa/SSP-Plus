@@ -1,8 +1,11 @@
 # sms_manager.py
 import os
+import re
 import threading
 import time
 from PyQt5.QtCore import QObject, pyqtSignal
+
+from config import get_config
 
 try:
     import serial
@@ -13,6 +16,19 @@ except ImportError:
     print("WARNING: pyserial not found. SMS will be SIMULATED.")
 
 
+_PHONE_NUMBER_RE = re.compile(r'\+?\d{7,15}')
+
+
+def configured_phone_number():
+    """The operator's number from PHONE_NUMBER in .env, or None when it is unset,
+    blank, or not a phone number (such as .env.example's 09XXXXXXXXX placeholder)."""
+    try:
+        value = get_config().get('PHONE_NUMBER', str).strip()
+    except KeyError:
+        return None
+    return value if _PHONE_NUMBER_RE.fullmatch(value) else None
+
+
 class SMSManager(QObject):
     """
     Manages SMS notifications for the printing system.
@@ -20,7 +36,7 @@ class SMSManager(QObject):
     sms_sent = pyqtSignal(str)  # Signal emitted when SMS is sent successfully
     sms_failed = pyqtSignal(str)  # Signal emitted when SMS fails
 
-    def __init__(self, phone_number="09762912863", serial_port="/dev/serial0", baudrate=9600):
+    def __init__(self, phone_number=None, serial_port="/dev/serial0", baudrate=9600):
         super().__init__()
         self.phone_number = phone_number
         self.serial_port = serial_port
@@ -69,6 +85,10 @@ class SMSManager(QObject):
         """
         Sends an SMS message to the configured phone number.
         """
+        if not self.phone_number:
+            print(f"SMS not sent, no PHONE_NUMBER set in .env: {message}")
+            self.sms_failed.emit("No PHONE_NUMBER set")
+            return False
         sim_mode = os.getenv('SIM_MODE', 'false').lower() in ('true', '1', 'yes')
         if sim_mode or not SERIAL_AVAILABLE:
             print(f"[SIM] SMS to {self.phone_number}: {message}")
@@ -161,6 +181,9 @@ class SMSManager(QObject):
         Sends an SMS message and closes the connection (like your working code).
         This method opens a new connection, sends the SMS, and closes it.
         """
+        if not self.phone_number:
+            print(f"SMS not sent, no PHONE_NUMBER set in .env: {message}")
+            return False
         sim_mode = os.getenv('SIM_MODE', 'false').lower() in ('true', '1', 'yes')
         if sim_mode or not SERIAL_AVAILABLE:
             print(f"[SIM] SMS to {self.phone_number}: {message}")
@@ -227,7 +250,7 @@ def get_sms_manager():
     """Get the global SMS manager instance."""
     global sms_manager
     if sms_manager is None:
-        sms_manager = SMSManager()
+        sms_manager = SMSManager(phone_number=configured_phone_number())
     return sms_manager
 
 

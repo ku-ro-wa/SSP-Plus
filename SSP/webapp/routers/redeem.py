@@ -6,8 +6,8 @@
 # here can either download the PDF directly or have it emailed. Re-auth on
 # the follow-up actions is done by resubmitting session_id+otp as hidden
 # form fields rather than inventing a new token system — this works because
-# SessionManager.verify_otp() short-circuits to a success once a session is
-# already 'verified' (see managers/session_manager.py).
+# SessionManager.verify_otp() answers a session already 'verified' with a
+# success, as long as the OTP still matches (see managers/session_manager.py).
 #
 # Wrong codes are rate-limited per client (webapp/rate_limit.py, issue #104):
 # this page is unauthenticated and a pickup code is only 6 digits, so a guess
