@@ -24,6 +24,7 @@ class DataViewerScreenView(QWidget):
 
     previous_transactions_clicked = pyqtSignal()
     next_transactions_clicked = pyqtSignal()
+    resolve_error_clicked = pyqtSignal(int)   # error_log id
     previous_errors_clicked = pyqtSignal()
     next_errors_clicked = pyqtSignal()
 
@@ -161,12 +162,35 @@ class DataViewerScreenView(QWidget):
         pager, self.errors_page_label, self.newer_errors_button, \
             self.older_errors_button = self._pager(self.previous_errors_clicked, self.next_errors_clicked)
 
+        self.resolve_button = SecondaryButton("Mark selected resolved")
+        self.resolve_button.setMinimumHeight(44)
+        self.resolve_button.setEnabled(False)
+        self.resolve_button.clicked.connect(self._on_resolve_clicked)
+        self.error_log_table.itemSelectionChanged.connect(self._update_resolve_button)
+        pager.insertWidget(1, self.resolve_button)
+
         widget = QWidget()
         layout = QVBoxLayout(widget)
         layout.setContentsMargins(10, 10, 10, 10)
         layout.addWidget(self.error_log_table)
         layout.addLayout(pager)
         return widget
+
+    def _selected_unresolved_error(self):
+        """The id of the selected error row if it is unresolved, else None."""
+        row = self.error_log_table.currentRow()
+        item = self.error_log_table.item(row, 0) if row >= 0 else None
+        if item is None or not item.data(Qt.UserRole + 1):
+            return None
+        return item.data(Qt.UserRole)
+
+    def _update_resolve_button(self):
+        self.resolve_button.setEnabled(self._selected_unresolved_error() is not None)
+
+    def _on_resolve_clicked(self):
+        error_id = self._selected_unresolved_error()
+        if error_id is not None:
+            self.resolve_error_clicked.emit(error_id)
 
     def create_admin_actions_tab(self):
         """Creates the admin actions tab: the audit trail, newest first, paged."""
@@ -265,6 +289,10 @@ class DataViewerScreenView(QWidget):
                      error['screen_name'], 'yes' if error['resolved'] else 'no']
             for col, value in enumerate(cells):
                 table.setItem(i, col, self._item(value))
+            first = table.item(i, 0)
+            first.setData(Qt.UserRole, int(error['id']))
+            first.setData(Qt.UserRole + 1, not error['resolved'])
+        self._update_resolve_button()
 
         self._fit_columns(table, stretch_column=headers.index("Message"))
         self._show_page(self.errors_page_label, self.newer_errors_button,

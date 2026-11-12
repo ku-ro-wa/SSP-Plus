@@ -2,6 +2,8 @@
 
 from PyQt5.QtCore import QObject, pyqtSignal
 from database.db_manager import DatabaseManager
+from managers import inventory_edits as edits
+from managers.error_resolution import resolve_error
 from managers.log_pages import PAGE_SIZE, page_count
 
 
@@ -72,11 +74,18 @@ class DataViewerModel(QObject):
             print(f"❌ ERROR: Failed to load error log: {e}")
             self.show_message.emit("Error", f"Failed to load error log: {str(e)}")
 
-    def next_errors_page(self):
-        self.load_error_log(self.errors_page + 1)
-
-    def previous_errors_page(self):
-        self.load_error_log(self.errors_page - 1)
+    def mark_error_resolved(self, error_id):
+        """The operator's 'Mark resolved' on the error tab (issue #136)."""
+        try:
+            outcome = resolve_error(self.db_manager, error_id, edits.TOUCHSCREEN)
+        except Exception as e:
+            print(f"❌ ERROR: Failed to mark error resolved: {e}")
+            self.show_message.emit("Error", f"Failed to mark the error resolved: {str(e)}")
+            return
+        if outcome == "missing":
+            self.show_message.emit("Error", "That error is no longer in the log.")
+        self.load_error_log()
+        self.load_admin_actions()
 
     def load_admin_actions(self, page=None):
         """One page of the operator-change audit trail, newest first: the same
@@ -98,6 +107,12 @@ class DataViewerModel(QObject):
 
     def previous_actions_page(self):
         self.load_admin_actions(max(1, self.actions_page - 1))
+
+    def next_errors_page(self):
+        self.load_error_log(self.errors_page + 1)
+
+    def previous_errors_page(self):
+        self.load_error_log(self.errors_page - 1)
 
     def refresh_all_data(self):
         """Refreshes all data types, from the newest page."""
