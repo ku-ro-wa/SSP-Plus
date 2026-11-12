@@ -12,7 +12,7 @@ from managers.settings_catalog import (
 KEYS = {
     'voucher_expiry_days', 'voucher_lockout_minutes', 'session_expiry_minutes',
     'max_change_limit', 'min_coin_threshold_1', 'min_coin_threshold_5',
-    'low_change_warning_threshold',
+    'low_change_warning_threshold', 'scan_digital_fee',
 }
 
 
@@ -38,7 +38,7 @@ class FakeDB:
         self.conn.commit()
 
 
-def test_catalog_lists_the_seven_keys_only():
+def test_catalog_lists_the_expected_keys_only():
     assert {s.key for s in CATALOG} == KEYS
     assert 'vouchers_enabled' not in KEYS
 
@@ -122,3 +122,27 @@ def test_save_many_is_all_or_nothing():
     assert db.get_setting('max_change_limit') == 60
     _, errors = save_many(db, {'vouchers_enabled': 0})
     assert 'vouchers_enabled' in errors and db.get_setting('vouchers_enabled') is None
+
+
+def test_digital_fee_default_follows_env_and_matches_digital_fee(monkeypatch):
+    from managers import digital_fee
+    s = get_setting_def('scan_digital_fee')
+    db = FakeDB()
+    monkeypatch.setenv('SCAN_DIGITAL_FEE', '12')
+    assert get_value(db, 'scan_digital_fee') == s.current_default() == 12
+    assert digital_fee.get_digital_fee(db) == 12
+    monkeypatch.setenv('SCAN_DIGITAL_FEE', '5000')   # out of range: clamped
+    assert s.current_default() == s.maximum
+
+
+def test_digital_fee_range_and_save_agree_with_reader():
+    from managers import digital_fee
+    db = FakeDB()
+    for bad in ('-1', '101', 'x'):
+        with pytest.raises(SettingError):
+            save_value(db, 'scan_digital_fee', bad, surface=DASHBOARD)
+    assert db.get_setting('scan_digital_fee') is None
+    assert save_value(db, 'scan_digital_fee', '0', surface=KIOSK) == 0
+    assert digital_fee.get_digital_fee(db) == 0
+    assert save_value(db, 'scan_digital_fee', '100') == 100
+    assert digital_fee.get_digital_fee(db) == 100

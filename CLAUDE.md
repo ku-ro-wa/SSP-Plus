@@ -39,7 +39,7 @@ Customer flow: `idle` → `usb` → `file_browser` → `printing_options` → `p
 
 ### Inactivity timeout
 
-One timeout for the whole kiosk: `main_app.timeouts` (`managers/timeout_manager.py`), not a timer per screen. A screen declares a `timeout_policy()` on its controller (a `TimeoutPolicy`: seconds, the `action` to run on expiry, an optional `busy()` check, `warn`, `taps_reset`); `show_screen()` hands it over via `_enter_timeout()`. No `timeout_policy()` means no timeout and no label: `idle`, `thank_you`, `admin`, `data_viewer`. The "Remaining Time" label and the expiry read the same deadline, so they can't drift apart, and an expiry only acts if its screen is still the one showing (`_on_screen_timeout`).
+One timeout for the whole kiosk: `main_app.timeouts` (`managers/timeout_manager.py`), not a timer per screen. A screen declares a `timeout_policy()` on its controller (a `TimeoutPolicy`: seconds, the `action` to run on expiry, an optional `busy()` check, `warn`, `taps_reset`); `show_screen()` hands it over via `_enter_timeout()`. No `timeout_policy()` means no timeout and no label: `idle`, `thank_you`, `admin`, `data_viewer`, `settings`, `reports`. The "Remaining Time" label and the expiry read the same deadline, so they can't drift apart, and an expiry only acts if its screen is still the one showing (`_on_screen_timeout`).
 
 Any tap anywhere restarts it (`ui/activity_filter.py`, an app-wide filter, so screens don't wire buttons to a timer); coins, bills and QR reads call `main_app.note_activity()`. With `TIMEOUT_WARNING_SECONDS` (15) left a modal "Still there?" prompt (`ui/timeout_warning.py`) offers `TIMEOUT_EXTEND_SECONDS` (30) more; on payment it says what happens to cash already inserted. A `busy()` screen never expires (payment while change is dispensing, the scanner mid-scan, homepage behind the PIN dialog). `voucher` (3 min) and `scan_result` (60 s) have fixed countdowns: no prompt, taps don't restart them.
 
@@ -183,12 +183,14 @@ Login issues a signed cookie session with a 10-hour sliding inactivity timeout
 `ADMIN_DASHBOARD_LOCKOUT_MINUTES`; every attempt (success or failure) is written to
 `dashboard_login_log`.
 
+The figures (`range_start`, voucher and collection totals) live in `managers/accounting_report.py`, shared with Kiosk Admin's Reports screen (`screens/reports`, issue #130), so the two can't disagree.
+
 `/accounting` (HTML) and `/accounting/data?range=today|week|month|all` (JSON) show per-Source
 (`usb`/`wifi`/`email`/`scanner`) revenue and transaction-count aggregates via
 `DatabaseManager.get_accounting_summary()` — a `scanner`-sourced row only exists when the scan's
 destination was print (a Photocopy) and/or a paid Digital Copy (`copies` = 0 when it's the
 Digital Copy alone). The scan's digital copy (download/email) costs a flat fee
-(`managers/digital_fee.py`: Kiosk Admin's `scan_digital_fee` setting, else `SCAN_DIGITAL_FEE`),
+(`managers/digital_fee.py`: the `scan_digital_fee` setting (Settings screen or Dashboard), else `SCAN_DIGITAL_FEE`),
 and nothing is delivered before payment: `scan_destination` routes print-only to
 `printing_options`, print + digital to `printing_options` with the fee added, and digital-only
 straight to `payment` (`print_job: False`). `PaymentModel._prepare_digital_copy()` creates the
@@ -216,7 +218,23 @@ See `docs/adr/0002-admin-dashboard-auth-and-remote-access-architecture.md` and C
 
 ### Runtime settings (issue #106)
 
-`managers/settings_catalog.py` lists the seven operator-editable `settings` keys (Voucher expiry/lockout, pickup window, max change, coin reserves, low-change warning) with label, unit, min/max and default; `validate_many`/`save_many` are all-or-nothing and reject rather than clamp. Kiosk Admin's `settings` screen (`screens/settings/`, button on the admin screen) and the Dashboard's `/settings` (`admin` writes, `operator` reads) both render and save through it. `vouchers_enabled` is deliberately not in the catalog. `tests/test_settings_catalog.py` fails if a default drifts from the manager that reads it.
+`managers/settings_catalog.py` lists the eight operator-editable `settings` keys (Voucher expiry/lockout, pickup window, max change, coin reserves, low-change warning, Digital Copy fee; the fee's unset default is the `SCAN_DIGITAL_FEE` env value, via `default_source`) with label, unit, min/max and default; `validate_many`/`save_many` are all-or-nothing and reject rather than clamp. Kiosk Admin's `settings` screen (`screens/settings/`, button on the admin screen) and the Dashboard's `/settings` (`admin` writes, `operator` reads) both render and save through it. `vouchers_enabled` is deliberately not in the catalog. `tests/test_settings_catalog.py` fails if a default drifts from the manager that reads it.
+
+### Admin actions (issue #134)
+
+`admin_actions` (`managers/admin_actions.py`, created by `init_db()` and the dashboard's `open_db()`) is the audit trail of operator changes: time, who (dashboard username, or `kiosk` behind `ADMIN_PIN`), where (`dashboard` + source IP, or `touchscreen`), action, old and new value. `record_action()` skips a save that doesn't change the value and never raises (a failed write is logged). Recorded today: paper, coin and ink edits and Collect cash (`screens/admin/model.py`), settings changes (touchscreen `SettingsModel.save` and the Dashboard's `POST /settings`, one row per changed key) and `/paper-reset`. Automatic changes (a print using paper, change leaving the hoppers, the printer reporting the tray empty) aren't operator actions. Shown newest first, `PAGE_SIZE` per page, on `/logs` and in the data viewer's Admin Actions tab, both reading `DatabaseManager.get_admin_action_page()`. Operator writes go through `managers/inventory_edits.py` (below) or call `record_action()` themselves (#136 adds mark-resolved). `tests/test_admin_actions.py`.
+
+### Remote edits (issue #135)
+
+`/kiosk` has edit controls for the `admin` role only (`operator` sees the values without them; a POST gets 403): paper (set, Refill), ₱1/₱5 coins (set, Refill All), ink (set, Refill All) and Collect cash (a preview and confirm, then `POST /kiosk/collect-cash` with the confirmed `expected_total`, refused with 409 if the counts moved). `managers/inventory_edits.py` holds the ranges, validation, refill values and writes; `screens/admin/model.py` and `admin_dashboard/routers/kiosk.py` both call it, so the two sides can't disagree, and each edit writes its `admin_actions` row there. A touchscreen open during a remote edit keeps the old value until reopened (ADR 0005); paper writes reread the DB first. `tests/test_dashboard_edits.py`.
+
+### Logs on both sides (issue #131)
+
+The Dashboard's `/logs` and the touchscreen data viewer (`screens/data_viewer/`) show the same transaction and error columns (`managers/log_pages.py`: `TRANSACTION_COLUMNS`, `ERROR_COLUMNS`, `PAGE_SIZE`; the viewer adds an ID first), read with `DatabaseManager.get_transaction_page()`/`get_error_page()` newest first, with Newer/Older paging on both. `tests/test_data_viewer_columns.py` compares the rendered headers, rows and pages with `/logs`.
+
+### Resolving errors (issue #136)
+
+`error_log.resolved` is set only by an operator, never automatically after a later success (ADR 0005). `managers/error_resolution.py` `resolve_error()` marks one row (`DatabaseManager.mark_error_resolved`) and writes an `error_resolved` `admin_actions` row (`#id Type: message` → `resolved`); marking an already-resolved row changes and writes nothing. Callers: `POST /errors/{id}/resolve` (`admin` only; buttons on `/kiosk` and `/logs`), the data viewer's "Mark selected resolved", and the thank-you screen's PIN override, which resolves the row its own `show_printing_error` logged (`ThankYouModel.error_id`; jam / no-paper screens that log nothing resolve nothing). `/kiosk`'s "Unresolved errors" and Kiosk Admin's "Errors:" both read `DatabaseManager.count_unresolved_errors()`. `tests/test_mark_resolved.py`.
 
 ### Configuration
 

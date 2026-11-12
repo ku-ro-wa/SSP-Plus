@@ -14,6 +14,7 @@ Key Components:
 import sys
 import os
 import signal
+import threading
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
 from PyQt5 import QtCore
@@ -33,6 +34,7 @@ from screens.file_browser import FileBrowserController
 from screens.payment import PaymentController
 from screens.print_options import PrintOptionsController
 from screens.admin import AdminController
+from screens.reports import ReportsController
 from screens.settings import SettingsController
 from screens.data_viewer import DataViewerController
 from screens.voucher import VoucherController
@@ -48,7 +50,9 @@ from managers.webapp_thread import WebAppThreadManager
 from managers.email_poller_thread import EmailPollerThreadManager
 from managers.qr_reader import (CONNECTED, DuplicateReadFilter, QrReaderManager, classify_payload, decide_qr_read,
                                 describe_reader_status, should_log_status_change)
-from managers.kiosk_status import SETTING_LAST_SEEN, SETTING_QR_STATUS, heartbeat_timestamp
+from managers.printer_status import read_printer_status
+from managers.kiosk_status import (SETTING_LAST_SEEN, SETTING_PRINTER_AT, SETTING_PRINTER_LEVEL, SETTING_PRINTER_STATUS,
+                                   SETTING_QR_STATUS, heartbeat_timestamp)
 from managers.session_manager import SessionManager
 from managers.session_vouchers import SessionVouchers
 from database.db_manager import DatabaseManager
@@ -111,6 +115,7 @@ class PrintingSystemApp(QMainWindow):
         'scan_result': 13,
         'voucher': 14,
         'settings': 15,
+        'reports': 16,
     }
 
     def __init__(self):
@@ -225,6 +230,7 @@ class PrintingSystemApp(QMainWindow):
         self.scan_result_screen = ScanResultController(self)
         self.voucher_screen = VoucherController(self)
         self.settings_screen = SettingsController(self)
+        self.reports_screen = ReportsController(self)
 
         # Add all screens to stacked widget in order (see SCREEN_MAP)
         self.stacked_widget.addWidget(self.idle_screen)
@@ -249,6 +255,7 @@ class PrintingSystemApp(QMainWindow):
         self.stacked_widget.addWidget(self.scan_result_screen)
         self.stacked_widget.addWidget(self.voucher_screen)
         self.stacked_widget.addWidget(self.settings_screen)
+        self.stacked_widget.addWidget(self.reports_screen)
 
         # "Check voucher balance" is a popup over whichever screen opened it, not a screen
         # (screens/voucher_balance); the Vouchers it checks are remembered for the session.
@@ -341,12 +348,35 @@ class PrintingSystemApp(QMainWindow):
         a failure never disturbs the kiosk (issue #42)."""
         self._write_heartbeat()
         self._write_qr_reader_status()
+        self._write_printer_status()
         self._heartbeat_timer = QTimer(self)
         self._heartbeat_timer.timeout.connect(self._write_heartbeat)
+        self._heartbeat_timer.timeout.connect(self._write_printer_status)
         self._heartbeat_timer.start(60_000)
 
     def _write_heartbeat(self):
         self.db_threader.update_setting(SETTING_LAST_SEEN, heartbeat_timestamp())
+
+    def _write_printer_status(self):
+        """Persist Kiosk Admin's printer status for the dashboard (issue #132).
+        `lpstat` can take up to 5 s, so it is read off the main thread; the
+        writes still go through db_threader."""
+        if getattr(self, '_printer_status_busy', False):
+            return
+        self._printer_status_busy = True
+
+        def work():
+            try:
+                text, level = read_printer_status()
+                self.db_threader.update_setting(SETTING_PRINTER_STATUS, text)
+                self.db_threader.update_setting(SETTING_PRINTER_LEVEL, level)
+                self.db_threader.update_setting(SETTING_PRINTER_AT, heartbeat_timestamp())
+            except Exception as e:
+                print(f"Printer status write skipped: {e}")
+            finally:
+                self._printer_status_busy = False
+
+        threading.Thread(target=work, name="printer-status", daemon=True).start()
 
     def _write_qr_reader_status(self):
         """Persist the same one-line status Kiosk Admin shows."""
@@ -618,7 +648,7 @@ class PrintingSystemApp(QMainWindow):
         # print choices are blocked there (and at printing_options) instead.
         digital_only_payment = (screen_name == 'payment'
                                 and not self.payment_screen.model.is_print_job())
-        if (screen_name not in ['admin', 'settings', 'thank_you', 'voucher', 'scan_result', 'scan_destination']
+        if (screen_name not in ['admin', 'settings', 'reports', 'thank_you', 'voucher', 'scan_result', 'scan_destination']
                 and not digital_only_payment):
             if self.check_paper_count_and_redirect():
                 print(f"Cannot navigate to {screen_name} - insufficient paper")

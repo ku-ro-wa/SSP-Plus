@@ -39,6 +39,7 @@ class AdminScreenView(QWidget):
     back_clicked = pyqtSignal()
     view_data_logs_clicked = pyqtSignal()
     settings_clicked = pyqtSignal()
+    reports_clicked = pyqtSignal()
     update_paper_clicked = pyqtSignal(str)
     reset_paper_clicked = pyqtSignal()
     update_coin_1_clicked = pyqtSignal(str)
@@ -53,8 +54,6 @@ class AdminScreenView(QWidget):
     # +/- button functionality
     paper_decreased = pyqtSignal()
     paper_increased = pyqtSignal()
-    digital_fee_decreased = pyqtSignal()
-    digital_fee_increased = pyqtSignal()
     coin_1_decreased = pyqtSignal()
     coin_1_increased = pyqtSignal()
     coin_5_decreased = pyqtSignal()
@@ -99,7 +98,12 @@ class AdminScreenView(QWidget):
         self.settings_button.setMinimumHeight(44)
         self.settings_button.clicked.connect(self.settings_clicked.emit)
 
-        body_layout.addLayout(nav_row(self.back_button, self.settings_button, self.view_logs_button))
+        self.reports_button = SecondaryButton("Reports")
+        self.reports_button.setMinimumHeight(44)
+        self.reports_button.clicked.connect(self.reports_clicked.emit)
+
+        body_layout.addLayout(nav_row(self.back_button, self.reports_button, self.settings_button,
+                                      self.view_logs_button))
 
     def _section_label(self, text):
         label = QLabel(text)
@@ -126,7 +130,7 @@ class AdminScreenView(QWidget):
         return label
 
     def _create_paper_management_group(self):
-        group = QGroupBox("Paper & Pricing")
+        group = QGroupBox("Paper")
         group.setStyleSheet(GROUPBOX_QSS)
         layout = QVBoxLayout(group)
         layout.setSpacing(10)
@@ -144,14 +148,6 @@ class AdminScreenView(QWidget):
         reset_paper_btn.setMinimumHeight(44)
         reset_paper_btn.clicked.connect(self.reset_paper_clicked.emit)
         row.addWidget(reset_paper_btn)
-
-        # Same row, so the screen stays within 800 logical px.
-        row.addSpacing(40)
-        row.addWidget(self._section_label("Digital Copy Fee (₱)"))
-        row.addWidget(self._stepper("−", self.digital_fee_decreased.emit))
-        self.digital_fee_label = self._count_label()
-        row.addWidget(self.digital_fee_label)
-        row.addWidget(self._stepper("+", self.digital_fee_increased.emit))
 
         layout.addLayout(row)
         return group
@@ -303,6 +299,10 @@ class AdminScreenView(QWidget):
         layout.addWidget(self._section_label("QR Reader:"))
         self.qr_reader_status_label = self._status_value_label()
         layout.addWidget(self.qr_reader_status_label)
+        layout.addSpacing(40)
+        layout.addWidget(self._section_label("Errors:"))
+        self.unresolved_errors_label = self._status_value_label()
+        layout.addWidget(self.unresolved_errors_label)
         layout.addStretch(1)
         return group
 
@@ -311,6 +311,14 @@ class AdminScreenView(QWidget):
     def update_qr_reader_status(self, text):
         self.qr_reader_status_label.setText(text)
 
+    def update_unresolved_errors(self, count):
+        """'None unresolved' / 'N unresolved': the same count as the Dashboard's /kiosk."""
+        self.unresolved_errors_label.setText(f"{count} unresolved" if count else "None unresolved")
+        tint = COLORS["danger"] if count else COLORS["success"]
+        self.unresolved_errors_label.setStyleSheet(
+            f"color: {tint}; font-size: {FONT['size_md']}px; font-weight: 700;"
+        )
+
     def update_printer_status(self, text, level):
         """Printer status from CUPS, tinted by level: 'success' | 'warning' | 'error'."""
         tint = {"success": COLORS["success"], "warning": COLORS["warning"]}.get(level, COLORS["danger"])
@@ -318,9 +326,6 @@ class AdminScreenView(QWidget):
         self.printer_status_label.setStyleSheet(
             f"color: {tint}; font-size: {FONT['size_md']}px; font-weight: 700;"
         )
-
-    def update_digital_fee_display(self, fee):
-        self.digital_fee_label.setText(str(fee))
 
     def update_paper_count_display(self, count, color=None):
         """Updates the paper count label, tinted by remaining level."""

@@ -37,14 +37,23 @@ class DataViewerController(QWidget):
         """Connect signals from the view to the model and vice-versa."""
         # --- View -> Controller ---
         self.view.back_clicked.connect(self._go_back)
-        self.view.refresh_transactions_clicked.connect(self.model.load_transactions)
+        self.view.refresh_transactions_clicked.connect(lambda: self.model.load_transactions())
         self.view.refresh_cash_inventory_clicked.connect(self.model.load_cash_inventory)
-        self.view.refresh_error_log_clicked.connect(self.model.load_error_log)
+        self.view.refresh_error_log_clicked.connect(lambda: self.model.load_error_log())
+        self.view.previous_transactions_clicked.connect(self.model.previous_transactions_page)
+        self.view.next_transactions_clicked.connect(self.model.next_transactions_page)
+        self.view.resolve_error_clicked.connect(self.model.mark_error_resolved)
+        self.view.previous_errors_clicked.connect(self.model.previous_errors_page)
+        self.view.next_errors_clicked.connect(self.model.next_errors_page)
+        self.view.refresh_admin_actions_clicked.connect(lambda: self.model.load_admin_actions(1))
+        self.view.previous_actions_clicked.connect(self.model.previous_actions_page)
+        self.view.next_actions_clicked.connect(self.model.next_actions_page)
 
         # --- Model -> View ---
         self.model.transactions_loaded.connect(self.view.update_transactions_table)
         self.model.cash_inventory_loaded.connect(self.view.update_cash_inventory_table)
         self.model.error_log_loaded.connect(self.view.update_error_log_table)
+        self.model.admin_actions_loaded.connect(self.view.update_admin_actions_table)
         self.model.show_message.connect(self._show_message)
 
     def _go_back(self):

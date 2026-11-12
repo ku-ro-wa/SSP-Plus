@@ -27,10 +27,12 @@ def log_error(error_type, message, context):
         error_type: Type of error (e.g., "Printing Error", "Database Error")
         message: Detailed error message
         context: Context where error occurred (e.g., "printer_manager", "main_app")
+
+    Returns the new row's id, or None if it couldn't be written.
     """
     try:
         db = get_db_manager()
-        db.log_error(error_type, message, context)
+        return db.log_error(error_type, message, context)
     except Exception as e:
         print(f"Failed to log error to database: {e}")
         print(f"Original error: {error_type} - {message}")

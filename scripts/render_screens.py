@@ -34,6 +34,8 @@ SCREENS = {
     "thank_you": "ThankYouController",
     "admin": "AdminController",
     "settings": "SettingsController",
+    "data_viewer": "DataViewerController",
+    "reports": "ReportsController",
 }
 
 
@@ -79,6 +81,9 @@ def fill_live_content(name, screen):
         screen.view.update_page_count(2)
         screen.view.show_preview(sample_page_image(), 2)
         screen.view.show_status("Scan timed out after 60s — check the scanner connection.")
+    if name == "reports":
+        seed_report_rows(screen.model.db_manager)
+        screen.on_enter()
     if name == "print_options":
         # Ten files, each priced: the list's tallest state (it scrolls instead of growing)
         from managers.print_items import MAX_FILES_PER_TRANSACTION, PrintItem
@@ -91,6 +96,21 @@ def fill_live_content(name, screen):
         screen.view.show_errors({"max_change_limit": "Maximum change must be between 0 and 1000 ₱."})
     if name == "thank_you":
         screen.model.show_no_paper_error(0)  # its longest message: the admin's refill hint
+
+
+def seed_report_rows(db):
+    """A few sales in every Source, change and Voucher figures and two collections, so the
+    Reports screen is checked at its tallest (four collections' worth of rows)."""
+    from datetime import datetime, timedelta
+
+    from admin_dashboard.seed_demo_data import seed_transaction
+
+    now = datetime.now()
+    for source, cost in (("usb", 45), ("usb", 12), ("wifi", 30), ("email", 8), ("scanner", 20)):
+        seed_transaction(db.conn, source, cost, timestamp=now - timedelta(minutes=cost))
+    db.conn.commit()
+    for days in (6, 4, 2, 1):
+        db.record_cash_collection(collected_at=now - timedelta(days=days))
 
 
 def sample_page_image():
@@ -141,6 +161,21 @@ def build_popup_preview(name):
     return host
 
 
+def seed_data_viewer(db):
+    """A full first page of transactions and errors, so the viewer is checked with its
+    widest columns and pager showing."""
+    for i in range(30):
+        db.conn.execute(
+            "INSERT INTO transactions (timestamp, file_name, pages, copies, color_mode, total_cost,"
+            " amount_paid, change_given, status, source) VALUES (?, ?, 12, 2, 'Color', 120, 150, 30,"
+            " 'completed', 'scanner')", (f"2026-10-01 10:00:{i:02d}", f"Thesis chapter {i}.pdf"))
+        db.conn.execute(
+            "INSERT INTO error_log (timestamp, error_type, error_message, screen_name, resolved)"
+            " VALUES (?, 'Printing Error', 'Printer reported a paper jam while printing', 'printer', ?)",
+            (f"2026-10-01 10:00:{i:02d}", i % 2))
+    db.conn.commit()
+
+
 def build_screen(name):
     """The real controller for `name`, wired to a stand-in main app."""
     import importlib
@@ -151,9 +186,16 @@ def build_screen(name):
 
     module = importlib.import_module(f"screens.{name}")
     main_app = MagicMock()
-    if name == "settings":
+    if name in ("settings", "reports"):
         from database.db_manager import DatabaseManager
-        main_app.admin_screen.db_manager = DatabaseManager()  # the settings screen reads real rows
+        main_app.admin_screen.db_manager = DatabaseManager()  # these screens read real rows
+    if name == "data_viewer":
+        from database.db_manager import DatabaseManager
+        db = DatabaseManager()
+        seed_data_viewer(db)
+        screen = module.DataViewerController(main_app, db)
+        screen.on_enter()
+        return screen
     screen = getattr(module, SCREENS[name])(main_app)
     fill_live_content(name, screen)
     return screen

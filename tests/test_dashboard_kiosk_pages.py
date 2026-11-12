@@ -14,7 +14,8 @@ from admin_dashboard.templating import templates
 from managers.supply_levels import COIN_CRIT, COIN_WARN, INK_CRIT, INK_WARN, PAPER_CRIT, PAPER_WARN, severity
 from database.db_manager import DatabaseManager
 from database.models import init_db
-from managers.kiosk_status import SETTING_LAST_SEEN, SETTING_QR_STATUS, heartbeat_timestamp
+from managers.kiosk_status import (SETTING_LAST_SEEN, SETTING_QR_STATUS, heartbeat_timestamp,
+                                  write_printer_status)
 
 
 @pytest.fixture
@@ -92,6 +93,33 @@ class TestKioskPage:
         assert tanks["cyan"]["band"] == "ok"
         assert tanks["yellow"]["band"] == "crit" and tanks["yellow"]["empty"] is False
         assert tanks["black"]["empty"] is True
+
+    def test_shows_stored_printer_status(self, client, temp_db):
+        write_printer_status(temp_db, "Paper jam", "error", datetime(2026, 1, 2, 3, 4, 5))
+        _login(client, temp_db)
+
+        printer = client.get("/kiosk/data").json()["printer"]
+        assert printer["text"] == "Paper jam"
+        assert printer["level"] == "error"
+        assert printer["as_of"].endswith("03:04")
+
+        html = client.get("/kiosk").text
+        assert 'id="printer" class="bad">Paper jam' in html
+        assert "as of" in html
+
+    def test_printer_warning_and_success_colours(self, client, temp_db):
+        _login(client, temp_db)
+        write_printer_status(temp_db, "Paper low", "warning")
+        assert 'id="printer" class="warn">Paper low' in client.get("/kiosk").text
+        write_printer_status(temp_db, "Ready", "success")
+        assert 'id="printer" class="ok">Ready' in client.get("/kiosk").text
+
+    def test_no_printer_status_recorded_yet(self, client, temp_db):
+        _login(client, temp_db)
+        assert client.get("/kiosk/data").json()["printer"] is None
+        r = client.get("/kiosk")
+        assert r.status_code == 200
+        assert 'id="printer">Unknown' in r.text
 
     def test_paper_and_coin_bands_use_the_shared_thresholds(self, client, temp_db):
         temp_db.update_paper_count(PAPER_CRIT)
