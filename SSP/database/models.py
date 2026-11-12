@@ -18,6 +18,25 @@ def _add_column_if_missing(cursor, table, column, column_def):
         cursor.execute(f"ALTER TABLE {table} ADD COLUMN {column} {column_def}")
 
 
+def ensure_admin_actions_table(conn):
+    """Create the operator-change audit table (issue #134) if it's missing. Run
+    by init_db() and by the dashboard's open_db(), which can meet a DB the
+    kiosk app hasn't restarted onto this version yet."""
+    conn.execute('''
+    CREATE TABLE IF NOT EXISTS admin_actions (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        timestamp DATETIME NOT NULL,
+        actor TEXT NOT NULL,
+        location TEXT NOT NULL,
+        source_ip TEXT,
+        action TEXT NOT NULL,
+        old_value TEXT,
+        new_value TEXT
+    )
+    ''')
+    conn.commit()
+
+
 # Settings key marking that users.role holds the current role names. Its
 # absence means the rows (if any) still use the original names.
 DASHBOARD_ROLES_VERSION_KEY = 'dashboard_roles_version'
@@ -334,6 +353,7 @@ def init_db(db_path=None):
 
     conn.commit()
     migrate_dashboard_roles(conn)
+    ensure_admin_actions_table(conn)
     migrate_transaction_files(conn)
     conn.close()
     print("OK - Database initialization complete")
