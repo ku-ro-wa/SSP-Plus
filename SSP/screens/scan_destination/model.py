@@ -15,6 +15,7 @@ from PyQt5.QtCore import QObject
 
 from database.db_manager import DatabaseManager
 from managers.digital_fee import get_digital_fee
+from managers.print_items import PrintItem
 
 
 class ScanDestinationModel(QObject):
@@ -35,6 +36,10 @@ class ScanDestinationModel(QObject):
     def get_selected_pages(self) -> list:
         return list(range(1, self.page_count + 1))
 
+    def get_print_item(self) -> PrintItem:
+        """The scan as the one file of a print job (copies and price are set on print options)."""
+        return PrintItem(pdf_data=self.get_pdf_data(), pages=self.get_selected_pages())
+
     def get_digital_fee(self) -> int:
         return get_digital_fee(self.db_manager)
 
@@ -42,10 +47,8 @@ class ScanDestinationModel(QObject):
         """Payment data for a digital copy with no printing: just the flat fee."""
         fee = self.get_digital_fee()
         return {
-            'pdf_data': self.get_pdf_data(),
-            'selected_pages': self.get_selected_pages(),
-            'copies': 0,
-            'color_mode': 'N/A',
+            'items': [PrintItem(pdf_data=self.get_pdf_data(), pages=self.get_selected_pages(),
+                                copies=0, color_mode='N/A', cost=0)],
             'total_cost': fee,
             'print_job': False,
             'digital_copy': {'fee': fee},

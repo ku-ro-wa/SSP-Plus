@@ -65,6 +65,20 @@ class TestPostRedeem:
         assert "Scan_1.pdf" in response.text
         assert f'value="{session.session_id}"' in response.text
 
+    def test_the_same_code_works_a_second_time(self, tmp_path):
+        db = FakeDBManager()
+        session = _make_scan_session(tmp_path, db)
+        app.dependency_overrides[get_session_manager] = _override_session_manager(db)
+        try:
+            first = client.post("/redeem", data={"otp": session.otp})
+            second = client.post("/redeem", data={"otp": session.otp})
+        finally:
+            app.dependency_overrides.pop(get_session_manager, None)
+
+        assert first.status_code == 200
+        assert second.status_code == 200
+        assert "Scan_1.pdf" in second.text
+
     def test_invalid_otp_returns_400(self, tmp_path):
         db = FakeDBManager()
         _make_scan_session(tmp_path, db)
@@ -106,6 +120,23 @@ class TestRedeemDownload:
             app.dependency_overrides.pop(get_session_manager, None)
 
         assert response.status_code == 400
+
+    def test_a_used_session_needs_its_code(self, tmp_path):
+        db = FakeDBManager()
+        session = _make_scan_session(tmp_path, db)
+        wrong = "000000" if session.otp != "000000" else "000001"
+        app.dependency_overrides[get_session_manager] = _override_session_manager(db)
+        try:
+            client.post("/redeem", data={"otp": session.otp})
+            response = client.post(
+                "/redeem/download",
+                data={"session_id": session.session_id, "otp": wrong},
+            )
+        finally:
+            app.dependency_overrides.pop(get_session_manager, None)
+
+        assert response.status_code == 400
+        assert response.content != PDF_BYTES
 
 
 class TestRedeemEmail:
