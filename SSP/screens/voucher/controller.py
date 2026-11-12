@@ -40,16 +40,21 @@ class VoucherController(QWidget):
 
     # --- Public API for the payment model ---
 
-    def show_issued(self, voucher, reason=VoucherModel.CHANGE, on_continue=None):
+    def show_issued(self, voucher, reason=VoucherModel.CHANGE, on_continue=None, file_counts=None):
+        """`file_counts` is (printed, total) for PARTIAL_REFUND's wording."""
         self._continuing = False
         self._on_continue = on_continue
         self.model.set_voucher(voucher, reason)
+        if file_counts:
+            self.model.set_file_counts(*file_counts)
         self.view.render(self.model)
 
-    def show_failure(self, amount, reason=VoucherModel.CHANGE, on_continue=None):
+    def show_failure(self, amount, reason=VoucherModel.CHANGE, on_continue=None, file_counts=None):
         self._continuing = False
         self._on_continue = on_continue
         self.model.set_failure(amount, reason)
+        if file_counts:
+            self.model.set_file_counts(*file_counts)
         self.view.render(self.model)
 
     # --- Lifecycle (called by main_app.show_screen) ---

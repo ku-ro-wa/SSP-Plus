@@ -185,20 +185,6 @@ class FileBrowserModel(QObject):
 
         self.pdf_analysis_completed.emit(pdf_data, analysis_data)
 
-    def go_to_payment(self, pdf_data, analysis_data):
-        """Navigates to payment screen with PDF data."""
-        config = get_config()
-        payment_data = {
-            'pdf_data': pdf_data,
-            'analysis': analysis_data,
-            'selected_pages': list(range(analysis_data['total_pages'])),
-            'copies': 1,
-            'color_mode': config.default_color_mode,  # Use config default
-            'total_cost': analysis_data['pricing']['total_cost']
-        }
-        self.navigation_requested.emit('payment')
-        return payment_data
-
     def cleanup(self):
         """Cleans up resources."""
         if self.analysis_thread and self.analysis_thread.isRunning():
