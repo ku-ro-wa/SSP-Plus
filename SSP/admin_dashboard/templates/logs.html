@@ -1,19 +1,23 @@
 {% extends "base.html" %}
 {% block title %}Logs{% endblock %}
 {% block heading %}Logs{% endblock %}
+{% block style %}
+        .btn { font-size: 14px; padding: 8px 14px; min-height: 40px; border: 0; border-radius: 8px; background: #000; color: #fff; cursor: pointer; margin-left: 8px; }
+{% endblock %}
 {% block content %}
-{% macro pager(p, own, other_name, other_value, anchor) %}
+{% macro pager(p, own, anchor) %}
+{% set pages = {'tx_page': logs.transactions.page, 'err_page': logs.errors.page, 'act_page': logs.actions.page} %}
 <div class="pager">
-    {% if p.page > 1 %}<a href="?{{ own }}={{ p.page - 1 }}&{{ other_name }}={{ other_value }}#{{ anchor }}">&larr; Newer</a>{% endif %}
+    {% if p.page > 1 %}<a href="?{% for k, v in pages.items() %}{{ k }}={{ p.page - 1 if k == own else v }}{{ '&' if not loop.last }}{% endfor %}#{{ anchor }}">&larr; Newer</a>{% endif %}
     <span>Page {{ p.page }} of {{ p.pages }} ({{ p.total }} rows)</span>
-    {% if p.page < p.pages %}<a href="?{{ own }}={{ p.page + 1 }}&{{ other_name }}={{ other_value }}#{{ anchor }}">Older &rarr;</a>{% endif %}
+    {% if p.page < p.pages %}<a href="?{% for k, v in pages.items() %}{{ k }}={{ p.page + 1 if k == own else v }}{{ '&' if not loop.last }}{% endfor %}#{{ anchor }}">Older &rarr;</a>{% endif %}
 </div>
 {% endmacro %}
 
 <section id="transactions">
     <h2>Transactions</h2>
     <div class="scroll"><table>
-        <thead><tr><th>Time</th><th>File</th><th>Source</th><th class="numeric">Pages</th><th class="numeric">Copies</th><th>Colour</th><th class="numeric">Cost</th><th class="numeric">Paid</th><th class="numeric">Change</th><th>Status</th></tr></thead>
+        <thead><tr>{% for c in logs.columns.transactions %}<th{% if c in logs.columns.numeric %} class="numeric"{% endif %}>{{ c }}</th>{% endfor %}</tr></thead>
         <tbody>
         {% for t in logs.transactions.rows %}
             <tr><td>{{ t.timestamp }}</td><td>{{ t.file_name }}</td><td>{{ t.source or '' }}</td><td class="numeric">{{ t.pages }}</td><td class="numeric">{{ t.copies }}</td><td>{{ t.color_mode }}</td><td class="numeric">₱{{ "%.2f"|format(t.total_cost) }}</td><td class="numeric">₱{{ "%.2f"|format(t.amount_paid) }}</td><td class="numeric">₱{{ "%.2f"|format(t.change_given) }}</td><td>{{ t.status }}</td></tr>
@@ -22,7 +26,7 @@
         {% endfor %}
         </tbody>
     </table></div>
-    {{ pager(logs.transactions, 'tx_page', 'err_page', logs.errors.page, 'transactions') }}
+    {{ pager(logs.transactions, 'tx_page', 'transactions') }}
 </section>
 
 <section id="cash">
@@ -42,15 +46,44 @@
 <section id="error-log">
     <h2>Error log</h2>
     <div class="scroll"><table>
-        <thead><tr><th>Time</th><th>Type</th><th>Message</th><th>Screen</th><th>Resolved</th></tr></thead>
+        <thead><tr>{% for c in logs.columns.errors %}<th>{{ c }}</th>{% endfor %}</tr></thead>
         <tbody>
         {% for e in logs.errors.rows %}
-            <tr><td>{{ e.timestamp }}</td><td>{{ e.error_type }}</td><td>{{ e.error_message }}</td><td>{{ e.screen_name }}</td><td>{{ 'yes' if e.resolved else 'no' }}</td></tr>
+            <tr><td>{{ e.timestamp }}</td><td>{{ e.error_type }}</td><td>{{ e.error_message }}</td><td>{{ e.screen_name }}</td><td>{{ 'yes' if e.resolved else 'no' }}{% if can_edit and not e.resolved %} <button type="button" class="btn resolve" data-resolve="{{ e.id }}">Mark resolved</button>{% endif %}</td></tr>
         {% else %}
             <tr><td colspan="5" class="muted">No errors.</td></tr>
         {% endfor %}
         </tbody>
     </table></div>
-    {{ pager(logs.errors, 'err_page', 'tx_page', logs.transactions.page, 'error-log') }}
+    {{ pager(logs.errors, 'err_page', 'error-log') }}
 </section>
+
+<section id="admin-actions">
+    <h2>Admin actions</h2>
+    <div class="scroll"><table>
+        <thead><tr><th>Time</th><th>Who</th><th>Where</th><th>Action</th><th>Old</th><th>New</th></tr></thead>
+        <tbody>
+        {% for a in logs.actions.rows %}
+            <tr><td>{{ a.timestamp }}</td><td>{{ a.actor }}</td><td>{{ a.location }}{% if a.source_ip %} ({{ a.source_ip }}){% endif %}</td><td>{{ a.action }}</td><td>{{ a.old_value }}</td><td>{{ a.new_value }}</td></tr>
+        {% else %}
+            <tr><td colspan="6" class="muted">No admin actions.</td></tr>
+        {% endfor %}
+        </tbody>
+    </table></div>
+    {{ pager(logs.actions, 'act_page', 'admin-actions') }}
+</section>
+{% endblock %}
+{% block scripts %}
+{% if can_edit %}
+<script>
+document.querySelectorAll("[data-resolve]").forEach((button) => {
+    button.addEventListener("click", async () => {
+        button.disabled = true;
+        const response = await fetch(`/errors/${button.dataset.resolve}/resolve`, {method: "POST"});
+        if (response.ok) location.reload();
+        else { button.disabled = false; button.textContent = "Could not save (" + response.status + ")"; }
+    });
+});
+</script>
+{% endif %}
 {% endblock %}

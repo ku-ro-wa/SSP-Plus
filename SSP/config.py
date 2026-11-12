@@ -505,6 +505,30 @@ class Config:
             return 25
 
     @property
+    def portal_uploads_per_phone(self) -> int:
+        """Portal upload requests one address may make per window (webapp/upload_guard.py)."""
+        try:
+            return max(1, self.get('PORTAL_UPLOADS_PER_PHONE', int))
+        except KeyError:
+            return 10
+
+    @property
+    def portal_upload_window_minutes(self) -> int:
+        """The window PORTAL_UPLOADS_PER_PHONE counts over."""
+        try:
+            return max(1, self.get('PORTAL_UPLOAD_WINDOW_MINUTES', int))
+        except KeyError:
+            return 10
+
+    @property
+    def min_free_storage_mb(self) -> int:
+        """Refuse Portal uploads that would leave less free storage than this."""
+        try:
+            return max(0, self.get('MIN_FREE_STORAGE_MB', int))
+        except KeyError:
+            return 1024
+
+    @property
     def wifi_portal_port(self) -> int:
         """Port the Wi-Fi portal's Uvicorn instance listens on. The hotspot
         firewall (scripts/setup_hotspot.py) opens exactly this port on the
@@ -815,7 +839,7 @@ class Config:
     @property
     def scan_digital_fee(self) -> float:
         """Default flat fee (₱) for the digital copy of a scan (download/email).
-        Kiosk Admin can override it via the 'scan_digital_fee' setting; see
+        The 'scan_digital_fee' setting (Settings screen or Dashboard) overrides it; see
         managers/digital_fee.py."""
         try:
             return self.get('SCAN_DIGITAL_FEE', float)

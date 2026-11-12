@@ -1,7 +1,8 @@
 # managers/digital_fee.py
 #
 # The flat fee (whole pesos) for the digital copy of a scan (download/email).
-# Kiosk Admin edits the 'scan_digital_fee' setting; until it's set, the
+# The 'scan_digital_fee' setting (touchscreen Settings or the Dashboard's
+# /settings, via managers/settings_catalog.py) sets it; until it's set, the
 # SCAN_DIGITAL_FEE env value (config.scan_digital_fee, default 5) applies.
 
 from config import get_config

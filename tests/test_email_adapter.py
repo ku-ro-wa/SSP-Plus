@@ -6,6 +6,7 @@ these exercise the full poll -> validate -> session -> reply path offline.
 """
 import json
 import os
+import smtplib
 from email.message import EmailMessage
 
 from managers.adapters.email_adapter import EmailAdapter
@@ -244,6 +245,56 @@ class TestPollInbox:
 
         assert processed == 2
         assert len(smtp.sent) == 1
+
+
+class TestReplyFailure:
+    def _failing_smtp(self, adapter, exc, times=1):
+        calls = {"n": 0}
+        real = adapter.smtp_client.send
+
+        def send(msg):
+            calls["n"] += 1
+            if calls["n"] <= times:
+                raise exc
+            real(msg)
+
+        adapter.smtp_client.send = send
+
+    def test_failed_send_leaves_message_unlogged_and_unseen_then_retries(self, tmp_path):
+        raw = _make_raw_email(f"{SUBJECT_KEYWORD}: x", PDF_BYTES)
+        adapter, db, imap, smtp = _make_adapter(tmp_path, imap_messages={1: raw})
+        self._failing_smtp(adapter, OSError("name resolution"))
+
+        assert adapter.poll_inbox() == 0
+        assert 1 not in imap.seen
+        assert db.get_email_intake_log(1, 1) is None
+        assert len(db.sessions) == 0
+        assert os.listdir(adapter.upload_dir) == []
+
+        assert adapter.poll_inbox() == 1
+        assert 1 in imap.seen
+        assert len(smtp.sent) == 1
+        assert len(db.sessions) == 1
+
+    def test_failure_does_not_block_other_messages(self, tmp_path):
+        a = _make_raw_email(f"{SUBJECT_KEYWORD}: a", PDF_BYTES, message_id="<a@t>")
+        b = _make_raw_email("nope", PDF_BYTES, message_id="<b@t>")
+        adapter, db, imap, smtp = _make_adapter(tmp_path, imap_messages={1: a, 2: b})
+        self._failing_smtp(adapter, OSError("down"))
+
+        assert adapter.poll_inbox() == 1
+        assert db.get_email_intake_log(1, 2)["outcome"] == "rejected_subject"
+        assert db.get_email_intake_log(1, 1) is None
+
+    def test_refused_recipient_is_logged_as_error_and_not_retried(self, tmp_path):
+        raw = _make_raw_email(f"{SUBJECT_KEYWORD}: x", PDF_BYTES)
+        adapter, db, imap, smtp = _make_adapter(tmp_path, imap_messages={1: raw})
+        self._failing_smtp(adapter, smtplib.SMTPRecipientsRefused({"a@b": (550, b"no")}))
+
+        assert adapter.poll_inbox() == 1
+        assert 1 in imap.seen
+        assert db.get_email_intake_log(1, 1)["outcome"] == "error"
+        assert len(db.sessions) == 0
 
 
 class TestSendResponse:
