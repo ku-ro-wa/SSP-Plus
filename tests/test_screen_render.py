@@ -31,4 +31,4 @@ def test_every_screen_fits_the_kiosk_panel(tmp_path):
     )
     assert result.returncode == 0, result.stdout[-2000:] + result.stderr[-2000:]
     assert "OVERFLOWS" not in result.stdout
-    assert len(list(tmp_path.glob("*.png"))) == 17
+    assert len(list(tmp_path.glob("*.png"))) == 18

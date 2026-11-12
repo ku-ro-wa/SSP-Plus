@@ -50,10 +50,41 @@ class ThankYouModel(QObject):
         self.print_job_started = False
         self.error_type = None
         self.error_id = None  # the error_log row this screen wrote, for the PIN override
+        self.progress_text = ""   # "Printing file k of n", for a multi-file job
+
+    SAFETY_REDIRECT_MS = 120000
+
+    def _print_thread_running(self):
+        """Whether the printer thread is still working on a job."""
+        manager = getattr(getattr(self, 'main_app', None), 'printer_manager', None)
+        thread = getattr(manager, 'print_thread', None)
+        try:
+            return bool(thread is not None and thread.isRunning())
+        except Exception:
+            return False
 
     def _on_timer_timeout(self):
-        """Handle redirect timer timeout."""
+        """Handle redirect timer timeout.
+
+        Never goes to idle while the print thread runs: the next customer could
+        start, a failure would open the refund screen over their flow, and their
+        timeout would delete this job's files. One file of 20+ color pages can
+        take longer than the safety timeout on its own."""
+        if self._print_thread_running():
+            print("DEBUG: Safety redirect fired while printing, waiting again")
+            self.redirect_timer.start(self.SAFETY_REDIRECT_MS)
+            return
         self.redirect_to_idle.emit()
+
+    def _on_file_started(self, position, total):
+        """A file's job is being sent. Positions count down (last file first), so the
+        customer sees 'file 1 of n' for the first job sent. Restarts the safety timer."""
+        if total > 1:
+            self.progress_text = f"Printing file {total - position + 1} of {total}"
+            if self.current_state == "waiting":
+                self.status_updated.emit("Thank you for printing with us", self.progress_text)
+        if self.current_state not in ("error", "admin_override", "completed"):
+            self.redirect_timer.start(self.SAFETY_REDIRECT_MS)
 
     def on_enter(self, main_app):
         """
@@ -78,6 +109,7 @@ class ThankYouModel(QObject):
             return
 
         # Set initial state
+        self.progress_text = ""
         self.current_state = "waiting"
         self.status_updated.emit(
             "Thank you for printing with us",
@@ -93,6 +125,7 @@ class ThankYouModel(QObject):
         if hasattr(main_app, 'printer_manager'):
             print("DEBUG: Connecting to printer manager signals")
             try:
+                main_app.printer_manager.file_started.connect(self._on_file_started)
                 main_app.printer_manager.print_job_successful.connect(self._on_print_success)
                 main_app.printer_manager.print_job_failed.connect(self._on_print_failed)
                 print("DEBUG: Printer signals connected successfully")
@@ -130,7 +163,7 @@ class ThankYouModel(QObject):
         self.current_state = "waiting"
         self.status_updated.emit(
             "Thank you for printing with us",
-            "Your document is being processed."
+            self.progress_text or "Your document is being processed."
         )
 
     def show_printing_error(self, message: str):
@@ -342,12 +375,7 @@ class ThankYouModel(QObject):
         if hasattr(main_app, 'current_print_job') and main_app.current_print_job:
             try:
                 print(f"DEBUG: Starting print job with details: {main_app.current_print_job}")
-                main_app.printer_manager.print_file(
-                    file_path=main_app.current_print_job['file_path'],
-                    selected_pages=main_app.current_print_job['selected_pages'],
-                    copies=main_app.current_print_job['copies'],
-                    color_mode=main_app.current_print_job['color_mode']
-                )
+                main_app.printer_manager.print_items(main_app.current_print_job['items'])
                 self.print_job_started = True
                 print("DEBUG: Print job started successfully")
             except Exception as e:
@@ -363,7 +391,7 @@ class ThankYouModel(QObject):
         # Error states should wait for admin override, not auto-redirect
         if self.current_state not in ["error", "admin_override"]:
             # Start safety timeout (2 minutes) only for non-error states
-            self.redirect_timer.start(120000)
+            self.redirect_timer.start(self.SAFETY_REDIRECT_MS)
 
     def _on_print_failed(self, error_message):
         """
@@ -380,6 +408,7 @@ class ThankYouModel(QObject):
         # Disconnect printer signals
         if hasattr(self, 'main_app') and hasattr(self.main_app, 'printer_manager'):
             try:
+                self.main_app.printer_manager.file_started.disconnect(self._on_file_started)
                 self.main_app.printer_manager.print_job_successful.disconnect(self._on_print_success)
                 self.main_app.printer_manager.print_job_failed.disconnect(self._on_print_failed)
             except Exception:

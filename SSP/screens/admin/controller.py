@@ -42,11 +42,10 @@ class AdminController(QWidget):
         self.view.back_clicked.connect(self._go_back)
         self.view.view_data_logs_clicked.connect(self._show_data_viewer)
         self.view.settings_clicked.connect(lambda: self.main_app.show_screen('settings'))
+        self.view.reports_clicked.connect(lambda: self.main_app.show_screen('reports'))
         self.view.paper_decreased.connect(self.model.decrease_paper_count)
         self.view.paper_increased.connect(self.model.increase_paper_count)
         self.view.reset_paper_clicked.connect(self.model.reset_paper_count)
-        self.view.digital_fee_decreased.connect(self.model.decrease_digital_fee)
-        self.view.digital_fee_increased.connect(self.model.increase_digital_fee)
         self.view.coin_1_decreased.connect(self.model.decrease_coin_1_count)
         self.view.coin_1_increased.connect(self.model.increase_coin_1_count)
         self.view.coin_5_decreased.connect(self.model.decrease_coin_5_count)
@@ -60,7 +59,6 @@ class AdminController(QWidget):
 
         # --- Model -> View ---
         self.model.paper_count_changed.connect(self.view.update_paper_count_display)
-        self.model.digital_fee_changed.connect(self.view.update_digital_fee_display)
         self.model.coin_count_changed.connect(self.view.update_coin_count_display)
         self.model.cmyk_levels_changed.connect(self.view.update_cmyk_display)
         self.model.show_message.connect(self.view.show_message_box)
@@ -95,7 +93,6 @@ class AdminController(QWidget):
         """Called by main_app when this screen becomes active."""
         print("Admin screen entered. Refreshing data.")
         self.model.load_paper_count()
-        self.model.load_digital_fee()
         self.model.load_coin_counts()
         self.model.load_cmyk_levels()
         self.view.update_qr_reader_status(self.main_app.qr_reader_status_text())

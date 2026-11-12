@@ -22,6 +22,7 @@ import screens.idle.model as idle_module  # noqa: E402
 import screens.payment.model as payment_module  # noqa: E402
 from database.db_manager import DatabaseManager  # noqa: E402
 from database.models import init_db  # noqa: E402
+from managers.print_items import PrintItem  # noqa: E402
 from managers.voucher_manager import MSG_UNGIVEN_CHANGE  # noqa: E402
 from screens.homepage.controller import HomepageController  # noqa: E402
 from screens.idle.controller import IdleController  # noqa: E402
@@ -243,8 +244,7 @@ class TestPaymentCopy:
     def test_keeps_per_job_message_and_mentions_vouchers(self, payment, db):
         stock_hoppers(db, ones=3, fives=1)
         options = PrintOptionsModel()
-        options.set_color_mode("Black and White")
-        options.set_pdf_data({'path': PDF}, [1])
+        options.set_items([PrintItem({'path': PDF}, [1])])
 
         payment.model.set_payment_data(options.get_payment_data())
         payment.on_enter()

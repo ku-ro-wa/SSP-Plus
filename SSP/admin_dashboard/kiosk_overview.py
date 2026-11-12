@@ -6,7 +6,9 @@
 
 from datetime import datetime
 
-from managers.kiosk_status import SETTING_LAST_SEEN, SETTING_QR_STATUS
+from managers.kiosk_status import (
+    SETTING_LAST_SEEN, SETTING_PRINTER_AT, SETTING_PRINTER_LEVEL, SETTING_PRINTER_STATUS, SETTING_QR_STATUS,
+)
 from managers.supply_levels import (
     COIN_CRIT, COIN_WARN, INK_CRIT, INK_WARN, PAPER_CRIT, PAPER_WARN, severity,
 )
@@ -31,6 +33,25 @@ def describe_last_seen(raw, now=None):
         return True, f"online, {age} s ago" if age < 120 else f"online, {age // 60} min ago"
     when = seen.strftime("%H:%M") if seen.date() == now.date() else seen.strftime("%d %b %H:%M")
     return False, f"offline since {when}"
+
+
+def _printer(db, now=None):
+    """The stored printer status, or None if the kiosk hasn't recorded one yet.
+    `level` is Kiosk Admin's: 'success' | 'warning' | 'error'."""
+    text = db.get_setting(SETTING_PRINTER_STATUS)
+    if not text:
+        return None
+    level = db.get_setting(SETTING_PRINTER_LEVEL)
+    if level not in ("success", "warning", "error"):
+        level = "warning"
+    now = now or datetime.now()
+    raw = db.get_setting(SETTING_PRINTER_AT)
+    try:
+        at = datetime.fromisoformat(raw)
+        as_of = at.strftime("%H:%M") if at.date() == now.date() else at.strftime("%d %b %H:%M")
+    except (TypeError, ValueError):
+        as_of = None
+    return {"text": text, "level": level, "as_of": as_of}
 
 
 def _ink(db):
@@ -60,6 +81,7 @@ def build_overview(db, now=None):
         "online": online,
         "last_seen": seen_text,
         "qr_reader": db.get_setting(SETTING_QR_STATUS) or "Unknown",
+        "printer": _printer(db, now),
         "paper": {
             "count": supplies["paper_count"],
             "band": severity(supplies["paper_count"], PAPER_WARN, PAPER_CRIT),
