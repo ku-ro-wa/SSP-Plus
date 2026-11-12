@@ -217,6 +217,10 @@ See `docs/adr/0002-admin-dashboard-auth-and-remote-access-architecture.md` and C
 
 `admin_actions` (`managers/admin_actions.py`, created by `init_db()` and the dashboard's `open_db()`) is the audit trail of operator changes: time, who (dashboard username, or `kiosk` behind `ADMIN_PIN`), where (`dashboard` + source IP, or `touchscreen`), action, old and new value. `record_action()` skips a save that doesn't change the value and never raises (a failed write is logged). Recorded today: paper, coin and ink edits and Collect cash (`screens/admin/model.py`), settings changes (touchscreen `SettingsModel.save` and the Dashboard's `POST /settings`, one row per changed key) and `/paper-reset`. Automatic changes (a print using paper, change leaving the hoppers, the printer reporting the tray empty) aren't operator actions. Shown newest first, `PAGE_SIZE` per page, on `/logs` and in the data viewer's Admin Actions tab, both reading `DatabaseManager.get_admin_action_page()`. New operator-write routes (#135, #136) call `record_action()` too. `tests/test_admin_actions.py`.
 
+### Logs on both sides (issue #131)
+
+The Dashboard's `/logs` and the touchscreen data viewer (`screens/data_viewer/`) show the same transaction and error columns (`managers/log_pages.py`: `TRANSACTION_COLUMNS`, `ERROR_COLUMNS`, `PAGE_SIZE`; the viewer adds an ID first), read with `DatabaseManager.get_transaction_page()`/`get_error_page()` newest first, with Newer/Older paging on both. `tests/test_data_viewer_columns.py` compares the rendered headers, rows and pages with `/logs`.
+
 ### Configuration
 
 All runtime config comes from `.env` via `config.py`'s `get_config()` (global `Config` singleton). `Config._load_env_file()` uses `os.environ.setdefault`, so a shell-exported var always overrides `.env` (this is how `make run-sim` forces `SIM_MODE=true` without editing `.env`). Accessing an unset key raises `KeyError` (see `Config.get`) — there are no silent defaults except `sim_mode`, which returns `False` if unset.

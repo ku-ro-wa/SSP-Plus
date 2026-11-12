@@ -34,6 +34,7 @@ SCREENS = {
     "thank_you": "ThankYouController",
     "admin": "AdminController",
     "settings": "SettingsController",
+    "data_viewer": "DataViewerController",
     "reports": "ReportsController",
 }
 
@@ -160,6 +161,21 @@ def build_popup_preview(name):
     return host
 
 
+def seed_data_viewer(db):
+    """A full first page of transactions and errors, so the viewer is checked with its
+    widest columns and pager showing."""
+    for i in range(30):
+        db.conn.execute(
+            "INSERT INTO transactions (timestamp, file_name, pages, copies, color_mode, total_cost,"
+            " amount_paid, change_given, status, source) VALUES (?, ?, 12, 2, 'Color', 120, 150, 30,"
+            " 'completed', 'scanner')", (f"2026-10-01 10:00:{i:02d}", f"Thesis chapter {i}.pdf"))
+        db.conn.execute(
+            "INSERT INTO error_log (timestamp, error_type, error_message, screen_name, resolved)"
+            " VALUES (?, 'Printing Error', 'Printer reported a paper jam while printing', 'printer', ?)",
+            (f"2026-10-01 10:00:{i:02d}", i % 2))
+    db.conn.commit()
+
+
 def build_screen(name):
     """The real controller for `name`, wired to a stand-in main app."""
     import importlib
@@ -173,6 +189,13 @@ def build_screen(name):
     if name in ("settings", "reports"):
         from database.db_manager import DatabaseManager
         main_app.admin_screen.db_manager = DatabaseManager()  # these screens read real rows
+    if name == "data_viewer":
+        from database.db_manager import DatabaseManager
+        db = DatabaseManager()
+        seed_data_viewer(db)
+        screen = module.DataViewerController(main_app, db)
+        screen.on_enter()
+        return screen
     screen = getattr(module, SCREENS[name])(main_app)
     fill_live_content(name, screen)
     return screen
