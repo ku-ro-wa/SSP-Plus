@@ -18,6 +18,25 @@ def _add_column_if_missing(cursor, table, column, column_def):
         cursor.execute(f"ALTER TABLE {table} ADD COLUMN {column} {column_def}")
 
 
+def ensure_admin_actions_table(conn):
+    """Create the operator-change audit table (issue #134) if it's missing. Run
+    by init_db() and by the dashboard's open_db(), which can meet a DB the
+    kiosk app hasn't restarted onto this version yet."""
+    conn.execute('''
+    CREATE TABLE IF NOT EXISTS admin_actions (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        timestamp DATETIME NOT NULL,
+        actor TEXT NOT NULL,
+        location TEXT NOT NULL,
+        source_ip TEXT,
+        action TEXT NOT NULL,
+        old_value TEXT,
+        new_value TEXT
+    )
+    ''')
+    conn.commit()
+
+
 # Settings key marking that users.role holds the current role names. Its
 # absence means the rows (if any) still use the original names.
 DASHBOARD_ROLES_VERSION_KEY = 'dashboard_roles_version'
@@ -42,6 +61,38 @@ def migrate_dashboard_roles(conn):
         cursor.execute(
             "INSERT INTO settings (key, value) VALUES (?, '2')", (DASHBOARD_ROLES_VERSION_KEY,)
         )
+        conn.commit()
+    except sqlite3.OperationalError:
+        return
+
+
+def migrate_transaction_files(conn):
+    """Multi-file transactions (#119): the transaction_files table and
+    transactions.file_count. Idempotent; called by init_db() and by the Admin
+    Dashboard's open_db(), which can run before the kiosk restarts on new code.
+    Rows from before this change keep file_count 1 and get no file rows. A DB
+    without a transactions table yet has nothing to migrate."""
+    cursor = conn.cursor()
+    cursor.row_factory = None  # DatabaseManager's connection returns dicts; the PRAGMA check indexes
+    try:
+        cursor.execute("PRAGMA table_info(transactions)")
+        if not cursor.fetchall():
+            return
+        _add_column_if_missing(cursor, 'transactions', 'file_count', 'INTEGER NOT NULL DEFAULT 1')
+        cursor.execute('''
+        CREATE TABLE IF NOT EXISTS transaction_files (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            payment_ref TEXT NOT NULL,
+            position INTEGER NOT NULL,
+            file_name TEXT NOT NULL,
+            pages INTEGER NOT NULL,
+            copies INTEGER NOT NULL,
+            color_mode TEXT NOT NULL,
+            cost REAL NOT NULL,
+            status TEXT NOT NULL,
+            UNIQUE (payment_ref, position)
+        )
+        ''')
         conn.commit()
     except sqlite3.OperationalError:
         return
@@ -302,5 +353,7 @@ def init_db(db_path=None):
 
     conn.commit()
     migrate_dashboard_roles(conn)
+    ensure_admin_actions_table(conn)
+    migrate_transaction_files(conn)
     conn.close()
     print("OK - Database initialization complete")

@@ -14,6 +14,7 @@ os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
 from PyQt5.QtWidgets import QApplication  # noqa: E402
 
 import managers.printer_thread as pt  # noqa: E402
+from managers.print_items import PrintItem  # noqa: E402
 from managers.printer_thread import PrinterThread, parse_printer_alerts  # noqa: E402
 
 PRINTER = "HP_Smart_Tank_580_590_series_5E0E1D_USB"
@@ -48,7 +49,7 @@ def thread(monkeypatch):
     monkeypatch.setattr(pt.time, 'sleep', lambda s: None)
     monkeypatch.setattr(pt, 'send_no_paper_sms', lambda: None)
     monkeypatch.setattr(pt, 'send_paper_jam_sms', lambda: None)
-    t = PrinterThread("x.pdf", 1, "Black and White", [1], PRINTER)
+    t = PrinterThread([PrintItem({'path': 'x.pdf'}, [1])], PRINTER)
     t.failures = []
     t.print_failed.connect(t.failures.append)
     return t

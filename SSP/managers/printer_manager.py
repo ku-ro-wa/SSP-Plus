@@ -20,10 +20,15 @@ class PrinterManager(QObject):
     Checks printer availability before starting jobs and forwards thread signals
     to the main application.
 
-    After print_job_successful, the temporary PDF is kept alive for ink analysis.
-    Call cleanup_last_temp_pdf() after ink analysis completes to remove it.
+    Each printed file's temporary PDF is kept alive for ink analysis: file_printed
+    hands over its path, and the receiver calls cleanup_temp_pdf(path) once the
+    analysis is done. file_printed always reaches the main thread before the
+    print_job_failed/print_job_successful that follows it, so keep every
+    forward below a queued connection (no Qt.DirectConnection).
     """
 
+    file_started = pyqtSignal(int, int)    # position, total
+    file_printed = pyqtSignal(int, str)    # position, temp PDF path
     print_job_successful = pyqtSignal()
     print_job_failed = pyqtSignal(str)
     print_job_waiting = pyqtSignal()
@@ -36,8 +41,10 @@ class PrinterManager(QObject):
         self.print_thread = None
         self.check_printer_availability()
 
-    def print_file(self, file_path, copies, color_mode, selected_pages):
-        print(f"Print request: {len(selected_pages)} pages x {copies} copies ({color_mode})")
+    def print_items(self, items):
+        """Print a transaction's items (managers/print_items.py)."""
+        items = list(items)
+        print(f"Print request: {len(items)} file(s), {sum(i.sheets for i in items)} sheet(s)")
 
         if hasattr(self, 'print_thread') and self.print_thread and self.print_thread.isRunning():
             print("Print job already running, rejecting duplicate request")
@@ -49,18 +56,15 @@ class PrinterManager(QObject):
             self.print_job_failed.emit("Printer is not available. Please check printer connection.")
             return
 
-        if not os.path.exists(file_path):
-            self.print_job_failed.emit(f"File not found: {file_path}")
-            return
+        for item in items:
+            if not item.path or not os.path.exists(item.path):
+                self.print_job_failed.emit(f"File not found: {item.path}")
+                return
 
-        self.print_thread = PrinterThread(
-            file_path=file_path,
-            copies=copies,
-            color_mode=color_mode,
-            selected_pages=selected_pages,
-            printer_name=self.printer_name
-        )
-        self.print_thread.print_success.connect(self._on_print_success)
+        self.print_thread = PrinterThread(items=items, printer_name=self.printer_name)
+        self.print_thread.file_started.connect(self.file_started.emit)
+        self.print_thread.file_printed.connect(self.file_printed.emit)
+        self.print_thread.print_success.connect(self.print_job_successful.emit)
         self.print_thread.print_failed.connect(self.print_job_failed.emit)
         self.print_thread.print_waiting.connect(self.print_job_waiting.emit)
         self.print_thread.paper_empty.connect(self.paper_empty.emit)
@@ -132,17 +136,12 @@ class PrinterManager(QObject):
     def check_for_paper_jam(self):
         return self.check_printer_status()['status'] == 'paper_jam'
 
-    def _on_print_success(self, temp_pdf_path):
-        self.last_temp_pdf_path = temp_pdf_path
-        self.print_job_successful.emit()
-
-    def cleanup_last_temp_pdf(self):
-        if hasattr(self, 'last_temp_pdf_path') and self.last_temp_pdf_path:
+    def cleanup_temp_pdf(self, path):
+        """Delete one printed file's temporary PDF (after its ink analysis)."""
+        if path and os.path.exists(path):
             try:
-                if os.path.exists(self.last_temp_pdf_path):
-                    os.remove(self.last_temp_pdf_path)
-                    print(f"Cleaned up temp PDF: {self.last_temp_pdf_path}")
-                self.last_temp_pdf_path = None
+                os.remove(path)
+                print(f"Cleaned up temp PDF: {path}")
             except Exception as e:
                 print(f"Error cleaning up temp PDF: {e}")
 

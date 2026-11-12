@@ -10,7 +10,7 @@ import pytest
 from database.db_manager import DatabaseManager
 from database.models import init_db
 from managers import kiosk_status
-from managers.kiosk_status import (SETTING_LAST_SEEN, SETTING_QR_STATUS, heartbeat_timestamp, write_heartbeat,
+from managers.kiosk_status import (SETTING_LAST_SEEN, SETTING_QR_STATUS, heartbeat_timestamp, write_heartbeat, write_printer_status,
                                     write_qr_status)
 
 
@@ -89,3 +89,18 @@ class TestDbThreaderUpdateSetting:
         manager._handle_update_setting(op)
         assert op.result is True
         assert db.get_setting(SETTING_LAST_SEEN) == "2026-01-02T03:04:05"
+
+
+class TestWritePrinterStatus:
+    def test_persists_text_level_and_time(self, db):
+        from managers.kiosk_status import SETTING_PRINTER_AT, SETTING_PRINTER_LEVEL, SETTING_PRINTER_STATUS
+        assert kiosk_status.write_printer_status(db, "Out of paper", "error", datetime(2026, 1, 2, 3, 4, 5)) is True
+        assert db.get_setting(SETTING_PRINTER_STATUS) == "Out of paper"
+        assert db.get_setting(SETTING_PRINTER_LEVEL) == "error"
+        assert db.get_setting(SETTING_PRINTER_AT) == "2026-01-02T03:04:05"
+
+    def test_failed_write_is_logged_and_swallowed(self, monkeypatch):
+        logged = []
+        monkeypatch.setattr(kiosk_status, "log_error", lambda *a, **k: logged.append(a), raising=False)
+        assert kiosk_status.write_printer_status(_FailingDB(), "Ready", "success") is False
+        assert len(logged) == 3
