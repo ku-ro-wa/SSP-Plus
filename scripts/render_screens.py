@@ -35,6 +35,7 @@ SCREENS = {
     "admin": "AdminController",
     "settings": "SettingsController",
     "data_viewer": "DataViewerController",
+    "reports": "ReportsController",
 }
 
 
@@ -80,11 +81,36 @@ def fill_live_content(name, screen):
         screen.view.update_page_count(2)
         screen.view.show_preview(sample_page_image(), 2)
         screen.view.show_status("Scan timed out after 60s — check the scanner connection.")
+    if name == "reports":
+        seed_report_rows(screen.model.db_manager)
+        screen.on_enter()
+    if name == "print_options":
+        # Ten files, each priced: the list's tallest state (it scrolls instead of growing)
+        from managers.print_items import MAX_FILES_PER_TRANSACTION, PrintItem
+        pdf = os.path.join(SSP_DIR, "..", "test_pdfs", "Rootlocus-Plotting-1.pdf")
+        names = ["Thesis chapter 3 - final draft (revised) v12.pdf"] + [f"Form {n}.pdf" for n in range(2, 11)]
+        screen.set_items([PrintItem({'path': pdf, 'filename': n}, [1, 2]) for n in names[:MAX_FILES_PER_TRANSACTION]],
+                         source="usb")
     if name == "settings":
         screen.on_enter()
         screen.view.show_errors({"max_change_limit": "Maximum change must be between 0 and 1000 ₱."})
     if name == "thank_you":
         screen.model.show_no_paper_error(0)  # its longest message: the admin's refill hint
+
+
+def seed_report_rows(db):
+    """A few sales in every Source, change and Voucher figures and two collections, so the
+    Reports screen is checked at its tallest (four collections' worth of rows)."""
+    from datetime import datetime, timedelta
+
+    from admin_dashboard.seed_demo_data import seed_transaction
+
+    now = datetime.now()
+    for source, cost in (("usb", 45), ("usb", 12), ("wifi", 30), ("email", 8), ("scanner", 20)):
+        seed_transaction(db.conn, source, cost, timestamp=now - timedelta(minutes=cost))
+    db.conn.commit()
+    for days in (6, 4, 2, 1):
+        db.record_cash_collection(collected_at=now - timedelta(days=days))
 
 
 def sample_page_image():
@@ -160,9 +186,9 @@ def build_screen(name):
 
     module = importlib.import_module(f"screens.{name}")
     main_app = MagicMock()
-    if name == "settings":
+    if name in ("settings", "reports"):
         from database.db_manager import DatabaseManager
-        main_app.admin_screen.db_manager = DatabaseManager()  # the settings screen reads real rows
+        main_app.admin_screen.db_manager = DatabaseManager()  # these screens read real rows
     if name == "data_viewer":
         from database.db_manager import DatabaseManager
         db = DatabaseManager()

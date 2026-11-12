@@ -24,7 +24,7 @@ def _page(rows_and_total, page):
     return {"rows": rows, "page": page, "pages": pages, "total": total}
 
 
-def build_logs(db, tx_page, err_page):
+def build_logs(db, tx_page, err_page, act_page=1):
     return {
         "page_size": PAGE_SIZE,
         "columns": {"transactions": list(TRANSACTION_COLUMNS), "errors": list(ERROR_COLUMNS),
@@ -32,6 +32,7 @@ def build_logs(db, tx_page, err_page):
         "transactions": _page(db.get_transaction_page(PAGE_SIZE, (tx_page - 1) * PAGE_SIZE), tx_page),
         "cash": db.get_cash_inventory(),
         "errors": _page(db.get_error_page(PAGE_SIZE, (err_page - 1) * PAGE_SIZE), err_page),
+        "actions": _page(db.get_admin_action_page(PAGE_SIZE, (act_page - 1) * PAGE_SIZE), act_page),
     }
 
 
@@ -57,12 +58,13 @@ def logs_page(
     request: Request,
     tx_page: int = Query(1, ge=1),
     err_page: int = Query(1, ge=1),
+    act_page: int = Query(1, ge=1),
     current_user: dict = Depends(get_current_user_page),
     db=Depends(get_db),
 ):
     return templates.TemplateResponse(
         request, "logs.html",
-        {"request": request, "active": "logs", "logs": build_logs(db, tx_page, err_page)},
+        {"request": request, "active": "logs", "logs": build_logs(db, tx_page, err_page, act_page)},
     )
 
 
@@ -70,7 +72,8 @@ def logs_page(
 def logs_data(
     tx_page: int = Query(1, ge=1),
     err_page: int = Query(1, ge=1),
+    act_page: int = Query(1, ge=1),
     current_user: dict = Depends(get_current_user),
     db=Depends(get_db),
 ):
-    return build_logs(db, tx_page, err_page)
+    return build_logs(db, tx_page, err_page, act_page)

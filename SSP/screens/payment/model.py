@@ -22,14 +22,31 @@ from managers.voucher_manager import MSG_UNGIVEN_CHANGE, IssuedVoucher, LookupSt
 from managers.sms_manager import send_operator_alert
 from managers.adapters.scan_adapter import ScanAdapter
 from managers.session_manager import SessionManager
+from managers.print_items import summary_columns, total_sheets
 from managers.print_refund import record_digital_refund, record_print_success
 from config import get_config
 
 
-def _document_name(pdf_data):
-    """The customer-facing name of the document being paid for: the original
-    filename file_browser shows, not the stored <uuid>.pdf copy's name."""
-    return pdf_data.get('filename') or os.path.basename(pdf_data.get('path') or '')
+def _summary_for_items(items):
+    """The payment screen's summary lines for a job's items: the document name (or
+    "<n> files"), copies and color mode (or "Varies" when files differ), and the
+    B&W / Color page counts summed over the items' analyses."""
+    def same(values):
+        values = set(values)
+        return values.pop() if len(values) == 1 else "Varies"
+
+    black = color = 0
+    for item in items:
+        pricing = (item.analysis or {}).get('pricing', {})
+        black += pricing.get('black_pages_count', 0)
+        color += pricing.get('color_pages_count', 0)
+    return {
+        'document_name': items[0].file_name if len(items) == 1 else f"{len(items)} files",
+        'copies': same(i.copies for i in items),
+        'color_mode': same(i.color_mode for i in items),
+        'black_pages': black,
+        'color_pages': color,
+    }
 
 
 def measure_shortfall(result, change_owed):
@@ -138,15 +155,9 @@ class GPIOPaymentThread(QThread):
         self.PULSE_TIMEOUT = 0.5   # Time to wait for additional bill pulses
         self.DEBOUNCE_TIME = 0.1   # Minimum time between pulses
 
-        # Print-related attributes
-        self.print_file_path = None
-
         # Payment tracking attributes
         self.cash_received = {}
         self.change_dispensed = {}
-        self.selected_pages = None
-        self.copies = 1
-        self.color_mode = "Color"
 
     def setup_gpio(self):
         try:
@@ -413,18 +424,6 @@ class PaymentModel(QObject):
         self.digital_refund = None
         self._clear_vouchers()
 
-        # Extract print-related attributes for later use
-        if 'pdf_data' in payment_data and 'path' in payment_data['pdf_data']:
-            self.print_file_path = payment_data['pdf_data']['path']
-        if 'selected_pages' in payment_data:
-            self.selected_pages = payment_data['selected_pages']
-        if 'copies' in payment_data:
-            self.copies = payment_data['copies']
-        if 'color_mode' in payment_data:
-            self.color_mode = payment_data['color_mode']
-
-        print(f"DEBUG: Print attributes set - file: {self.print_file_path}, pages: {self.selected_pages}, copies: {self.copies}, mode: {self.color_mode}")
-
         # Compute best payment suggestion inline based on current coin inventory
         try:
             best = self.payment_algorithm.find_best_payment_amount(self.total_cost)
@@ -435,19 +434,9 @@ class PaymentModel(QObject):
             print(f"Error computing best payment suggestion: {e}")
 
         # Prepare summary data for UI
-        analysis = payment_data.get('analysis', {})
-        pricing_info = analysis.get('pricing', {})
-        b_count = pricing_info.get('black_pages_count', 0)
-        c_count = pricing_info.get('color_pages_count', 0)
-        doc_name = _document_name(payment_data['pdf_data'])
-
         summary_data = {
+            **_summary_for_items(payment_data['items']),
             'total_cost': self.total_cost,
-            'document_name': doc_name,
-            'copies': payment_data['copies'],
-            'color_mode': payment_data['color_mode'],
-            'black_pages': b_count,
-            'color_pages': c_count,
             'print_job': self.is_print_job(),
             'digital_fee': self.digital_fee(),
         }
@@ -930,18 +919,18 @@ class PaymentModel(QObject):
         try:
             payment_data = credit.payment_data or {}
 
-            # Defensive guards for keys
-            pdf_data = payment_data.get('pdf_data') or {}
-            selected_pages = payment_data.get('selected_pages') or []
-            copies = int(payment_data.get('copies') or 1)
-            color_mode = payment_data.get('color_mode') or 'Color'
+            items = payment_data.get('items') or []
+            if items:
+                columns = summary_columns(items)
+            else:  # defensive: no job attached to the credit
+                columns = {'file_name': "unknown.pdf", 'pages': 0, 'copies': 1,
+                           'color_mode': 'Color', 'file_count': 1}
 
             # Log cancelled transaction with partial payment
             transaction_data = {
-                'file_name': _document_name(pdf_data) or "unknown.pdf",
-                'pages': len(selected_pages),
-                'copies': copies,
-                'color_mode': color_mode,
+                **columns,
+                # a digital-only scan has no file rows (nothing to print)
+                **({'items': items} if items and payment_data.get('print_job', True) else {}),
                 'total_cost': float(credit.total_cost or 0),
                 'amount_paid': float(credit.amount),
                 'change_given': 0,  # No change given since transaction cancelled
@@ -1006,8 +995,9 @@ class PaymentModel(QObject):
             if self.amount_received + self.voucher_total < self.total_cost:
                 return False, "Payment is not sufficient."
 
-            # Paper check (no decrement; main_app does that after a successful print).
-            total_pages = len(self.payment_data['selected_pages']) * self.payment_data['copies']
+            # Paper check (no decrement; main_app does that as each file prints).
+            items = self.payment_data['items']
+            total_pages = total_sheets(items)
             if self.is_print_job() and not main_app.admin_screen.check_paper_availability(total_pages):
                 return False, (f"Not enough paper to complete print job.\n"
                                f"Required: {total_pages} sheets. Please contact administrator to refill paper.")
@@ -1030,10 +1020,7 @@ class PaymentModel(QObject):
             # Logged as 'paid' by settle_transaction() once change is out;
             # _issue_shortfall_voucher fills in change_dispensed / voucher_issued.
             self.transaction_data = {
-                'file_name': _document_name(self.payment_data['pdf_data']),
-                'pages': len(self.payment_data['selected_pages']),
-                'copies': self.payment_data['copies'],
-                'color_mode': self.payment_data['color_mode'],
+                **summary_columns(items),
                 'total_cost': self.total_cost,
                 'amount_paid': self.amount_received,
                 'change_given': change_amount,
@@ -1044,6 +1031,8 @@ class PaymentModel(QObject):
                 'voucher_applied': voucher_applied,
                 'payment_ref': self.payment_ref,
             }
+            if self.is_print_job():  # a digital-only scan has no file rows
+                self.transaction_data['items'] = items
 
             # Stop any existing dispense thread to prevent conflicts
             if self.dispense_thread and self.dispense_thread.isRunning():
@@ -1170,9 +1159,9 @@ class PaymentModel(QObject):
                 return
 
             # Validate PDF data exists
-            if 'pdf_data' not in self.payment_data or not self.payment_data['pdf_data']:
-                print("ERROR: No PDF data available for printing")
-                self.payment_status_updated.emit("No PDF data available for printing")
+            if not self.payment_data.get('items'):
+                print("ERROR: No files available for printing")
+                self.payment_status_updated.emit("No files available for printing")
                 return
 
             # The digital copy is created now that the sale is made, never before.
@@ -1189,10 +1178,7 @@ class PaymentModel(QObject):
 
             # Store print job details in main app for thank you screen
             print_job_details = {
-                'file_path': self.payment_data['pdf_data']['path'],
-                'selected_pages': self.payment_data.get('selected_pages', [1]),
-                'copies': self.payment_data.get('copies', 1),
-                'color_mode': self.payment_data.get('color_mode', 'Color'),
+                'items': self.payment_data['items'],
                 # The print is async and the model resets, so the outcome is
                 # recorded against this ref (#59).
                 'payment_ref': (getattr(self, 'transaction_data', None) or {}).get('payment_ref'),
@@ -1226,12 +1212,12 @@ class PaymentModel(QObject):
         failure = "unknown error"
         try:
             adapter = ScanAdapter(SessionManager(self.db_manager), get_config().scan_upload_dir)
-            ok, message, session = adapter.handle_scan(self.payment_data['pdf_data']['path'])
+            ok, message, session = adapter.handle_scan(self.payment_data['items'][0].path)
             if ok:
                 self.digital_session = session
                 if not self.is_print_job():
                     # Copied for the session; a print job still needs the original.
-                    shutil.rmtree(os.path.dirname(self.payment_data['pdf_data']['path']), ignore_errors=True)
+                    shutil.rmtree(os.path.dirname(self.payment_data['items'][0].path), ignore_errors=True)
                 return
             failure = message
         except Exception as e:

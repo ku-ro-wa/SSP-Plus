@@ -44,11 +44,15 @@ class DataViewerController(QWidget):
         self.view.next_transactions_clicked.connect(self.model.next_transactions_page)
         self.view.previous_errors_clicked.connect(self.model.previous_errors_page)
         self.view.next_errors_clicked.connect(self.model.next_errors_page)
+        self.view.refresh_admin_actions_clicked.connect(lambda: self.model.load_admin_actions(1))
+        self.view.previous_actions_clicked.connect(self.model.previous_actions_page)
+        self.view.next_actions_clicked.connect(self.model.next_actions_page)
 
         # --- Model -> View ---
         self.model.transactions_loaded.connect(self.view.update_transactions_table)
         self.model.cash_inventory_loaded.connect(self.view.update_cash_inventory_table)
         self.model.error_log_loaded.connect(self.view.update_error_log_table)
+        self.model.admin_actions_loaded.connect(self.view.update_admin_actions_table)
         self.model.show_message.connect(self._show_message)
 
     def _go_back(self):

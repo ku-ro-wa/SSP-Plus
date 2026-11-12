@@ -73,7 +73,7 @@ class SettingsScreenView(QWidget):
         unit = f" ({setting.unit})" if setting.unit else ""
         label = QLabel(f"{setting.label}{unit}")
         label.setStyleSheet(f"color: {COLORS['text']}; font-size: {FONT['size_md']}px; font-weight: 600;")
-        hint = QLabel(f"{setting.minimum}–{setting.maximum}, default {setting.default}")
+        hint = QLabel(f"{setting.minimum}–{setting.maximum}, default {setting.current_default()}")
         hint.setStyleSheet(f"color: {COLORS['text_muted']}; font-size: {FONT['size_sm']}px;")
         field = QLineEdit()
         field.setMinimumHeight(44)
