@@ -7,6 +7,7 @@ from PyQt5.QtWidgets import (
 from PyQt5.QtCore import Qt, pyqtSignal
 
 from managers.admin_actions import where_text
+from managers.log_pages import ERROR_COLUMNS, TRANSACTION_COLUMNS
 from ui.theme import COLORS, TABLE_QSS, TAB_QSS
 from ui.widgets import BackButton, Header, SecondaryButton, nav_row
 
@@ -20,6 +21,11 @@ class DataViewerScreenView(QWidget):
     refresh_admin_actions_clicked = pyqtSignal()
     previous_actions_clicked = pyqtSignal()
     next_actions_clicked = pyqtSignal()
+
+    previous_transactions_clicked = pyqtSignal()
+    next_transactions_clicked = pyqtSignal()
+    previous_errors_clicked = pyqtSignal()
+    next_errors_clicked = pyqtSignal()
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -102,14 +108,41 @@ class DataViewerScreenView(QWidget):
         item.setToolTip(text)
         return item
 
+    def _pager(self, previous_signal, next_signal):
+        """Newer / 'Page n of m' / Older row. Returns (layout, label, newer, older)."""
+        newer = SecondaryButton("Newer")
+        newer.setMinimumHeight(44)
+        newer.clicked.connect(previous_signal.emit)
+        older = SecondaryButton("Older")
+        older.setMinimumHeight(44)
+        older.clicked.connect(next_signal.emit)
+        label = QLabel("")
+        label.setAlignment(Qt.AlignCenter)
+        label.setStyleSheet(f"color: {COLORS['text']};")
+        row = QHBoxLayout()
+        row.addWidget(newer)
+        row.addWidget(label, 1)
+        row.addWidget(older)
+        return row, label, newer, older
+
+    @staticmethod
+    def _show_page(label, newer, older, page, pages):
+        label.setText(f"Page {page} of {pages}")
+        newer.setEnabled(page > 1)
+        older.setEnabled(page < pages)
+
     def create_transactions_tab(self):
         """Creates the transactions tab."""
         self.transactions_table = self._make_table()
+        pager, self.transactions_page_label, self.newer_transactions_button, \
+            self.older_transactions_button = self._pager(
+                self.previous_transactions_clicked, self.next_transactions_clicked)
 
         widget = QWidget()
         layout = QVBoxLayout(widget)
         layout.setContentsMargins(10, 10, 10, 10)
         layout.addWidget(self.transactions_table)
+        layout.addLayout(pager)
         return widget
 
     def create_cash_inventory_tab(self):
@@ -125,11 +158,14 @@ class DataViewerScreenView(QWidget):
     def create_error_log_tab(self):
         """Creates the error log tab."""
         self.error_log_table = self._make_table()
+        pager, self.errors_page_label, self.newer_errors_button, \
+            self.older_errors_button = self._pager(self.previous_errors_clicked, self.next_errors_clicked)
 
         widget = QWidget()
         layout = QVBoxLayout(widget)
         layout.setContentsMargins(10, 10, 10, 10)
         layout.addWidget(self.error_log_table)
+        layout.addLayout(pager)
         return widget
 
     def create_admin_actions_tab(self):
@@ -178,28 +214,27 @@ class DataViewerScreenView(QWidget):
         self.previous_actions_button.setEnabled(page > 1)
         self.next_actions_button.setEnabled(page < pages)
 
-    def update_transactions_table(self, transactions):
-        """Updates the transactions table with new data."""
-        self.transactions_table.clear()
-        self.transactions_table.setColumnCount(9)
-        self.transactions_table.setHorizontalHeaderLabels([
-            "ID", "Date/Time", "File Name", "Pages", "Copies",
-            "Color Mode", "Total Cost", "Amount Paid", "Status"
-        ])
-        self.transactions_table.setRowCount(len(transactions))
+    def update_transactions_table(self, transactions, page, pages):
+        """Updates the transactions table: the Dashboard's /logs columns, after an ID."""
+        table = self.transactions_table
+        table.clear()
+        headers = ["ID", *TRANSACTION_COLUMNS]
+        table.setColumnCount(len(headers))
+        table.setHorizontalHeaderLabels(headers)
+        table.setRowCount(len(transactions))
 
-        for i, trans in enumerate(transactions):
-            self.transactions_table.setItem(i, 0, self._item(str(trans['id'])))
-            self.transactions_table.setItem(i, 1, self._item(str(trans['timestamp'])))
-            self.transactions_table.setItem(i, 2, self._item(trans['file_name']))
-            self.transactions_table.setItem(i, 3, self._item(str(trans['pages'])))
-            self.transactions_table.setItem(i, 4, self._item(str(trans['copies'])))
-            self.transactions_table.setItem(i, 5, self._item(trans['color_mode']))
-            self.transactions_table.setItem(i, 6, self._item(f"₱{trans['total_cost']:.2f}"))
-            self.transactions_table.setItem(i, 7, self._item(f"₱{trans['amount_paid']:.2f}"))
-            self.transactions_table.setItem(i, 8, self._item(trans['status']))
+        for i, t in enumerate(transactions):
+            cells = [
+                t['id'], t['timestamp'], t['file_name'], t['source'] or '', t['pages'], t['copies'],
+                t['color_mode'], f"₱{t['total_cost']:.2f}", f"₱{t['amount_paid']:.2f}",
+                f"₱{t['change_given']:.2f}", t['status'],
+            ]
+            for col, value in enumerate(cells):
+                table.setItem(i, col, self._item(value))
 
-        self._fit_columns(self.transactions_table, stretch_column=2)
+        self._fit_columns(table, stretch_column=headers.index("File"))
+        self._show_page(self.transactions_page_label, self.newer_transactions_button,
+                        self.older_transactions_button, page, pages)
 
     def update_cash_inventory_table(self, inventory):
         """Updates the cash inventory table with new data."""
@@ -216,17 +251,21 @@ class DataViewerScreenView(QWidget):
 
         self._fit_columns(self.cash_inventory_table, stretch_column=3)
 
-    def update_error_log_table(self, errors):
-        """Updates the error log table with new data."""
-        self.error_log_table.clear()
-        self.error_log_table.setColumnCount(4)
-        self.error_log_table.setHorizontalHeaderLabels(["Date/Time", "Error Type", "Error Message", "Screen"])
-        self.error_log_table.setRowCount(len(errors))
+    def update_error_log_table(self, errors, page, pages):
+        """Updates the error log table: the Dashboard's /logs columns."""
+        table = self.error_log_table
+        table.clear()
+        headers = list(ERROR_COLUMNS)
+        table.setColumnCount(len(headers))
+        table.setHorizontalHeaderLabels(headers)
+        table.setRowCount(len(errors))
 
         for i, error in enumerate(errors):
-            self.error_log_table.setItem(i, 0, self._item(str(error['timestamp'])))
-            self.error_log_table.setItem(i, 1, self._item(error['error_type']))
-            self.error_log_table.setItem(i, 2, self._item(error['error_message']))
-            self.error_log_table.setItem(i, 3, self._item(error['screen_name']))
+            cells = [error['timestamp'], error['error_type'], error['error_message'],
+                     error['screen_name'], 'yes' if error['resolved'] else 'no']
+            for col, value in enumerate(cells):
+                table.setItem(i, col, self._item(value))
 
-        self._fit_columns(self.error_log_table, stretch_column=2)
+        self._fit_columns(table, stretch_column=headers.index("Message"))
+        self._show_page(self.errors_page_label, self.newer_errors_button,
+                        self.older_errors_button, page, pages)

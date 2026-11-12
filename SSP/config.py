@@ -815,7 +815,7 @@ class Config:
     @property
     def scan_digital_fee(self) -> float:
         """Default flat fee (₱) for the digital copy of a scan (download/email).
-        Kiosk Admin can override it via the 'scan_digital_fee' setting; see
+        The 'scan_digital_fee' setting (Settings screen or Dashboard) overrides it; see
         managers/digital_fee.py."""
         try:
             return self.get('SCAN_DIGITAL_FEE', float)

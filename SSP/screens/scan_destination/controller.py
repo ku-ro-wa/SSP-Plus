@@ -69,8 +69,8 @@ class ScanDestinationController(QWidget):
 
         if wants_print:
             fee = self.model.get_digital_fee() if wants_digital else 0
-            self.main_app.printing_options_screen.set_pdf_data(
-                self.model.get_pdf_data(), self.model.get_selected_pages(), "scanner", digital_fee=fee)
+            self.main_app.printing_options_screen.set_items(
+                [self.model.get_print_item()], "scanner", digital_fee=fee)
             self.main_app.show_screen('printing_options')
         else:
             self.main_app.payment_screen.set_payment_data(self.model.get_digital_only_payment_data())

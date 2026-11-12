@@ -15,20 +15,24 @@ from admin_dashboard.dependencies import get_db
 from admin_dashboard.kiosk_overview import build_overview
 from admin_dashboard.templating import templates
 from managers import inventory_edits as edits
-from managers.admin_actions import PAGE_SIZE
+from managers.log_pages import (
+    ERROR_COLUMNS, NUMERIC_COLUMNS, PAGE_SIZE, TRANSACTION_COLUMNS, page_count,
+)
 
 router = APIRouter()
 
 
 def _page(rows_and_total, page):
     rows, total = rows_and_total
-    pages = max(1, -(-total // PAGE_SIZE))
+    pages = page_count(total)
     return {"rows": rows, "page": page, "pages": pages, "total": total}
 
 
 def build_logs(db, tx_page, err_page, act_page=1):
     return {
         "page_size": PAGE_SIZE,
+        "columns": {"transactions": list(TRANSACTION_COLUMNS), "errors": list(ERROR_COLUMNS),
+                    "numeric": list(NUMERIC_COLUMNS)},
         "transactions": _page(db.get_transaction_page(PAGE_SIZE, (tx_page - 1) * PAGE_SIZE), tx_page),
         "cash": db.get_cash_inventory(),
         "errors": _page(db.get_error_page(PAGE_SIZE, (err_page - 1) * PAGE_SIZE), err_page),

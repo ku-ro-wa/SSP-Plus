@@ -29,7 +29,7 @@ def build_settings(db):
     return [
         {
             "key": s.key, "label": s.label, "unit": s.unit, "help": s.help,
-            "minimum": s.minimum, "maximum": s.maximum, "default": s.default,
+            "minimum": s.minimum, "maximum": s.maximum, "default": s.current_default(),
             "value": get_value(db, s.key),
         }
         for s in settings_for(DASHBOARD)

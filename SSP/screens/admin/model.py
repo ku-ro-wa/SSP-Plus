@@ -4,7 +4,6 @@ from PyQt5.QtCore import QObject, pyqtSignal
 from config import get_config
 from database.db_manager import DatabaseManager
 from managers import inventory_edits as edits
-from managers.digital_fee import get_digital_fee, set_digital_fee
 from managers.sms_manager import get_sms_manager
 
 
@@ -14,7 +13,6 @@ class AdminModel(QObject):
     coin_count_changed = pyqtSignal(int, int)   # Emits coin_1_count, coin_5_count
     cmyk_levels_changed = pyqtSignal(float, float, float, float)  # Emits cyan, magenta, yellow, black
     show_message = pyqtSignal(str, str)         # Emits message title and text
-    digital_fee_changed = pyqtSignal(int)       # Flat fee (₱) for a scan's digital copy
 
     def __init__(self):
         super().__init__()
@@ -43,20 +41,6 @@ class AdminModel(QObject):
     def _set_coin_count(self, denomination, count, coin_type='coin'):
         """Store an operator's coin count and audit it."""
         edits.set_coin_count(self.db_manager, denomination, count, edits.TOUCHSCREEN, coin_type)
-
-    def load_digital_fee(self):
-        self.digital_fee_changed.emit(get_digital_fee(self.db_manager))
-
-    def change_digital_fee(self, delta):
-        """Steps the digital copy fee by delta pesos (never below 0)."""
-        fee = set_digital_fee(self.db_manager, get_digital_fee(self.db_manager) + delta)
-        self.digital_fee_changed.emit(fee)
-
-    def increase_digital_fee(self):
-        self.change_digital_fee(1)
-
-    def decrease_digital_fee(self):
-        self.change_digital_fee(-1)
 
     def load_paper_count(self):
         """Loads the paper count from the database and emits a signal."""

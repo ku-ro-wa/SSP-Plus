@@ -125,20 +125,61 @@ class DatabaseManager(VoucherDBMixin, CashCollectionDBMixin):
             cursor.execute("""
                 INSERT INTO transactions (timestamp, file_name, pages, copies, color_mode, total_cost,
                     amount_paid, change_given, status, error_message, source,
-                    change_dispensed, voucher_issued, voucher_applied, payment_ref)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    change_dispensed, voucher_issued, voucher_applied, payment_ref, file_count)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
                 datetime.now(), data['file_name'], data['pages'], data['copies'], data['color_mode'],
                 data['total_cost'], data['amount_paid'], data['change_given'], data['status'],
                 data.get('error_message', None), data.get('source', None),
                 data.get('change_dispensed', None), data.get('voucher_issued', 0),
-                data.get('voucher_applied', 0), data.get('payment_ref', None)
+                data.get('voucher_applied', 0), data.get('payment_ref', None),
+                data.get('file_count', 1)
             ))
+            items = data.get('items')
+            if items:
+                file_status = 'not_printed' if data['status'] == 'cancelled_partial_payment' else 'pending'
+                for position, item in enumerate(items, start=1):
+                    cursor.execute("""
+                        INSERT INTO transaction_files (payment_ref, position, file_name, pages,
+                            copies, color_mode, cost, status)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    """, (data.get('payment_ref'), position, item.file_name, len(item.pages),
+                          item.copies, item.color_mode, item.cost, file_status))
             self.conn.commit()
             return True
         except sqlite3.Error as e:
+            self.conn.rollback()
             print(f"Error logging transaction: {e}")
             return False
+
+    def set_transaction_file_status(self, payment_ref, position, status):
+        """Set one file's status (pending | printed | failed | not_printed).
+        Returns True if a row changed."""
+        if not self.conn or not payment_ref:
+            return False
+        try:
+            cursor = self.conn.cursor()
+            cursor.execute("UPDATE transaction_files SET status = ? WHERE payment_ref = ? AND position = ?",
+                           (status, payment_ref, position))
+            self.conn.commit()
+            return cursor.rowcount > 0
+        except sqlite3.Error as e:
+            print(f"Error updating file {position} of {payment_ref}: {e}")
+            return False
+
+    def get_transaction_files(self, payment_ref):
+        """The file rows of a transaction in print order. Empty for a
+        transaction logged before multi-file printing, or a digital-only scan."""
+        if not self.conn or not payment_ref:
+            return []
+        try:
+            cursor = self.conn.cursor()
+            cursor.execute("SELECT * FROM transaction_files WHERE payment_ref = ? ORDER BY position",
+                           (payment_ref,))
+            return [dict(r) for r in cursor.fetchall()]
+        except sqlite3.Error as e:
+            print(f"Error reading files of {payment_ref}: {e}")
+            return []
 
     def get_transaction_by_ref(self, payment_ref):
         if not self.conn or not payment_ref:
@@ -479,14 +520,15 @@ class DatabaseManager(VoucherDBMixin, CashCollectionDBMixin):
             return None
 
     def get_verifiable_sessions(self, source):
-        """Sessions for `source` not yet in a terminal state, for OTP
-        resolution when no session_id is known (manual kiosk entry)."""
+        """Sessions for `source` a typed code can still resolve to (pending,
+        verified or locked; a verified Session is reused until it expires), for
+        OTP resolution when no session_id is known (manual entry)."""
         if not self.conn:
             return []
         try:
             cursor = self.conn.cursor()
             cursor.execute(
-                "SELECT * FROM sessions WHERE source = ? AND status IN ('pending', 'locked') "
+                "SELECT * FROM sessions WHERE source = ? AND status IN ('pending', 'verified', 'locked') "
                 "ORDER BY created_at DESC", (source,)
             )
             return cursor.fetchall()
@@ -749,7 +791,7 @@ class DatabaseManager(VoucherDBMixin, CashCollectionDBMixin):
     # --- NEW: Admin Dashboard accounting aggregates (issue #15) ---
     def get_accounting_summary(self, since=None):
         """Per-Source revenue (sum of total_cost) and transaction count for
-        completed transactions, optionally scoped to timestamp >= `since`.
+        completed transactions (plus the printed files of partly_printed ones), optionally scoped to timestamp >= `since`.
         Always returns one row per canonical Source (see CONTEXT.md's
         Source term), zero-filled for a source with no matching rows in
         the window, in a fixed order — so the accounting page's table
@@ -762,8 +804,12 @@ class DatabaseManager(VoucherDBMixin, CashCollectionDBMixin):
         try:
             cursor = self.conn.cursor()
             query = (
-                "SELECT source, COALESCE(SUM(total_cost), 0) AS revenue, COUNT(*) AS transaction_count "
-                "FROM transactions WHERE status = 'completed' AND source IS NOT NULL"
+                "SELECT source, COALESCE(SUM(CASE "
+                "WHEN status = 'completed' THEN total_cost "
+                "ELSE (SELECT COALESCE(SUM(f.cost), 0) FROM transaction_files f "
+                "WHERE f.payment_ref = transactions.payment_ref AND f.status = 'printed') END), 0) AS revenue, "
+                "COUNT(*) AS transaction_count "
+                "FROM transactions WHERE status IN ('completed', 'partly_printed') AND source IS NOT NULL"
             )
             params = []
             if since is not None:
@@ -794,13 +840,13 @@ class DatabaseManager(VoucherDBMixin, CashCollectionDBMixin):
         try:
             cursor = self.conn.cursor()
             query = (
-                "SELECT COALESCE(SUM(CASE WHEN status IN ('completed', 'print_failed', 'digital_failed') "
+                "SELECT COALESCE(SUM(CASE WHEN status IN ('completed', 'partly_printed', 'print_failed', 'digital_failed') "
                 "THEN change_dispensed END), 0) AS change_dispensed, "
                 "COALESCE(SUM(voucher_issued), 0) AS voucher_issued, "
-                "COALESCE(SUM(CASE WHEN status IN ('completed', 'print_failed', 'digital_failed') "
+                "COALESCE(SUM(CASE WHEN status IN ('completed', 'partly_printed', 'print_failed', 'digital_failed') "
                 "THEN voucher_applied END), 0) AS voucher_applied "
                 "FROM transactions WHERE status IN "
-                "('completed', 'print_failed', 'digital_failed', 'cancelled_partial_payment')"
+                "('completed', 'partly_printed', 'print_failed', 'digital_failed', 'cancelled_partial_payment')"
             )
             params = []
             if since is not None:

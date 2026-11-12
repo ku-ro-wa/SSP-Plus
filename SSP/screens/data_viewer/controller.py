@@ -37,9 +37,13 @@ class DataViewerController(QWidget):
         """Connect signals from the view to the model and vice-versa."""
         # --- View -> Controller ---
         self.view.back_clicked.connect(self._go_back)
-        self.view.refresh_transactions_clicked.connect(self.model.load_transactions)
+        self.view.refresh_transactions_clicked.connect(lambda: self.model.load_transactions())
         self.view.refresh_cash_inventory_clicked.connect(self.model.load_cash_inventory)
-        self.view.refresh_error_log_clicked.connect(self.model.load_error_log)
+        self.view.refresh_error_log_clicked.connect(lambda: self.model.load_error_log())
+        self.view.previous_transactions_clicked.connect(self.model.previous_transactions_page)
+        self.view.next_transactions_clicked.connect(self.model.next_transactions_page)
+        self.view.previous_errors_clicked.connect(self.model.previous_errors_page)
+        self.view.next_errors_clicked.connect(self.model.next_errors_page)
         self.view.refresh_admin_actions_clicked.connect(lambda: self.model.load_admin_actions(1))
         self.view.previous_actions_clicked.connect(self.model.previous_actions_page)
         self.view.next_actions_clicked.connect(self.model.next_actions_page)

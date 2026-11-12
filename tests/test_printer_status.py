@@ -63,17 +63,50 @@ def test_sim_mode_skips_cups(monkeypatch):
     assert read_printer_status() == ("Ready (SIM)", "success")
 
 
+def _fake_run(ipp_reasons, calls=None, ipptool_fails=False):
+    """lpstat -l -p says no alerts (like the Smart Tank over its USB bridge);
+    ipptool says `ipp_reasons`."""
+    def fake_run(cmd, **kwargs):
+        if calls is not None:
+            calls.append(cmd)
+        if cmd[:2] == ['lpstat', '-l']:
+            return subprocess.CompletedProcess(cmd, 0, stdout=lpstat_p("none"), stderr="")
+        if cmd[:2] == ['lpstat', '-v']:
+            return subprocess.CompletedProcess(
+                cmd, 0, stdout=f"device for {PRINTER}: ipp://localhost:60000/ipp/print\n", stderr="")
+        if ipptool_fails:
+            raise subprocess.TimeoutExpired(cmd, 5)
+        return subprocess.CompletedProcess(
+            cmd, 0, stdout=f"\tprinter-state (enum) = idle\n\tprinter-state-reasons (keyword) = {ipp_reasons}\n",
+            stderr="")
+    return fake_run
+
+
 def test_reads_configured_printer(monkeypatch):
     calls = []
-
-    def fake_run(cmd, **kwargs):
-        calls.append(cmd)
-        return subprocess.CompletedProcess(cmd, 0, stdout=lpstat_p("media-empty-error"), stderr="")
-
     monkeypatch.setattr(ps, "get_config", lambda: _config(False))
-    monkeypatch.setattr(ps.subprocess, "run", fake_run)
+    monkeypatch.setattr(ps.subprocess, "run", _fake_run("none", calls))
+    assert read_printer_status() == ("Ready", "success")
+    assert calls[0] == ['lpstat', '-l', '-p', PRINTER]
+    assert ['lpstat', '-v', PRINTER] in calls
+
+
+def test_printer_reason_missing_from_cups_is_used(monkeypatch):
+    monkeypatch.setattr(ps, "get_config", lambda: _config(False))
+    monkeypatch.setattr(ps.subprocess, "run", _fake_run("media-empty-report"))
     assert read_printer_status() == ("Out of paper", "error")
-    assert calls == [['lpstat', '-l', '-p', PRINTER]]
+
+
+def test_several_printer_reasons(monkeypatch):
+    monkeypatch.setattr(ps, "get_config", lambda: _config(False))
+    monkeypatch.setattr(ps.subprocess, "run", _fake_run("media-low-report,door-open-report"))
+    assert read_printer_status() == ("Door open", "error")
+
+
+def test_ipp_failure_falls_back_to_cups(monkeypatch):
+    monkeypatch.setattr(ps, "get_config", lambda: _config(False))
+    monkeypatch.setattr(ps.subprocess, "run", _fake_run("", ipptool_fails=True))
+    assert read_printer_status() == ("Ready", "success")
 
 
 def test_lpstat_timeout(monkeypatch):
