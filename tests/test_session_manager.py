@@ -74,7 +74,7 @@ class FakeDBManager:
     def get_verifiable_sessions(self, source):
         matches = [
             s for s in self.sessions.values()
-            if s['source'] == source and s['status'] in ('pending', 'locked')
+            if s['source'] == source and s['status'] in ('pending', 'verified', 'locked')
         ]
         return sorted(matches, key=lambda s: s['created_at'], reverse=True)
 
@@ -209,6 +209,33 @@ class TestVerifyOtp:
         assert ok is False
 
 
+class TestVerifyOtpOnAUsedSession:
+    def test_right_code_opens_it_again(self):
+        db = FakeDBManager()
+        sm = SessionManager(db)
+        session = sm.create_session('wifi', _files())
+        sm.verify_otp(session.session_id, session.otp)
+
+        ok, msg, files = sm.verify_otp(session.session_id, session.otp)
+
+        assert ok is True
+        assert files == _files()
+
+    def test_wrong_code_does_not_open_it(self):
+        # Once verified, the session_id alone (printed in the QR) must not be enough.
+        db = FakeDBManager()
+        sm = SessionManager(db)
+        session = sm.create_session('wifi', _files())
+        sm.verify_otp(session.session_id, session.otp)
+        wrong = '000000' if session.otp != '000000' else '000001'
+
+        ok, msg, files = sm.verify_otp(session.session_id, wrong)
+
+        assert ok is False
+        assert files is None
+        assert db.sessions[session.session_id]['failed_attempts'] == 1
+
+
 class TestVerifyOtpForSource:
     def test_matches_the_only_pending_session(self):
         db = FakeDBManager()
@@ -341,6 +368,46 @@ class TestVerifyTypedOtp:
         assert result.session_id is None
         assert db.sessions[email_session.session_id]['status'] == 'pending'
         assert db.sessions[email_session.session_id]['failed_attempts'] == 0
+
+    def test_a_used_code_opens_its_session_again(self):
+        # Reusable until expiry (#111): the second typing must find the
+        # Session, not come back as an unmatched guess.
+        db = FakeDBManager()
+        sm = SessionManager(db)
+        session = sm.create_session('wifi', _files())
+
+        first = sm.verify_typed_otp('wifi', session.otp)
+        second = sm.verify_typed_otp('wifi', session.otp)
+        third = sm.verify_typed_otp('wifi', session.otp)
+
+        assert first.success and second.success and third.success
+        assert second.matched is True
+        assert second.session_id == session.session_id
+        assert third.files == _files()
+
+    def test_a_used_code_on_the_other_screen_is_still_matched(self):
+        db = FakeDBManager()
+        sm = SessionManager(db)
+        email_session = sm.create_session('email', _files())
+        assert sm.verify_typed_otp('email', email_session.otp).success
+
+        result = sm.verify_typed_otp('wifi', email_session.otp)
+
+        assert result.success is False
+        assert result.matched is True
+
+    def test_an_expired_used_code_is_matched_but_refused(self):
+        db = FakeDBManager()
+        sm = SessionManager(db)
+        session = sm.create_session('wifi', _files())
+        sm.verify_typed_otp('wifi', session.otp)
+        db.sessions[session.session_id]['expires_at'] = datetime.now() - timedelta(minutes=1)
+
+        result = sm.verify_typed_otp('wifi', session.otp)
+
+        assert result.success is False
+        assert result.matched is True
+        assert 'expired' in result.message.lower()
 
     def test_compat_wrappers_still_return_tuples(self):
         db = FakeDBManager()

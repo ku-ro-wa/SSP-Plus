@@ -47,6 +47,38 @@ def migrate_dashboard_roles(conn):
         return
 
 
+def migrate_transaction_files(conn):
+    """Multi-file transactions (#119): the transaction_files table and
+    transactions.file_count. Idempotent; called by init_db() and by the Admin
+    Dashboard's open_db(), which can run before the kiosk restarts on new code.
+    Rows from before this change keep file_count 1 and get no file rows. A DB
+    without a transactions table yet has nothing to migrate."""
+    cursor = conn.cursor()
+    cursor.row_factory = None  # DatabaseManager's connection returns dicts; the PRAGMA check indexes
+    try:
+        cursor.execute("PRAGMA table_info(transactions)")
+        if not cursor.fetchall():
+            return
+        _add_column_if_missing(cursor, 'transactions', 'file_count', 'INTEGER NOT NULL DEFAULT 1')
+        cursor.execute('''
+        CREATE TABLE IF NOT EXISTS transaction_files (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            payment_ref TEXT NOT NULL,
+            position INTEGER NOT NULL,
+            file_name TEXT NOT NULL,
+            pages INTEGER NOT NULL,
+            copies INTEGER NOT NULL,
+            color_mode TEXT NOT NULL,
+            cost REAL NOT NULL,
+            status TEXT NOT NULL,
+            UNIQUE (payment_ref, position)
+        )
+        ''')
+        conn.commit()
+    except sqlite3.OperationalError:
+        return
+
+
 def init_db(db_path=None):
     """Initialize the database and create tables if they don't exist"""
     if db_path is None:
@@ -302,5 +334,6 @@ def init_db(db_path=None):
 
     conn.commit()
     migrate_dashboard_roles(conn)
+    migrate_transaction_files(conn)
     conn.close()
     print("OK - Database initialization complete")

@@ -5,6 +5,7 @@ import numpy as np
 from typing import List, Dict
 from PyQt5.QtCore import QObject, pyqtSignal, QThread
 from config import get_config
+from managers.print_items import MAX_FILES_PER_TRANSACTION, total_sheets
 
 
 class PDFColorAnalyzer:
@@ -108,172 +109,200 @@ class AnalysisThread(QThread):
 
 
 class PrintOptionsModel(QObject):
-    """Handles the data and business logic for the print options screen."""
-    cost_updated = pyqtSignal(str, str)  # Emits cost text and details text
-    analysis_started = pyqtSignal()
-    analysis_completed = pyqtSignal(dict)  # Emits analysis results
+    """Handles the data and business logic for the print options screen.
+
+    Holds one PrintItem per file (in print order). Each item has its own color
+    mode and copies and is priced on its own: black and white directly, color by
+    analysing that file's selected pages (cached per file and page selection, so
+    toggling back and forth doesn't run it again)."""
+    cost_updated = pyqtSignal(str, str)  # Emits total cost text and details text
+    item_changed = pyqtSignal(int)       # an item's copies, mode, price or analysis state changed
+    analysis_started = pyqtSignal()      # some item began a color analysis
+    analysis_completed = pyqtSignal(dict)  # the last running analysis finished (its results)
     analysis_error = pyqtSignal(str)  # Emits error message
     show_message = pyqtSignal(str, str)  # Emits message title and text
 
     def __init__(self):
         super().__init__()
-        config = get_config()
         self.analyzer = PDFColorAnalyzer()  # Will use config values
-        self.analysis_thread = None
-        self.analysis_results = None
-
-        self.selected_pdf = None
-        self.selected_pages = None
-        self._copies = config.min_copies
-        self._color_mode = config.default_color_mode
+        self.items = []
+        self._threads = {}       # item index -> running AnalysisThread
+        self._retired = []       # stopped threads still finishing; kept alive until they do
+        self._color_cache = {}   # (path, pages) -> that file's color analysis
         self.digital_fee = 0  # flat fee for the scan's digital copy; 0 = print only
 
-    def set_pdf_data(self, pdf_data, selected_pages, digital_fee=0):
-        """Sets the PDF data and selected pages. digital_fee > 0 adds the flat
-        fee for a digital copy (scan sent via download/email) to the total."""
+    def set_items(self, items, digital_fee=0):
+        """Sets the job: PrintItems in print order. digital_fee > 0 adds the flat fee for
+        a digital copy (scan sent via download/email) to the total. Every item starts
+        with the default color mode and minimum copies."""
+        items = list(items)
+        if not items:
+            raise ValueError("a print job needs at least one file")
+        if len(items) > MAX_FILES_PER_TRANSACTION:
+            raise ValueError(f"at most {MAX_FILES_PER_TRANSACTION} files can be printed together")
+        self.stop_analysis()
+        config = get_config()
         self.digital_fee = digital_fee
-        print("🔍 PrintOptionsModel.set_pdf_data called")
-        print(f"🔍 PDF data: {pdf_data}")
-        print(f"🔍 Selected pages: {selected_pages}")
-        self.selected_pdf = pdf_data
-        self.selected_pages = selected_pages
+        self._color_cache = {}
+        self.items = items
+        for item in self.items:
+            item.copies = config.min_copies
+            item.color_mode = config.default_color_mode
+            item.cost = 0.0
+            item.analysis = None
+        for index in range(len(self.items)):
+            self._price(index)
+
+    # --- Per-item settings ---
+
+    def set_item_color_mode(self, index, mode):
+        """Sets one file's color mode (Black and White or Color) and prices it again."""
+        item = self.items[index]
+        if item.color_mode == mode and item.analysis is not None:
+            return
+        item.color_mode = mode
+        self._price(index)
+
+    def change_item_copies(self, index, delta):
+        """Changes one file's copies by delta, within the configured limits."""
         config = get_config()
-        self._copies = config.min_copies
-        self._color_mode = config.default_color_mode
-        print("🔍 Triggering analysis...")
-        self.trigger_analysis()
-
-    def set_color_mode(self, mode):
-        """Sets the color mode (Black and White or Color)."""
-        self._color_mode = mode
-        self.trigger_analysis()
-
-    def get_color_mode(self):
-        """Returns the current color mode."""
-        return self._color_mode
-
-    def change_copies(self, delta):
-        """Changes the number of copies by the given delta."""
-        config = get_config()
-        new_copies = self._copies + delta
-        if new_copies < config.min_copies:
-            new_copies = config.min_copies
-        if new_copies > config.max_copies:
-            new_copies = config.max_copies
-        if new_copies != self._copies:
-            self._copies = new_copies
+        item = self.items[index]
+        new_copies = max(config.min_copies, min(config.max_copies, item.copies + delta))
+        if new_copies != item.copies:
+            item.copies = new_copies
+            if item.analysis is not None:
+                item.cost = item.analysis['pricing']['base_cost'] * item.copies
+            self.item_changed.emit(index)
             self.update_cost_display()
 
-    def get_copies(self):
-        """Returns the current number of copies."""
-        return self._copies
+    # --- Pricing ---
 
-    def trigger_analysis(self):
-        """Triggers the PDF analysis based on current settings."""
-        print("🔍 trigger_analysis called")
-        print(f"🔍 selected_pdf: {self.selected_pdf}")
-        print(f"🔍 selected_pages: {self.selected_pages}")
-        print(f"🔍 color_mode: {self._color_mode}")
+    def is_analysing(self):
+        """True while any file's color analysis is running."""
+        return bool(self._threads)
 
-        if not self.selected_pdf:
-            print("🔍 No selected PDF, returning")
+    def is_priced(self):
+        """True once every file has a price (none analysing, none failed)."""
+        return bool(self.items) and all(item.analysis is not None for item in self.items)
+
+    def reprice_unpriced(self):
+        """Prices again every file that has no price and isn't being analysed (its
+        analysis failed or was stopped), so Continue can never be stuck waiting."""
+        for index, item in enumerate(self.items):
+            if item.analysis is None and index not in self._threads:
+                self._price(index)
+
+    def _price(self, index):
+        item = self.items[index]
+        self._stop_item_thread(index)
+        item.analysis = None
+        item.cost = 0.0
+
+        if item.color_mode != "Color":
+            # Black and white: every page is the B&W price, no analysis needed
+            pages = len(item.pages)
+            self._finish_item(index, {
+                'pricing': {'base_cost': pages * self.analyzer.black_price,
+                            'black_pages_count': pages, 'color_pages_count': 0},
+                'page_analysis': {}, 'error': None})
             return
 
-        if self.analysis_thread and self.analysis_thread.isRunning():
-            self.analysis_thread.stop()
-            self.analysis_thread.wait()
+        cached = self._color_cache.get((item.path, tuple(item.pages)))
+        if cached:
+            self._finish_item(index, cached)
+            return
 
-        self.analysis_results = None
-        user_wants_color = (self._color_mode == "Color")
-        print(f"🔍 user_wants_color: {user_wants_color}")
+        thread = AnalysisThread(self.analyzer, item.path, item.pages, True)
+        thread.item_index = index
+        # A bound method of this (main-thread) object, so the result is queued to the main
+        # thread; a lambda would run in the worker thread and touch widgets from there.
+        thread.analysis_complete.connect(self._on_thread_result)
+        self._threads[index] = thread
+        self.item_changed.emit(index)
+        self.analysis_started.emit()
+        thread.start()
 
-        if user_wants_color:
-            print("🔍 Starting color analysis thread")
-            self.analysis_started.emit()
+    def _on_thread_result(self, results):
+        thread = self.sender()
+        self._on_item_analysed(getattr(thread, 'item_index', -1), thread, results)
 
-            pdf_path = self.selected_pdf['path']
-            self.analysis_thread = AnalysisThread(self.analyzer, pdf_path, self.selected_pages, user_wants_color)
-            self.analysis_thread.analysis_complete.connect(self.on_analysis_finished)
-            self.analysis_thread.start()
-        else:
-            # For black and white, calculate directly
-            print("🔍 Calculating black and white cost directly")
-            num_pages = len(self.selected_pages)
-            base_cost = num_pages * self.analyzer.black_price
-            print(f"🔍 num_pages: {num_pages}, base_cost: {base_cost}")
-
-            bw_results = {
-                'pricing': {
-                    'base_cost': base_cost,
-                    'black_pages_count': num_pages,
-                    'color_pages_count': 0
-                },
-                'page_analysis': {},
-                'error': None
-            }
-            print(f"🔍 bw_results: {bw_results}")
-            self.on_analysis_finished(bw_results)
-
-    def on_analysis_finished(self, results):
-        """Handles the completion of PDF analysis."""
+    def _on_item_analysed(self, index, thread, results):
+        if self._threads.get(index) is not thread:
+            return  # superseded by a newer request for this file
+        del self._threads[index]
         if results.get('error'):
             self.analysis_error.emit(results['error'])
+            self.item_changed.emit(index)
             return
+        item = self.items[index]
+        self._color_cache[(item.path, tuple(item.pages))] = results
+        self._finish_item(index, results)
 
-        self.analysis_results = results
-        self.analysis_completed.emit(results)
+    def _finish_item(self, index, results):
+        item = self.items[index]
+        item.analysis = results
+        item.cost = results['pricing']['base_cost'] * item.copies
+        self.item_changed.emit(index)
         self.update_cost_display()
+        if not self.is_analysing():
+            self.analysis_completed.emit(results)
+
+    def total_cost(self):
+        return sum(item.cost for item in self.items) + self.digital_fee
+
+    def total_sheets(self):
+        return total_sheets(self.items)
 
     def update_cost_display(self):
-        """Updates the cost display based on current settings."""
-        print("🔍 update_cost_display called")
-        print(f"🔍 analysis_results: {self.analysis_results}")
-
-        if not self.analysis_results:
-            print("🔍 No analysis results, returning")
+        """Updates the total and its details; blank until every file is priced."""
+        if not self.is_priced():
             return
-
-        num_copies = self._copies
-        base_cost = self.analysis_results['pricing']['base_cost']
-        total_cost = base_cost * num_copies + self.digital_fee
-
-        cost_text = f"Total Cost: ₱{total_cost:.2f}"
-
-        b_count = self.analysis_results['pricing']['black_pages_count']
-        c_count = self.analysis_results['pricing']['color_pages_count']
-        if c_count > 0:
-            details_text = f"Based on {num_copies} copies of ({b_count} B&W pages + {c_count} Color pages)"
+        cost_text = f"Total Cost: ₱{self.total_cost():.2f}"
+        if len(self.items) == 1:
+            item = self.items[0]
+            pricing = item.analysis['pricing']
+            b_count, c_count = pricing['black_pages_count'], pricing['color_pages_count']
+            if c_count > 0:
+                details_text = f"Based on {item.copies} copies of ({b_count} B&W pages + {c_count} Color pages)"
+            else:
+                details_text = f"Based on {item.copies} copies of {b_count} Black & White pages"
         else:
-            details_text = f"Based on {num_copies} copies of {b_count} Black & White pages"
-
-        print(f"🔍 Emitting cost_updated signal: '{cost_text}' / '{details_text}'")
+            details_text = f"{len(self.items)} files, {self.total_sheets()} sheets in all"
         if self.digital_fee:
             details_text += f" + ₱{self.digital_fee} digital copy"
         self.cost_updated.emit(cost_text, details_text)
 
     def get_payment_data(self):
-        """Returns the payment data for the current print job."""
-        if not self.analysis_results:
+        """The payment data for the job, or None while any file is still being priced."""
+        if not self.is_priced():
             return None
-
-        total_cost = self.analysis_results['pricing']['base_cost'] * self._copies + self.digital_fee
         data = {
-            'pdf_data': self.selected_pdf,
-            'selected_pages': self.selected_pages,
-            'copies': self._copies,
-            'color_mode': self._color_mode,
-            'total_cost': total_cost,
-            'analysis': self.analysis_results
+            'items': self.items,
+            'total_cost': self.total_cost(),
         }
         if self.digital_fee:
             data['digital_copy'] = {'fee': self.digital_fee}
         return data
 
+    # --- Threads ---
+
+    def _stop_item_thread(self, index):
+        thread = self._threads.pop(index, None)
+        if thread is None:
+            return
+        thread.stop()
+        self._retired.append(thread)
+        thread.finished.connect(lambda t=thread: self._retired.remove(t) if t in self._retired else None)
+
     def stop_analysis(self):
-        """Stops the current analysis thread."""
-        if self.analysis_thread and self.analysis_thread.isRunning():
-            self.analysis_thread.stop()
-            if not self.analysis_thread.wait(2000):
-                print("Warning: Analysis thread did not stop gracefully")
-                self.analysis_thread.terminate()
-                self.analysis_thread.wait(1000)
+        """Stops every running analysis."""
+        threads = list(self._threads.values()) + list(self._retired)
+        self._threads = {}
+        for thread in threads:
+            if thread.isRunning():
+                thread.stop()
+                if not thread.wait(2000):
+                    print("Warning: Analysis thread did not stop gracefully")
+                    thread.terminate()
+                    thread.wait(1000)
+        self._retired = []

@@ -36,9 +36,10 @@ sweep deletes its files and its row. One session can carry several files.
 _Avoid_: job, ticket, upload, transfer.
 
 **OTP**:
-The 6-digit one-time code that identifies a session to the person collecting the printout.
+The 6-digit code that identifies a session to the person collecting the printout.
 Shown once at creation (on the upload success page, or emailed back), never recoverable from
-storage. The salted hash is what's persisted.
+storage. The salted hash is what's persisted. Despite the name it isn't single-use: it opens
+its session as many times as needed, typed or read as a QR, until the session expires.
 _Avoid_: PIN, passcode, token (a "token" here is the raw session id, not the OTP).
 
 **Pickup code**:
@@ -137,6 +138,11 @@ A scan delivered to the customer's own device (download or email) through an OTP
 costs a flat fee (`SCAN_DIGITAL_FEE`, default ₱5; Kiosk Admin's `scan_digital_fee` setting
 overrides it), paid before the session exists. If the session can't be created after
 payment, the fee comes back as a Voucher.
+
+**Partly printed**:
+The status of a multi-file transaction where some files printed and some didn't (`partly_printed`).
+The files that didn't print are refunded as one Voucher; only the printed files count as revenue
+(read from `transaction_files`). See #119.
 
 ### Vouchers
 

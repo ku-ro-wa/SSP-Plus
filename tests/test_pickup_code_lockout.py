@@ -221,6 +221,31 @@ class TestWifiScreen:
         assert all("locked" in message.lower() for _, message, _ in seen)
         assert model.lock_remaining() == 0
 
+    def test_a_used_code_opens_again_and_does_not_count(self, env):
+        # Reusable until expiry (#111): retyping a code already used must open
+        # the files again, and never count toward the lockout.
+        db, lockout, _ = env
+        session = _create(db())
+        model = WifiModel(db_manager=db(), lockout=lockout())
+
+        seen = _results(model, [session.otp] * (DEFAULT_MAX_ATTEMPTS + 1))
+
+        assert all(ok is True for ok, _, _ in seen)
+        assert model.lock_remaining() == 0
+
+    def test_a_used_code_typed_on_the_other_screen_does_not_count(self, env):
+        db, lockout, _ = env
+        manager = db()
+        email_session = _create(manager, "email")
+        email = EmailModel(db_manager=manager, lockout=lockout())
+        assert _results(email, [email_session.otp])[0][0] is True
+        wifi = WifiModel(db_manager=manager, lockout=lockout())
+
+        seen = _results(wifi, [email_session.otp] * (DEFAULT_MAX_ATTEMPTS + 1))
+
+        assert all(ok is False for ok, _, _ in seen)
+        assert wifi.lock_remaining() == 0
+
     def test_code_for_the_other_upload_screen_does_not_count(self, env):
         db, lockout, _ = env
         manager = db()
