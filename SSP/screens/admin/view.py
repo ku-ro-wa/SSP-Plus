@@ -39,6 +39,7 @@ class AdminScreenView(QWidget):
     back_clicked = pyqtSignal()
     view_data_logs_clicked = pyqtSignal()
     settings_clicked = pyqtSignal()
+    reports_clicked = pyqtSignal()
     update_paper_clicked = pyqtSignal(str)
     reset_paper_clicked = pyqtSignal()
     update_coin_1_clicked = pyqtSignal(str)
@@ -99,7 +100,12 @@ class AdminScreenView(QWidget):
         self.settings_button.setMinimumHeight(44)
         self.settings_button.clicked.connect(self.settings_clicked.emit)
 
-        body_layout.addLayout(nav_row(self.back_button, self.settings_button, self.view_logs_button))
+        self.reports_button = SecondaryButton("Reports")
+        self.reports_button.setMinimumHeight(44)
+        self.reports_button.clicked.connect(self.reports_clicked.emit)
+
+        body_layout.addLayout(nav_row(self.back_button, self.reports_button, self.settings_button,
+                                      self.view_logs_button))
 
     def _section_label(self, text):
         label = QLabel(text)

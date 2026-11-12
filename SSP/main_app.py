@@ -33,6 +33,7 @@ from screens.file_browser import FileBrowserController
 from screens.payment import PaymentController
 from screens.print_options import PrintOptionsController
 from screens.admin import AdminController
+from screens.reports import ReportsController
 from screens.settings import SettingsController
 from screens.data_viewer import DataViewerController
 from screens.voucher import VoucherController
@@ -111,6 +112,7 @@ class PrintingSystemApp(QMainWindow):
         'scan_result': 13,
         'voucher': 14,
         'settings': 15,
+        'reports': 16,
     }
 
     def __init__(self):
@@ -225,6 +227,7 @@ class PrintingSystemApp(QMainWindow):
         self.scan_result_screen = ScanResultController(self)
         self.voucher_screen = VoucherController(self)
         self.settings_screen = SettingsController(self)
+        self.reports_screen = ReportsController(self)
 
         # Add all screens to stacked widget in order (see SCREEN_MAP)
         self.stacked_widget.addWidget(self.idle_screen)
@@ -249,6 +252,7 @@ class PrintingSystemApp(QMainWindow):
         self.stacked_widget.addWidget(self.scan_result_screen)
         self.stacked_widget.addWidget(self.voucher_screen)
         self.stacked_widget.addWidget(self.settings_screen)
+        self.stacked_widget.addWidget(self.reports_screen)
 
         # "Check voucher balance" is a popup over whichever screen opened it, not a screen
         # (screens/voucher_balance); the Vouchers it checks are remembered for the session.
@@ -618,7 +622,7 @@ class PrintingSystemApp(QMainWindow):
         # print choices are blocked there (and at printing_options) instead.
         digital_only_payment = (screen_name == 'payment'
                                 and not self.payment_screen.model.is_print_job())
-        if (screen_name not in ['admin', 'settings', 'thank_you', 'voucher', 'scan_result', 'scan_destination']
+        if (screen_name not in ['admin', 'settings', 'reports', 'thank_you', 'voucher', 'scan_result', 'scan_destination']
                 and not digital_only_payment):
             if self.check_paper_count_and_redirect():
                 print(f"Cannot navigate to {screen_name} - insufficient paper")
