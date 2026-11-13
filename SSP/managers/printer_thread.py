@@ -214,9 +214,16 @@ class PrinterThread(QThread):
         check_interval = 3
         initial_startup_delay = 5
 
+        # An empty tray is only a failure while the job is still unfinished. The sheet
+        # that empties the tray is also the job's last one, so the printer raises
+        # media-empty as the job finishes; a real paper-out mid-job leaves the job stuck
+        # in the queue, and that is what this grace period waits out.
+        tray_empty_grace = 30
+
         elapsed_time = 0
         completion_time = None
         media_empty_sms_sent = False
+        tray_empty_since = None
 
         time.sleep(initial_startup_delay)
         elapsed_time += initial_startup_delay
@@ -226,6 +233,7 @@ class PrinterThread(QThread):
                 target_printer = self.printer_name
                 printer_actively_printing = False
 
+                tray_empty = False
                 alerts_result = subprocess.run(
                     ['lpstat', '-l', '-p', target_printer],
                     capture_output=True, text=True
@@ -248,24 +256,9 @@ class PrinterThread(QThread):
                             except Exception:
                                 pass
                             return False
-                        elif "media-empty-error" in alerts_found or "media-needed-error" in alerts_found:
-                            self.paper_empty.emit()
-                            self.print_failed.emit(f"No paper detected on {target_printer}")
-                            try:
-                                send_no_paper_sms()
-                            except Exception:
-                                pass
-                            return False
-                        elif "media-empty-report" in alerts_found:
-                            if not media_empty_sms_sent:
-                                try:
-                                    send_no_paper_sms()
-                                    media_empty_sms_sent = True
-                                except Exception:
-                                    pass
-                            self.paper_empty.emit()
-                            self.print_failed.emit(f"No paper detected on {target_printer}")
-                            return False
+                        elif any(a in alerts_found for a in ("media-empty-error", "media-needed-error",
+                                                             "media-empty-report")):
+                            tray_empty = True
                         elif "paused" in alerts_found:
                             # CUPS sets this when it disables the queue (e.g. after a backend
                             # failure); the job stays queued, so it would never count as complete
@@ -279,6 +272,30 @@ class PrinterThread(QThread):
                             return False
 
                 cups_job_still_active = self._check_cups_job_status(job_id)
+
+                if tray_empty:
+                    if tray_empty_since is None:
+                        tray_empty_since = elapsed_time
+                        if not media_empty_sms_sent:
+                            media_empty_sms_sent = True
+                            try:
+                                send_no_paper_sms()
+                            except Exception:
+                                pass
+                    job_over = not printer_actively_printing and not cups_job_still_active
+                    if job_over and elapsed_time >= min_print_time:
+                        # Everything printed and the tray is now empty: the job succeeded,
+                        # but the paper count is wrong and must be zeroed.
+                        self.paper_empty.emit()
+                        return True
+                    if not job_over and elapsed_time - tray_empty_since >= tray_empty_grace:
+                        self.paper_empty.emit()
+                        self.print_failed.emit(f"No paper detected on {target_printer}")
+                        return False
+                    time.sleep(check_interval)
+                    elapsed_time += check_interval
+                    continue
+                tray_empty_since = None
 
                 if not printer_actively_printing and not cups_job_still_active:
                     if elapsed_time < min_print_time:
