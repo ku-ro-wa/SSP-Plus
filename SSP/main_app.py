@@ -715,6 +715,10 @@ class PrintingSystemApp(QMainWindow):
         """
         print("✅ Print job successfully completed")
 
+        # A job that emptied the tray still succeeds; its paper-out report has been
+        # handled, so it must not suppress the SMS of a later, unrelated failure.
+        self._paper_empty_reported = False
+
         # The transaction was logged and the cash inventory updated at
         # settlement; the print outcome only completes the row (#59).
         job = getattr(self, 'current_print_job', None) or {}

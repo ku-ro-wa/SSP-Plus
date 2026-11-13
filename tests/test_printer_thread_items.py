@@ -65,7 +65,9 @@ def items(tmp_path):
 
 class FakeCups:
     """`lp` hands out job ids and records the commands; lpstat answers as the printer
-    reports. `fail_job` is the Nth submission (1-based) whose printer reports paper out."""
+    reports. `fail_job` is the Nth submission (1-based) whose printer reports paper out
+    mid-job: the printer waits for paper, so that job stays in the queue (a job that has
+    left the queue with the tray empty finished, and counts as printed)."""
 
     def __init__(self, fail_job=None, on_submit=None):
         self.submitted = []
@@ -85,7 +87,9 @@ class FakeCups:
             self.cancelled.append(cmd[1])
             return SimpleNamespace(returncode=0, stdout="", stderr="")
         if cmd[:2] == ['lpstat', '-o']:
-            return SimpleNamespace(returncode=0, stdout="", stderr="")
+            stuck = len(self.submitted) == self.fail_job
+            return SimpleNamespace(returncode=0, stderr="",
+                                   stdout=f"{self.job} group-c 1024 Fri 13 Nov 2026 14:00:00 HKT\n" if stuck else "")
         alerts = "media-empty-error" if len(self.submitted) == self.fail_job else "none"
         return SimpleNamespace(returncode=0, stderr="", stdout=(
             f"printer {PRINTER} is idle.  enabled since Thu 15 Oct 2026 17:10:35 HKT\n"

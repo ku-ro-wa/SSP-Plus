@@ -117,6 +117,30 @@ class TestPaperEmptySignal:
         assert thread.wait_for_print_completion(JOB) is False
         assert events == ["paper_empty", "print_failed"]
 
+    @pytest.mark.parametrize("alerts", ["media-empty-error", "media-needed-error", "media-empty-report"])
+    def test_tray_emptied_by_the_last_sheet_is_a_success(self, thread, events, monkeypatch, alerts):
+        # The job leaves the queue while the printer already reports the tray empty
+        cups = FakeCups(alerts=alerts, queued_polls=3)
+        monkeypatch.setattr(pt.subprocess, 'run', cups.run)
+
+        assert thread.wait_for_print_completion(JOB) is True
+        assert events == ["paper_empty"]   # the count still gets zeroed
+        assert thread.failures == []
+
+    def test_empty_tray_with_job_stuck_in_queue_still_fails(self, thread, events, monkeypatch):
+        monkeypatch.setattr(pt.subprocess, 'run', FakeCups(alerts="media-empty-error", queued_polls=999).run)
+
+        assert thread.wait_for_print_completion(JOB) is False
+        assert events == ["paper_empty", "print_failed"]
+
+    def test_no_paper_sms_sent_once_even_when_job_succeeds(self, thread, monkeypatch):
+        sent = []
+        monkeypatch.setattr(pt, 'send_no_paper_sms', lambda: sent.append(1))
+        monkeypatch.setattr(pt.subprocess, 'run', FakeCups(alerts="media-empty-report", queued_polls=3).run)
+
+        assert thread.wait_for_print_completion(JOB) is True
+        assert sent == [1]
+
     @pytest.mark.parametrize("alerts", ["media-jam-error", "paused", "offline"])
     def test_other_failures_do_not_signal(self, thread, events, monkeypatch, alerts):
         monkeypatch.setattr(pt.subprocess, 'run', FakeCups(alerts=alerts, queued_polls=999).run)
