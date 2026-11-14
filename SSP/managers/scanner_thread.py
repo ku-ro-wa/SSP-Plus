@@ -26,6 +26,8 @@ class ScannerThread(QThread):
             result = self._operation()
             self.operation_succeeded.emit(result)
         except ScannerError as e:
+            print(f"Scanner operation failed: {e}")
             self.operation_failed.emit(str(e))
         except Exception as e:
+            print(f"Scanner operation failed unexpectedly: {e!r}")
             self.operation_failed.emit(f"Unexpected scanner error: {e}")

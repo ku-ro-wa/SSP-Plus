@@ -13,6 +13,13 @@ from managers.printer_status import describe_printer_status, read_printer_status
 PRINTER = "HP_Smart_Tank_580_590_series_5E0E1D_USB"
 
 
+@pytest.fixture(autouse=True)
+def _fresh_ipp_timeouts():
+    ps._reset_ipp_timeouts()
+    yield
+    ps._reset_ipp_timeouts()
+
+
 def lpstat_p(alerts, state="is idle.  enabled"):
     return (f"printer {PRINTER} {state} since Thu 15 Oct 2026 17:10:35 HKT\n"
             f"\tAlerts: {alerts}\n"
@@ -63,14 +70,14 @@ def test_sim_mode_skips_cups(monkeypatch):
     assert read_printer_status() == ("Ready (SIM)", "success")
 
 
-def _fake_run(ipp_reasons, calls=None, ipptool_fails=False):
+def _fake_run(ipp_reasons, calls=None, ipptool_fails=False, cups_alerts="none"):
     """lpstat -l -p says no alerts (like the Smart Tank over its USB bridge);
     ipptool says `ipp_reasons`."""
     def fake_run(cmd, **kwargs):
         if calls is not None:
             calls.append(cmd)
         if cmd[:2] == ['lpstat', '-l']:
-            return subprocess.CompletedProcess(cmd, 0, stdout=lpstat_p("none"), stderr="")
+            return subprocess.CompletedProcess(cmd, 0, stdout=lpstat_p(cups_alerts), stderr="")
         if cmd[:2] == ['lpstat', '-v']:
             return subprocess.CompletedProcess(
                 cmd, 0, stdout=f"device for {PRINTER}: ipp://localhost:60000/ipp/print\n", stderr="")
@@ -116,3 +123,37 @@ def test_lpstat_timeout(monkeypatch):
     monkeypatch.setattr(ps, "get_config", lambda: _config(False))
     monkeypatch.setattr(ps.subprocess, "run", fake_run)
     assert read_printer_status() == ("Not responding", "error")
+
+
+def test_stale_cups_media_empty_is_replaced_by_the_printer(monkeypatch):
+    """Seen on the kiosk 2026-11-14: CUPS `Alerts: media-empty-report` while the
+    printer itself reported `none` with paper loaded."""
+    monkeypatch.setattr(ps, "get_config", lambda: _config(False))
+    monkeypatch.setattr(ps.subprocess, "run", _fake_run("none", cups_alerts="media-empty-report"))
+    assert read_printer_status() == ("Ready", "success")
+
+
+def test_cups_alert_kept_when_printer_cannot_be_asked(monkeypatch):
+    monkeypatch.setattr(ps, "get_config", lambda: _config(False))
+    monkeypatch.setattr(ps.subprocess, "run",
+                        _fake_run("", ipptool_fails=True, cups_alerts="media-empty-report"))
+    assert read_printer_status() == ("Out of paper", "error")
+
+
+def test_repeated_ipp_timeouts_mean_not_responding(monkeypatch):
+    monkeypatch.setattr(ps, "get_config", lambda: _config(False))
+    monkeypatch.setattr(ps.subprocess, "run", _fake_run("", ipptool_fails=True))
+    first = [read_printer_status() for _ in range(ps.IPP_TIMEOUTS_BEFORE_NOT_RESPONDING - 1)]
+    assert first == [("Ready", "success")] * (ps.IPP_TIMEOUTS_BEFORE_NOT_RESPONDING - 1)
+    assert read_printer_status() == ("Not responding", "error")
+
+
+def test_an_answer_resets_the_timeout_count(monkeypatch):
+    monkeypatch.setattr(ps, "get_config", lambda: _config(False))
+    for _ in range(ps.IPP_TIMEOUTS_BEFORE_NOT_RESPONDING - 1):
+        monkeypatch.setattr(ps.subprocess, "run", _fake_run("", ipptool_fails=True))
+        read_printer_status()
+    monkeypatch.setattr(ps.subprocess, "run", _fake_run("none"))
+    assert read_printer_status() == ("Ready", "success")
+    monkeypatch.setattr(ps.subprocess, "run", _fake_run("", ipptool_fails=True))
+    assert read_printer_status() == ("Ready", "success")

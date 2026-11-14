@@ -3,6 +3,7 @@ import subprocess
 import tempfile
 import time
 from PyQt5.QtCore import QThread, pyqtSignal
+from managers.printer_ipp import MEDIA_EMPTY_REASONS, has_reason, ipp_reasons
 from managers.sms_manager import send_paper_jam_sms, send_printing_error_sms, send_no_paper_sms
 
 try:
@@ -244,7 +245,8 @@ class PrinterThread(QThread):
                     if " now printing " in lpstat_out_lower:
                         printer_actively_printing = True
 
-                    alerts_found = parse_printer_alerts(alerts_result.stdout)
+                    alerts_found = self._without_stale_tray_alerts(
+                        parse_printer_alerts(alerts_result.stdout), target_printer)
                     if alerts_found:
                         if "cups-waiting-for-job-completed" in alerts_found:
                             printer_actively_printing = True
@@ -317,6 +319,22 @@ class PrinterThread(QThread):
                 print(f"Error checking print status: {e}")
                 time.sleep(check_interval)
                 elapsed_time += check_interval
+
+    @staticmethod
+    def _without_stale_tray_alerts(alerts, printer_name):
+        """CUPS can keep a media-empty alert after paper was loaded again, which
+        would zero the paper count when the job ends. When it lists one, ask the
+        printer; if it answers and reports no empty tray, drop CUPS' alert. A
+        printer that can't be asked leaves the alerts as they were."""
+        if not has_reason(alerts, MEDIA_EMPTY_REASONS):
+            return alerts
+        try:
+            reasons = ipp_reasons(printer_name)
+        except Exception:
+            return alerts
+        if reasons is None or has_reason(reasons, MEDIA_EMPTY_REASONS):
+            return alerts
+        return [a for a in alerts if not has_reason([a], MEDIA_EMPTY_REASONS)]
 
     def _check_cups_job_status(self, job_id):
         try:
