@@ -63,6 +63,7 @@ from managers.persistent_gpio import cleanup_persistent_gpio
 from managers.gpio_check import gpio_problem
 from managers.instance_lock import EXIT_ALREADY_RUNNING, acquire_instance_lock
 from utils.run_log import install_run_log
+from utils.crash_log import enable_crash_log, mark_crash_log
 from config import get_config
 from ui.scaling import apply_ui_scale, pin_render_environment
 from managers.timeout_manager import TimeoutManager
@@ -1101,9 +1102,7 @@ def main():
     # A native crash (segfault/abort) leaves no Python traceback; this writes
     # every thread's stack to SSP/logs/crash.log so the next one is diagnosable.
     try:
-        import faulthandler
-        os.makedirs(log_dir, exist_ok=True)
-        faulthandler.enable(file=open(os.path.join(log_dir, 'crash.log'), 'a'), all_threads=True)
+        enable_crash_log(log_dir)
     except OSError as e:
         print(f"⚠️ Could not enable faulthandler: {e}")
 
@@ -1172,7 +1171,10 @@ def main():
         signal_wake.timeout.connect(lambda: None)
         signal_wake.start(200)
 
-        sys.exit(app.exec_())
+        exit_code = app.exec_()
+        # Anything crash.log records after this line happened after the app closed.
+        mark_crash_log("event loop ended")
+        sys.exit(exit_code)
     except Exception as e:
         print(f"❌ Error during initialization: {str(e)}")
         sys.exit(1)
