@@ -1,4 +1,4 @@
-from PyQt5.QtWidgets import QWidget, QDialog
+from PyQt5.QtWidgets import QWidget, QGridLayout, QDialog
 from .model import ThankYouModel
 from .view import ThankYouScreenView
 from screens.dialogs.pin_dialog import PinDialogController as PinDialog
@@ -15,8 +15,11 @@ class ThankYouController(QWidget):
         self.model.main_app = main_app  # Pass main_app reference to model
         self.view = ThankYouScreenView()
 
-        # Set the view's layout as this controller's layout
-        self.setLayout(self.view.main_layout)
+        # The view goes inside this screen, as on every other screen. Taking only its
+        # layout left the view itself a parentless window until Python's teardown.
+        layout = QGridLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.addWidget(self.view, 0, 0)
 
         self._connect_signals()
 

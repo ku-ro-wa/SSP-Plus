@@ -1,6 +1,6 @@
 # screens/print_options/controller.py
 
-from PyQt5.QtWidgets import QWidget, QMessageBox
+from PyQt5.QtWidgets import QWidget, QGridLayout, QMessageBox
 
 from managers.print_items import total_sheets
 from managers.timeout_manager import TimeoutPolicy
@@ -19,8 +19,11 @@ class PrintOptionsController(QWidget):
         self.view = PrintOptionsScreenView()
         self.source = None      # usb, wifi, email, scanner
 
-        # Set the view's layout as this controller's layout
-        self.setLayout(self.view.main_layout)
+        # The view goes inside this screen, as on every other screen. Taking only its
+        # layout left the view itself a parentless window until Python's teardown.
+        layout = QGridLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.addWidget(self.view, 0, 0)
 
         self._connect_signals()
 
