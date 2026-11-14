@@ -23,6 +23,9 @@ UP_SECONDS=${UP_SECONDS:-25}
 PYTHON=${PYTHON:-$( [ -x .venv/bin/python ] && echo .venv/bin/python || echo python3 )}
 SUMMARY="SSP/logs/exit-loop-$(date +%Y%m%d-%H%M%S).txt"
 mkdir -p SSP/logs
+# Draw on the panel like the ssp-kiosk service does (Environment=DISPLAY=:0), so
+# it works from an SSH shell, which has no DISPLAY of its own.
+export DISPLAY=${DISPLAY:-:0}
 RUN_OUT=$(mktemp)
 trap 'rm -f "$RUN_OUT"' EXIT
 
@@ -33,7 +36,7 @@ if pgrep -f "SSP/main_app.py" >/dev/null; then
 fi
 
 clean=0; segv=0; abrt=0; other=0
-echo "exit-crash loop: $RUNS runs, ${UP_SECONDS}s up, $PYTHON, $(git rev-parse --short HEAD)" | tee "$SUMMARY"
+echo "exit-crash loop: $RUNS runs, ${UP_SECONDS}s up, $PYTHON, $(git rev-parse --short HEAD), DISPLAY=$DISPLAY, UI_SCALE=${UI_SCALE:-from .env}" | tee "$SUMMARY"
 
 for i in $(seq 1 "$RUNS"); do
     # The terminal output, not app.log: Qt writes its own fatal messages (e.g.
@@ -52,8 +55,7 @@ for i in $(seq 1 "$RUNS"); do
             echo "--- end of its output ---"
             tail -15 "$RUN_OUT"
         } | tee -a "$SUMMARY"
-        echo "If it says it can't connect to the display, run this from a terminal on the kiosk's"
-        echo "own desktop, or over SSH with the session's DISPLAY and XAUTHORITY exported."
+        echo "If it says it can't connect to the display: is the kiosk desktop up (pgrep -a labwc)?"
         break
     fi
     kill -TERM "$pid"
