@@ -14,6 +14,11 @@ import subprocess
 MEDIA_EMPTY_REASONS = ("media-empty", "media-needed")
 
 
+class PrinterNotAnswering(OSError):
+    """The queue has an IPP address but the printer gave no state back (refused
+    connection, empty or unparseable reply)."""
+
+
 def device_uri(printer_name: str):
     """The queue's device URI from `lpstat -v`, if it is an IPP one (e.g. the USB bridge)."""
     result = subprocess.run(['lpstat', '-v', printer_name], capture_output=True, text=True, timeout=5)
@@ -25,9 +30,10 @@ def ipp_reasons(printer_name: str):
     """printer-state-reasons straight from the printer.
 
     A list when the printer answered (empty when it reports `none`), or None
-    when it couldn't be asked or gave no state-reasons line, so a caller can
-    tell "reports nothing wrong" from "didn't answer". Raises OSError or
-    subprocess.TimeoutExpired when ipptool itself fails or hangs."""
+    when the queue has no IPP address to ask. Raises PrinterNotAnswering (an
+    OSError) when it has one but the printer gave no state-reasons line, and
+    OSError or subprocess.TimeoutExpired when ipptool itself fails or hangs, so
+    a caller can tell "reports nothing wrong" from "didn't answer"."""
     uri = device_uri(printer_name)
     if not uri:
         return None
@@ -35,7 +41,7 @@ def ipp_reasons(printer_name: str):
                             capture_output=True, text=True, timeout=5)
     match = re.search(r'printer-state-reasons \([^)]*\) = (\S+)', result.stdout)
     if not match:
-        return None
+        raise PrinterNotAnswering(f"no printer-state-reasons from {uri}")
     if match.group(1) == 'none':
         return []
     return match.group(1).split(',')

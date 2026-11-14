@@ -157,3 +157,20 @@ def test_an_answer_resets_the_timeout_count(monkeypatch):
     assert read_printer_status() == ("Ready", "success")
     monkeypatch.setattr(ps.subprocess, "run", _fake_run("", ipptool_fails=True))
     assert read_printer_status() == ("Ready", "success")
+
+
+def test_refused_connection_counts_like_a_timeout(monkeypatch):
+    """ipp-usb stopped: ipptool exits at once with no output instead of timing out."""
+    def fake_run(cmd, **kwargs):
+        if cmd[:2] == ['lpstat', '-l']:
+            return subprocess.CompletedProcess(cmd, 0, stdout=lpstat_p("none"), stderr="")
+        if cmd[:2] == ['lpstat', '-v']:
+            return subprocess.CompletedProcess(
+                cmd, 0, stdout=f"device for {PRINTER}: ipp://localhost:60000/ipp/print\n", stderr="")
+        return subprocess.CompletedProcess(cmd, 1, stdout="", stderr="Unable to connect")
+
+    monkeypatch.setattr(ps, "get_config", lambda: _config(False))
+    monkeypatch.setattr(ps.subprocess, "run", fake_run)
+    for _ in range(ps.IPP_TIMEOUTS_BEFORE_NOT_RESPONDING - 1):
+        assert read_printer_status() == ("Ready", "success")
+    assert read_printer_status() == ("Not responding", "error")
