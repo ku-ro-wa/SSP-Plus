@@ -199,3 +199,40 @@ def test_disabled_queue_is_not_available(monkeypatch):
     manager = pm.PrinterManager.__new__(pm.PrinterManager)
     manager.printer_name = PRINTER
     assert manager.check_printer_availability() is False
+
+
+class TestStaleTrayAlert:
+    """CUPS kept `media-empty-report` after paper was loaded again (kiosk,
+    2026-11-14) while the printer itself reported `none`. That must not zero the
+    paper count when a job ends."""
+
+    @pytest.fixture
+    def events(self, thread):
+        log = []
+        thread.paper_empty.connect(lambda: log.append("paper_empty"))
+        return log
+
+    def test_printer_says_tray_is_fine_so_cups_alert_is_ignored(self, thread, events, monkeypatch):
+        monkeypatch.setattr(pt.subprocess, 'run', FakeCups(alerts="media-empty-report", queued_polls=3).run)
+        monkeypatch.setattr(pt, 'ipp_reasons', lambda printer: [])
+
+        assert thread.wait_for_print_completion(JOB) is True
+        assert events == []
+        assert thread.failures == []
+
+    def test_printer_confirms_empty_tray(self, thread, events, monkeypatch):
+        monkeypatch.setattr(pt.subprocess, 'run', FakeCups(alerts="media-empty-report", queued_polls=3).run)
+        monkeypatch.setattr(pt, 'ipp_reasons', lambda printer: ['media-empty-report'])
+
+        assert thread.wait_for_print_completion(JOB) is True
+        assert events == ["paper_empty"]
+
+    def test_unreachable_printer_keeps_the_cups_alert(self, thread, events, monkeypatch):
+        def hangs(printer):
+            raise pt.subprocess.TimeoutExpired('ipptool', 5)
+
+        monkeypatch.setattr(pt.subprocess, 'run', FakeCups(alerts="media-empty-report", queued_polls=3).run)
+        monkeypatch.setattr(pt, 'ipp_reasons', hangs)
+
+        assert thread.wait_for_print_completion(JOB) is True
+        assert events == ["paper_empty"]

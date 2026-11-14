@@ -144,7 +144,7 @@ class PrintOptionsController(QWidget):
 
                     # Add warning if insufficient change possible
                     if hasattr(self.model, 'total_cost'):
-                        change_needed = self._calculate_max_change(self.model.total_cost)
+                        change_needed = self._calculate_max_change(self.model.total_cost())
                         available_change = (
                             status['coins']['peso_1'] +
                             status['coins']['peso_5'] * 5
