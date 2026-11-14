@@ -1,4 +1,4 @@
-from PyQt5.QtWidgets import QWidget
+from PyQt5.QtWidgets import QWidget, QGridLayout
 from PyQt5.QtCore import pyqtSignal
 from .model import PaymentModel
 from managers.session_vouchers import SessionVouchers
@@ -23,8 +23,11 @@ class PaymentController(QWidget):
 
         # Inline suggestion only (no popup controller)
 
-        # Set the view's layout as this controller's layout
-        self.setLayout(self.view.main_layout)
+        # The view goes inside this screen, as on every other screen. Taking only its
+        # layout left the view itself a parentless window until Python's teardown.
+        layout = QGridLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.addWidget(self.view, 0, 0)
 
         self._connect_signals()
 

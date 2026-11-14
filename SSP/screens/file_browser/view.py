@@ -670,8 +670,8 @@ class FileBrowserView(QWidget):
         split_row.addWidget(right_panel, 1)
         main_layout.addWidget(body, 1)
 
-        # Don't set layout here - let the controller handle it
         self.main_layout = main_layout
+        self.setLayout(main_layout)
         self.prev_grid_page_btn.hide()
         self.grid_page_label.hide()
         self.next_grid_page_btn.hide()

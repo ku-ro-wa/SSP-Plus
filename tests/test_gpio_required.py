@@ -114,5 +114,4 @@ def _sim_buttons(view):
 def test_simulation_buttons_only_in_sim_mode(qapp, monkeypatch, sim_mode, shown):
     monkeypatch.setattr(view_module, 'get_config', lambda: types.SimpleNamespace(sim_mode=sim_mode))
     view = view_module.PaymentScreenView(voucher_keys=CODE_ALPHABET)
-    view.setLayout(view.main_layout)  # the controller does this in the app
     assert bool(_sim_buttons(view)) is shown

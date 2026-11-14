@@ -17,8 +17,7 @@ class ThankYouScreenView(QWidget):
 
     def setup_ui(self):
         """Sets up the user interface for the screen."""
-        # Built here, applied on the controller (self.setLayout(self.view.main_layout)).
-        self.main_layout = QVBoxLayout()
+        self.main_layout = QVBoxLayout(self)
         self.main_layout.setContentsMargins(0, 0, 0, 0)
         self.main_layout.setSpacing(0)
 

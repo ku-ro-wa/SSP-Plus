@@ -131,8 +131,8 @@ class PaymentScreenView(QWidget):
 
         body_layout.addStretch(2)
 
-        # Don't set layout here - let the controller handle it
         self.main_layout = main_layout
+        self.setLayout(main_layout)
 
     def _add_voucher_entry(self, layout):
         """"Use a voucher": a button that reveals a code entry, plus the list
