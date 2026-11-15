@@ -81,7 +81,7 @@ def test_migration_adds_the_table_to_an_older_database(tmp_path):
 def admin(db_path):
     from screens.admin import model as admin_model
     with patch.object(admin_model, "DatabaseManager", lambda: DatabaseManager(db_path=db_path)), \
-            patch.object(admin_model, "get_sms_manager", lambda: MagicMock()):
+            patch.object(admin_model, "send_operator_alert", lambda message: None):
         m = admin_model.AdminModel()
     return m
 

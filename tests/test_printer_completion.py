@@ -48,7 +48,6 @@ class FakeCups:
 def thread(monkeypatch):
     monkeypatch.setattr(pt.time, 'sleep', lambda s: None)
     monkeypatch.setattr(pt, 'send_no_paper_sms', lambda: None)
-    monkeypatch.setattr(pt, 'send_paper_jam_sms', lambda: None)
     t = PrinterThread([PrintItem({'path': 'x.pdf'}, [1])], PRINTER)
     t.failures = []
     t.print_failed.connect(t.failures.append)
@@ -90,6 +89,17 @@ class TestWaitForPrintCompletion:
 
         assert thread.wait_for_print_completion(JOB) is False
         assert thread.failures == [f"No paper detected on {PRINTER}"]
+
+    def test_paper_jam_sends_no_sms_of_its_own(self, thread, monkeypatch):
+        """main_app.on_print_failed texts the operator for every print_failed, so a
+        jam SMS from this thread would make it two."""
+        sent = []
+        monkeypatch.setattr('managers.sms_manager.send_operator_alert', sent.append)
+        monkeypatch.setattr(pt.subprocess, 'run', FakeCups(alerts="media-jam-error", queued_polls=999).run)
+
+        assert thread.wait_for_print_completion(JOB) is False
+        assert thread.failures == [f"Paper jam detected on {PRINTER}"]
+        assert sent == []
 
 
 class TestPaperEmptySignal:

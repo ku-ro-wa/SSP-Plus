@@ -3,7 +3,7 @@ Edits from the Admin Dashboard's /kiosk (issue #135): paper, coins, ink and Coll
 cash, `admin` only, through the same managers/inventory_edits.py the touchscreen
 uses. Real HTTP requests against the real app and a temp SQLite file.
 """
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import pytest
 from fastapi.testclient import TestClient
@@ -200,7 +200,7 @@ class TestKioskNextPrintDoesNotUndoARemoteEdit:
     def test_dashboard_paper_edit_survives_the_next_print(self, client, db, db_path):
         from screens.admin import model as admin_model
         with patch.object(admin_model, "DatabaseManager", lambda: DatabaseManager(db_path=db_path)), \
-                patch.object(admin_model, "get_sms_manager", lambda: MagicMock()):
+                patch.object(admin_model, "send_operator_alert", lambda message: None):
             kiosk = admin_model.AdminModel()
         db.update_setting("paper_count", 20)
         kiosk.load_paper_count()  # the kiosk has 20 in memory

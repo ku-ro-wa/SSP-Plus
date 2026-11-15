@@ -4,7 +4,7 @@ import tempfile
 import time
 from PyQt5.QtCore import QThread, pyqtSignal
 from managers.printer_ipp import MEDIA_EMPTY_REASONS, has_reason, ipp_reasons
-from managers.sms_manager import send_paper_jam_sms, send_printing_error_sms, send_no_paper_sms
+from managers.sms_manager import send_no_paper_sms
 
 try:
     import fitz  # PyMuPDF
@@ -158,12 +158,8 @@ class PrinterThread(QThread):
             return None
 
     def _handle_print_error(self, error_message):
+        # No SMS here: main_app.on_print_failed sends one for every print_failed
         print(f"ERROR: {error_message}")
-        try:
-            send_printing_error_sms(error_message)
-        except Exception as sms_error:
-            print(f"Failed to send SMS notification: {sms_error}")
-
         try:
             from utils.error_logger import log_error
             log_error("Printing Error", error_message, "printer_manager")
@@ -252,11 +248,8 @@ class PrinterThread(QThread):
                             printer_actively_printing = True
 
                         if "media-jam-error" in alerts_found or "paper-jam" in alerts_found:
+                            # main_app.on_print_failed sends the SMS for it
                             self.print_failed.emit(f"Paper jam detected on {target_printer}")
-                            try:
-                                send_paper_jam_sms()
-                            except Exception:
-                                pass
                             return False
                         elif any(a in alerts_found for a in ("media-empty-error", "media-needed-error",
                                                              "media-empty-report")):
