@@ -38,3 +38,4 @@ SSP/logs/
 
 # Thesis manuscript (separate repo, never committed here)
 aio-spark-thesis/
+kiosk-alerts.log
