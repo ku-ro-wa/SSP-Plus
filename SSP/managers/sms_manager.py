@@ -39,71 +39,109 @@ class SMSManager:
         self.phone_number = phone_number
         self.serial_port = serial_port
         self.baudrate = baudrate
+        self.last_error = None
+
+    # The network answers a send with +CMGS (sent) or +CMS ERROR; Globe has taken
+    # ~45 s to refuse one, so wait for the answer instead of a fixed time.
+    PROMPT_TIMEOUT = 5
+    SEND_TIMEOUT = 60
 
     def send_sms_and_close(self, message):
-        """
-        Sends an SMS message and closes the connection (like your working code).
-        This method opens a new connection, sends the SMS, and closes it.
-        """
+        """Opens the port, sends one SMS, closes the port. True only once the network
+        confirms it (+CMGS ... OK); otherwise False, with the reason in last_error."""
+        self.last_error = None
         if not self.phone_number:
             print(f"SMS not sent, no PHONE_NUMBER set in .env: {message}")
+            self.last_error = "No PHONE_NUMBER set"
             return False
         sim_mode = os.getenv('SIM_MODE', 'false').lower() in ('true', '1', 'yes')
         if sim_mode or not SERIAL_AVAILABLE:
             print(f"[SIM] SMS to {self.phone_number}: {message}")
             return True
+        ser = None
         try:
             print("Initializing modem...")
-            # Give modem time to boot up
-            time.sleep(5)
-
-            # Open serial connection
             ser = serial.Serial(self.serial_port, baudrate=self.baudrate, timeout=1)
+            ser.reset_input_buffer()
 
-            # Basic AT check
             ser.write(b'AT\r')
             time.sleep(1)
             print("AT Response: " + ser.read(100).decode(errors="ignore").strip())
 
-            # Set SMS to text mode
+            # No echo (so the message text can't be mistaken for the modem's reply),
+            # errors as words (e.g. "+CMS ERROR: ...") rather than numbers, text mode
+            for setup in (b'ATE0\r', b'AT+CMEE=2\r'):
+                ser.write(setup)
+                time.sleep(1)
+                ser.read(100)
             ser.write(b'AT+CMGF=1\r')
             time.sleep(1)
             print("CMGF Response: " + ser.read(100).decode(errors="ignore").strip())
 
-            # Set the recipient's phone number
-            cmd = f'AT+CMGS="{self.phone_number}"\r'
-            ser.write(cmd.encode())
-            time.sleep(1)
-            print("CMGS Prompt: " + ser.read(100).decode(errors="ignore").strip())
+            ser.write(f'AT+CMGS="{self.phone_number}"\r'.encode())
+            prompt = self._read_until(ser, ('>', 'ERROR'), self.PROMPT_TIMEOUT)
+            print("CMGS Prompt: " + prompt.strip())
+            if '>' not in prompt:
+                ser.write(bytes([27]))   # Esc: cancel the half-started message
+                self.last_error = f"Modem refused the number: {self._error_text(prompt)}"
+                print(f"❌ {self.last_error}")
+                return False
 
-            # Send the message followed immediately by Ctrl+Z (0x1A)
+            # The message, then Ctrl+Z (0x1A) to send it
             ser.write(message.encode() + bytes([26]))
             ser.flush()
-            print("Message sent, waiting for confirmation...")
+            print("Message sent, waiting for the network...")
 
-            # Wait for the final response
-            time.sleep(15)
-            response = ser.read(500).decode(errors="ignore").strip()
-            print("Final Response: " + response)
+            response = self._read_until(ser, ('OK', 'ERROR'), self.SEND_TIMEOUT, after='+CMGS:')
+            print("Final Response: " + response.strip())
 
             if "+CMGS:" in response and "OK" in response:
                 print("✅ Message sent successfully!")
                 return True
+            if "ERROR" in response:
+                self.last_error = f"Network refused it: {self._error_text(response)}"
             else:
-                print("❌ Failed to send message.")
-                return False
-
-        except serial.SerialException as e:
-            print(f"Serial error: {e}")
+                self.last_error = f"No answer from the network within {self.SEND_TIMEOUT} s"
+            print(f"❌ {self.last_error}")
             return False
+
         except Exception as e:
-            print(f"An error occurred: {e}")
+            self.last_error = f"Serial error: {e}"
+            print(self.last_error)
             return False
         finally:
-            # Close the serial port
-            if 'ser' in locals() and ser.is_open:
+            if ser is not None and ser.is_open:
                 ser.close()
                 print("Serial port closed.")
+
+    @staticmethod
+    def _read_until(ser, endings, timeout, after=None):
+        """Reads what the modem says until one of `endings` appears (only counting
+        text after `after`, when given, or any ERROR) or `timeout` seconds pass."""
+        text = ''
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            chunk = ser.read(ser.in_waiting or 1).decode(errors="ignore")
+            text += chunk
+            if 'ERROR' in text:
+                return text
+            if after:
+                if after not in text:
+                    continue
+                tail = text.split(after, 1)[1]
+            else:
+                tail = text
+            if any(e in tail for e in endings):
+                return text
+        return text
+
+    @staticmethod
+    def _error_text(response):
+        """The modem's error line, e.g. '+CMS ERROR: User busy', or the whole reply."""
+        for line in response.splitlines():
+            if 'ERROR' in line:
+                return line.strip()
+        return response.strip() or "no reply"
 
 
 # Global SMS manager instance
@@ -141,13 +179,14 @@ def send_no_paper_sms():
 _operator_alert_lock = threading.Lock()
 
 
-def _log_send_failure(message):
+def _log_send_failure(message, reason=None):
     """One error_log row for an SMS the modem didn't confirm. Never raises."""
     try:
         from database.db_manager import DatabaseManager
         db = DatabaseManager()
         try:
-            db.log_error("SMS", f"Could not send SMS: {message}", "sms_manager")
+            why = f" ({reason})" if reason else ""
+            db.log_error("SMS", f"Could not send SMS{why}: {message}", "sms_manager")
         finally:
             db.close()
     except Exception as e:
@@ -167,11 +206,12 @@ def send_operator_alert(message):
         with _operator_alert_lock:
             try:
                 sent = manager.send_sms_and_close(message)
+                reason = manager.last_error
             except Exception as e:
                 print(f"SMS send raised: {e}")
-                sent = False
+                sent, reason = False, str(e)
         if not sent:
-            _log_send_failure(message)
+            _log_send_failure(message, reason)
     threading.Thread(target=send, name="operator-sms", daemon=True).start()
 
 
