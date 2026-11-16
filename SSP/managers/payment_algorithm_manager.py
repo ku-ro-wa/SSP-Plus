@@ -18,32 +18,27 @@ class PaymentAlgorithmManager:
         self.COIN_DENOMINATIONS = [1, 5]  # ₱1 and ₱5 coins
         self.BILL_DENOMINATIONS = [20, 50, 100, 200, 500, 1000]  # Common Philippine bills
 
-        # Read configurable thresholds from settings table (defaults allow dispensing with few coins)
-        min_1 = self.db_manager.get_setting('min_coin_threshold_1', 0)
-        min_5 = self.db_manager.get_setting('min_coin_threshold_5', 0)
-        if isinstance(min_1, str):
-            try:
-                min_1 = int(min_1)
-            except Exception:
-                min_1 = 0
-        if isinstance(min_5, str):
-            try:
-                min_5 = int(min_5)
-            except Exception:
-                min_5 = 0
+    def _setting_number(self, key, default):
+        """A settings row as a number, read now; `default` if unset or unparseable."""
+        value = self.db_manager.get_setting(key, default)
+        try:
+            return float(value)
+        except (TypeError, ValueError):
+            return default
 
-        # Minimum thresholds for coin availability (reserve coins). Defaults to 0 so change works even with few coins.
-        self.MIN_COIN_THRESHOLDS = {
-            1: max(0, min_1),
-            5: max(0, min_5)
+    @property
+    def MIN_COIN_THRESHOLDS(self) -> Dict[int, int]:
+        """Reserve coins per hopper (0 = no reserve), read on every use so a saved
+        setting applies without a restart."""
+        return {
+            1: max(0, int(self._setting_number('min_coin_threshold_1', 0))),
+            5: max(0, int(self._setting_number('min_coin_threshold_5', 0))),
         }
 
-        # Maximum change that can be dispensed (configurable)
-        max_change_cfg = self.db_manager.get_setting('max_change_limit', 50)
-        try:
-            self.MAX_CHANGE_LIMIT = float(max_change_cfg) if max_change_cfg is not None else 50.0
-        except Exception:
-            self.MAX_CHANGE_LIMIT = 50.0
+    @property
+    def MAX_CHANGE_LIMIT(self) -> float:
+        """Most change handed out in one payment, read on every use."""
+        return self._setting_number('max_change_limit', 50.0)
 
     def get_coin_inventory(self) -> Dict[int, int]:
         """Get current coin inventory from database."""
@@ -69,11 +64,25 @@ class PaymentAlgorithmManager:
         """Most change the hoppers can give right now: coins above the reserve thresholds,
         capped at MAX_CHANGE_LIMIT."""
         coin_inventory = self.get_coin_inventory()
-        th5 = self.MIN_COIN_THRESHOLDS.get(5, 0)
-        th1 = self.MIN_COIN_THRESHOLDS.get(1, 0)
+        thresholds = self.MIN_COIN_THRESHOLDS
+        th5 = thresholds.get(5, 0)
+        th1 = thresholds.get(1, 0)
         max_change_5 = max(0, coin_inventory.get(5, 0) - (th5 if th5 > 0 else 0))
         max_change_1 = max(0, coin_inventory.get(1, 0) - (th1 if th1 > 0 else 0))
         return min((max_change_5 * 5) + max_change_1, self.MAX_CHANGE_LIMIT)
+
+    def get_dispense_limits(self, change_amount: float) -> Dict[int, int]:
+        """Coins the hoppers may pay out for this change, as `coin_limits` for the
+        dispenser: what each hopper holds above its reserve, and no more than
+        MAX_CHANGE_LIMIT pesos in total. Whatever the dispenser can't give within
+        these limits is a predicted Shortfall, which becomes a Voucher."""
+        inventory = self.get_coin_inventory()
+        reserves = self.MIN_COIN_THRESHOLDS
+        spare = {d: max(0, inventory.get(d, 0) - reserves.get(d, 0)) for d in (5, 1)}
+        budget = min(int(round(change_amount)), max(0, int(self.MAX_CHANGE_LIMIT)))
+        fives = min(spare[5], budget // 5)
+        ones = min(spare[1], budget - fives * 5)
+        return {5: fives, 1: ones}
 
     def is_change_low(self) -> bool:
         """True when max dispensable change is below 'low_change_warning_threshold'
@@ -227,31 +236,27 @@ class PaymentAlgorithmManager:
 
     def find_best_payment_amount(self, total_cost: float) -> Dict:
         """
-        Compute the single suggested payment as the GREATEST amount the user can pay
-        while the machine can still dispense the change, given current hopper coins.
+        Compute the most the customer can pay in total while the machine can still give
+        all the change in coins: the cost plus the greatest change it can dispense,
+        given the hopper stock, the reserves and Maximum change. Anything paid beyond
+        that comes back as a Voucher instead of coins.
 
-        Logic:
-        - Determine the maximum dispensable change by testing from dynamic inventory limit down to 0
-        - Compute a ceiling = floor(total_cost) + max_feasible_change
-        - From accepted denominations [1, 5, 10, 20, 50, 100], choose the largest
-          denomination A such that total_cost <= A <= ceiling and change (A - total_cost) is feasible
-        - If no denomination fits, suggest exact payment
+        The customer may pay in any mix of bills and coins, so the figure is not
+        rounded to a single bill denomination. With no change possible it is the
+        exact cost.
         """
-        # We operate in whole pesos. Determine dynamic maximum change from inventory.
-        coin_inventory = self.get_coin_inventory()
-        th5 = self.MIN_COIN_THRESHOLDS.get(5, 0)
-        th1 = self.MIN_COIN_THRESHOLDS.get(1, 0)
-        available_5 = max(0, coin_inventory.get(5, 0) - (th5 if th5 > 0 else 0))
-        available_1 = max(0, coin_inventory.get(1, 0) - (th1 if th1 > 0 else 0))
-        max_possible_change = int((available_5 * 5) + available_1)
+        # We operate in whole pesos. Same figure as the low-change warning: coins above
+        # the reserves, capped at Maximum change.
+        max_possible_change = int(self.get_max_dispensable_change())
 
         best_change = 0
+        best_required = {1: 0, 5: 0}
 
         base = int(round(total_cost))
         for change in range(max_possible_change, -1, -1):
             can, reason, req = self.can_dispense_change(change)
             if can:
-                best_change = change
+                best_change, best_required = change, req
                 break
 
         # If no change is possible, return exact
@@ -264,40 +269,11 @@ class PaymentAlgorithmManager:
             }
 
         ceiling = base + best_change
-        accepted = [1, 5, 10, 20, 50, 100]
-        # Filter to realistic denominations within [total_cost, ceiling]
-        viable = [d for d in accepted if d >= base and d <= ceiling]
-        viable.sort()
-
-        chosen_amount = None
-        chosen_required = None
-        # Try largest first, also validate change feasibility for that denomination
-        for d in reversed(viable):
-            change_needed = d - base
-            if change_needed < 0:
-                continue
-            can, reason, req = self.can_dispense_change(change_needed)
-            if can:
-                chosen_amount = d
-                chosen_required = req
-                break
-
-        if chosen_amount is None:
-            # Fallback to exact if no denomination fits
-            chosen_amount = base
-            chosen_required = {1: 0, 5: 0}
-            delta = 0
-        else:
-            delta = chosen_amount - base
-
         return {
-            'amount': float(chosen_amount),
-            'change': float(delta),
-            'required_coins': chosen_required,
-            'reason': (
-                'Exact payment' if delta == 0
-                else f'Max payment we can receive: ₱{chosen_amount:.2f} (available ₱{delta:.2f})'
-            )
+            'amount': float(ceiling),
+            'change': float(best_change),
+            'required_coins': best_required,
+            'reason': f'Max payment we can receive: ₱{ceiling:.2f} (available ₱{best_change:.2f})'
         }
 
     def get_payment_status_message(self, total_cost: float) -> str:

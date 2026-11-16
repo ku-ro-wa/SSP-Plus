@@ -1054,7 +1054,7 @@ class PaymentModel(QObject):
                     amount=change_amount,
                     admin_screen=main_app.admin_screen,
                     db_threader=main_app.db_threader,
-                    coin_limits=self.payment_algorithm.get_coin_inventory()
+                    coin_limits=self.payment_algorithm.get_dispense_limits(change_amount)
                 )
                 self.dispense_thread.status_update.connect(self.payment_status_updated.emit)
                 self.dispense_thread.dispensing_finished.connect(self._on_dispensing_finished)
