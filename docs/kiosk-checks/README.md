@@ -222,7 +222,7 @@ each heading is the change being checked.
 ### 4.2 The Settings screen (#117)
 
 1. In Kiosk Admin, tap **Settings**. It lists 7 settings: Voucher expiry, Voucher lockout,
-   Pickup window, Maximum change, Warn when ₱1 coins fall to, Warn when ₱5 coins fall to, and
+   Pickup window, Maximum change, Keep ₱1 coins in reserve, Keep ₱5 coins in reserve, and
    Low-change warning.
 2. Check the whole screen fits the panel, and take a photo.
 3. **Changes apply without restarting the app:**
