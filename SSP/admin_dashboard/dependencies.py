@@ -14,7 +14,9 @@
 
 from config import get_config
 from database.db_manager import DatabaseManager, SIM_DB_NAME
-from database.models import ensure_admin_actions_table, migrate_dashboard_roles, migrate_transaction_files
+from database.models import (
+    ensure_admin_actions_table, ensure_payment_recovery_tables, migrate_dashboard_roles, migrate_transaction_files,
+)
 
 
 def open_db() -> DatabaseManager:
@@ -31,6 +33,7 @@ def open_db() -> DatabaseManager:
         migrate_dashboard_roles(db.conn)
         ensure_admin_actions_table(db.conn)
         migrate_transaction_files(db.conn)
+        ensure_payment_recovery_tables(db.conn)
     return db
 
 

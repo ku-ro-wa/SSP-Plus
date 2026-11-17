@@ -164,6 +164,14 @@ kiosk predicted it couldn't make change or a hopper failed mid-dispense; any non
 Shortfall becomes a Voucher.
 _Avoid_: missing change, underpayment (that's the customer paying too little, the opposite).
 
+**Interrupted Payment**:
+A payment the kiosk lost power (or crashed) in the middle of, found in the payment journal
+on the next start and recorded with what the customer is owed: everything they put in less
+the coins that came out, or the unprinted files' cost if it had already settled. Never
+paid out by itself: an operator issues a Voucher for it in Kiosk Admin, with the customer
+present, or records a cash refund. See ADR 0011.
+_Avoid_: lost payment, crashed transaction, pending refund.
+
 **Voucher code**:
 The identifier a customer holds to prove they own a Voucher, shown on-screen as typeable
 text and as a QR image. Unrelated to the **OTP** / **Pickup code**, which identify a

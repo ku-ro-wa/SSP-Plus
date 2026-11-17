@@ -165,13 +165,15 @@ class ReportsScreenView(QWidget):
         for row, (key, label) in enumerate((("change_dispensed", "Change dispensed"),
                                             ("voucher_issued", "Voucher value issued"),
                                             ("voucher_applied", "Vouchers Applied"),
-                                            ("liability", "Outstanding Voucher liability"))):
+                                            ("liability", "Outstanding Voucher liability"),
+                                            ("interrupted_owed", "Owed on interrupted payments"))):
             vouchers.addWidget(_text(label, colour="text_secondary"), row, 0)
             value = _text("", align=Qt.AlignRight)
             self.voucher_values[key] = value
             vouchers.addWidget(value, row, 1)
         right.addLayout(vouchers)
-        self.liability_note = _text("Liability is as of now, whatever the range.", "size_sm", "text_muted")
+        self.liability_note = _text("Liability and owed are as of now, whatever the range.",
+                                    "size_sm", "text_muted")
         right.addWidget(self.liability_note)
 
         right.addSpacing(8)

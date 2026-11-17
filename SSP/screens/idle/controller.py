@@ -123,6 +123,9 @@ class IdleController(QWidget):
         """Called by main_app when this screen becomes active."""
         print("Idle screen entered.")
         self.view.show_status("")
+        notice = getattr(self.main_app, 'restart_notice_active', None)
+        if callable(notice) and notice():
+            self.view.show_restart_notice()
         self._change_low = self.model.is_change_low()
         self.view.set_change_low(self._change_low)
 

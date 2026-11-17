@@ -56,6 +56,9 @@ class DatabaseManager(VoucherDBMixin, CashCollectionDBMixin):
                 # WAL lets readers and a writer overlap; the setting persists in the file.
                 self.conn.execute("PRAGMA journal_mode=WAL")
                 self.conn.execute("PRAGMA busy_timeout=30000")
+                # WAL's default (NORMAL) can roll back the last commits after a
+                # power cut; a settled payment must survive one (ADR 0011).
+                self.conn.execute("PRAGMA synchronous=FULL")
             except sqlite3.Error as e:
                 print(f"⚠️ Could not enable WAL mode: {e}")
             print(f"✅ Database connection established: {self.db_path}")
@@ -114,10 +117,11 @@ class DatabaseManager(VoucherDBMixin, CashCollectionDBMixin):
             print(f"Error updating setting '{key}': {e}")
 
     # --- Existing Methods (assuming they are here) ---
-    def log_transaction(self, data):
+    def log_transaction(self, data, commit=True):
         """Insert a transactions row. Returns True if it was written (False
         if there is no connection, the row failed, or its payment_ref is
-        already logged)."""
+        already logged). With commit=False the caller owns the transaction:
+        nothing is committed, and a failure rolls the whole of it back."""
         if not self.conn:
             return False
         try:
@@ -145,25 +149,30 @@ class DatabaseManager(VoucherDBMixin, CashCollectionDBMixin):
                         VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                     """, (data.get('payment_ref'), position, item.file_name, len(item.pages),
                           item.copies, item.color_mode, item.cost, file_status))
-            self.conn.commit()
+            if commit:
+                self.conn.commit()
             return True
         except sqlite3.Error as e:
             self.conn.rollback()
             print(f"Error logging transaction: {e}")
             return False
 
-    def set_transaction_file_status(self, payment_ref, position, status):
+    def set_transaction_file_status(self, payment_ref, position, status, commit=True):
         """Set one file's status (pending | printed | failed | not_printed).
-        Returns True if a row changed."""
+        Returns True if a row changed. With commit=False the caller owns the
+        transaction and errors raise."""
         if not self.conn or not payment_ref:
             return False
         try:
             cursor = self.conn.cursor()
             cursor.execute("UPDATE transaction_files SET status = ? WHERE payment_ref = ? AND position = ?",
                            (status, payment_ref, position))
-            self.conn.commit()
+            if commit:
+                self.conn.commit()
             return cursor.rowcount > 0
         except sqlite3.Error as e:
+            if not commit:
+                raise
             print(f"Error updating file {position} of {payment_ref}: {e}")
             return False
 
@@ -194,10 +203,11 @@ class DatabaseManager(VoucherDBMixin, CashCollectionDBMixin):
             return None
 
     def update_transaction_outcome(self, payment_ref, status, from_status=None,
-                                   voucher_issued=None, error_message=None):
+                                   voucher_issued=None, error_message=None, commit=True):
         """Record a settled transaction's print outcome, found by payment_ref.
         With `from_status`, only a row still in that status changes, so an
-        outcome is applied at most once. Returns True if a row changed."""
+        outcome is applied at most once. Returns True if a row changed. With
+        commit=False the caller owns the transaction and errors raise."""
         if not self.conn or not payment_ref:
             return False
         try:
@@ -215,20 +225,41 @@ class DatabaseManager(VoucherDBMixin, CashCollectionDBMixin):
                 params.append(from_status)
             cursor = self.conn.cursor()
             cursor.execute(query, params)
-            self.conn.commit()
+            if commit:
+                self.conn.commit()
             return cursor.rowcount > 0
         except sqlite3.Error as e:
+            if not commit:
+                raise
             print(f"Error updating transaction {payment_ref}: {e}")
             return False
 
-    def adjust_cash_inventory(self, denomination, delta, type):
-        """Add `delta` (may be negative) to a stock count, never below 0."""
-        current = 0
-        for item in self.get_cash_inventory():
-            if item.get('denomination') == denomination and item.get('type') == type:
-                current = item.get('count', 0)
-                break
-        self.update_cash_inventory(denomination=denomination, count=max(0, current + delta), type=type)
+    def adjust_cash_inventory(self, denomination, delta, type, commit=True):
+        """Add `delta` (may be negative) to a stock count, never below 0. With
+        commit=False the caller owns the transaction and errors raise."""
+        if not self.conn:
+            if commit:
+                return
+            raise sqlite3.OperationalError("No database connection")
+        try:
+            cursor = self.conn.cursor()
+            cursor.execute("SELECT count FROM cash_inventory WHERE denomination = ? AND type = ?",
+                           (denomination, type))
+            row = cursor.fetchone()
+            count = max(0, (row['count'] if row else 0) + delta)
+            if row:
+                cursor.execute("UPDATE cash_inventory SET count = ?, last_updated = ? "
+                               "WHERE denomination = ? AND type = ?",
+                               (count, datetime.now(), denomination, type))
+            else:
+                cursor.execute("INSERT INTO cash_inventory (denomination, count, type, last_updated) "
+                               "VALUES (?, ?, ?, ?)", (denomination, count, type, datetime.now()))
+            if commit:
+                self.conn.commit()
+        except sqlite3.Error as e:
+            if not commit:
+                raise
+            print(f"Error adjusting cash inventory: {e}")
 
     def get_transaction_history(self):
         if not self.conn:
@@ -857,6 +888,8 @@ class DatabaseManager(VoucherDBMixin, CashCollectionDBMixin):
         Applied (issue #28), summed over the same completed transactions as
         get_accounting_summary; Voucher value issued also counts abandoned
         payments (cancelled_partial_payment), whose cash became a Voucher.
+        An `interrupted` payment (ADR 0011) counts like print_failed: its
+        coins came out and its Vouchers were Applied, but it isn't revenue.
         Optionally scoped to timestamp >= `since`. Rows logged before #23 have
         a NULL change_dispensed and count as 0."""
         empty = {"change_dispensed": 0, "voucher_issued": 0, "voucher_applied": 0}
@@ -865,13 +898,14 @@ class DatabaseManager(VoucherDBMixin, CashCollectionDBMixin):
         try:
             cursor = self.conn.cursor()
             query = (
-                "SELECT COALESCE(SUM(CASE WHEN status IN ('completed', 'partly_printed', 'print_failed', 'digital_failed') "
-                "THEN change_dispensed END), 0) AS change_dispensed, "
+                "SELECT COALESCE(SUM(CASE WHEN status IN ('completed', 'partly_printed', 'print_failed', "
+                "'digital_failed', 'interrupted') THEN change_dispensed END), 0) AS change_dispensed, "
                 "COALESCE(SUM(voucher_issued), 0) AS voucher_issued, "
-                "COALESCE(SUM(CASE WHEN status IN ('completed', 'partly_printed', 'print_failed', 'digital_failed') "
-                "THEN voucher_applied END), 0) AS voucher_applied "
+                "COALESCE(SUM(CASE WHEN status IN ('completed', 'partly_printed', 'print_failed', "
+                "'digital_failed', 'interrupted') THEN voucher_applied END), 0) AS voucher_applied "
                 "FROM transactions WHERE status IN "
-                "('completed', 'partly_printed', 'print_failed', 'digital_failed', 'cancelled_partial_payment')"
+                "('completed', 'partly_printed', 'print_failed', 'digital_failed', "
+                "'cancelled_partial_payment', 'interrupted')"
             )
             params = []
             if since is not None:

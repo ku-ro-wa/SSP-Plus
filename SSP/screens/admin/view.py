@@ -47,6 +47,7 @@ class AdminScreenView(QWidget):
     reset_coins_clicked = pyqtSignal()
     empty_coins_clicked = pyqtSignal()  # SIM_MODE only
     collect_cash_clicked = pyqtSignal()
+    owed_payments_clicked = pyqtSignal()
     update_cmyk_clicked = pyqtSignal(float, float, float, float)
     reset_cmyk_clicked = pyqtSignal()
     refresh_cmyk_clicked = pyqtSignal()
@@ -102,8 +103,14 @@ class AdminScreenView(QWidget):
         self.reports_button.setMinimumHeight(44)
         self.reports_button.clicked.connect(self.reports_clicked.emit)
 
-        body_layout.addLayout(nav_row(self.back_button, self.reports_button, self.settings_button,
-                                      self.view_logs_button))
+        # Only shown while an Interrupted Payment is owed (ADR 0011)
+        self.owed_button = PrimaryButton("Owed payments")
+        self.owed_button.setMinimumHeight(44)
+        self.owed_button.clicked.connect(self.owed_payments_clicked.emit)
+        self.owed_button.setVisible(False)
+
+        body_layout.addLayout(nav_row(self.back_button, self.owed_button, self.reports_button,
+                                      self.settings_button, self.view_logs_button))
 
     def _section_label(self, text):
         label = QLabel(text)
@@ -379,6 +386,37 @@ class AdminScreenView(QWidget):
             self.update_cmyk_clicked.emit(cyan, magenta, yellow, black)
         except ValueError:
             self.show_message_box("Invalid Input", "Please enter valid decimal numbers for CMYK levels")
+
+    def update_owed_payments(self, count, total):
+        self.owed_button.setText(f"Owed payments ({count}, ₱{total})" if count else "Owed payments")
+        self.owed_button.setVisible(bool(count))
+
+    def ask_settle_owed(self, row, vouchers_enabled=True):
+        """One Interrupted Payment: 'voucher', 'cash', or None to leave it owed."""
+        when = row['interrupted_at']
+        during = "printing" if row['stage'] == 'printing' else "a payment"
+        text = (
+            f"The kiosk lost power during {during} at {str(when)[:16]}.\n\n"
+            f"Owed to the customer: ₱{row['amount_owed']}\n"
+            f"Cash put in: ₱{row['cash_received']:g}   Vouchers applied: ₱{row['voucher_applied']:g}   "
+            f"Change given: ₱{row['change_dispensed']:g}\n"
+            f"Ref {row['payment_ref'][:8]}\n\n"
+            "Only settle it for the customer who paid: check what they say they paid, and when."
+        )
+        box = QMessageBox(self)
+        box.setIcon(QMessageBox.Question)
+        box.setWindowTitle("Owed payment")
+        box.setText(text)
+        voucher_button = box.addButton("Issue voucher", QMessageBox.AcceptRole) if vouchers_enabled else None
+        cash_button = box.addButton("Refunded in cash", QMessageBox.AcceptRole)
+        box.addButton("Not now", QMessageBox.RejectRole)
+        box.exec_()
+        clicked = box.clickedButton()
+        if voucher_button is not None and clicked is voucher_button:
+            return 'voucher'
+        if clicked is cash_button:
+            return 'cash'
+        return None
 
     def confirm_collect_cash(self, items, total) -> bool:
         """The collection confirmation: every denomination with its count, the

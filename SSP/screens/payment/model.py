@@ -24,6 +24,7 @@ from managers.adapters.scan_adapter import ScanAdapter
 from managers.session_manager import SessionManager
 from managers.print_items import summary_columns, total_sheets
 from managers.print_refund import record_digital_refund, record_print_success
+from managers.payment_journal import PaymentJournal, delete_entry
 from config import get_config
 
 
@@ -102,6 +103,7 @@ class CarriedCredit:
     cash: Dict[int, int]  # denomination -> count, for cash inventory
     payment_data: dict    # the job it was put in for, for the cancelled transaction row
     total_cost: float
+    journal_id: Optional[str] = None  # its payment journal row (ADR 0011)
 
 
 # Screens a customer can be on while their Carried Credit is kept. Navigating
@@ -317,6 +319,16 @@ class PaymentModel(QObject):
         self._cash_committed = False  # True once complete_payment has taken the cash
         self.digital_session = None   # paid-for digital copy's session, shown on scan_result
         self.digital_refund = None    # ('issued', Voucher) / ('failed', fee) if it couldn't be made
+        # The payment in progress, on disk so a power cut can't lose it (ADR 0011)
+        self.journal = PaymentJournal(self.db_manager.db_path)
+        self.journal_id = None
+
+    def _journal_payment(self, payment_ref=None):
+        """Write what's been put in so far to the payment journal."""
+        if self.journal_id is None:
+            self.journal_id = uuid.uuid4().hex
+        self.journal.record(self.journal_id, self.cash_received, self.total_cost,
+                            self.payment_data, payment_ref=payment_ref)
 
     def is_print_job(self):
         """False for a digital-only scan: just the fee, nothing to print."""
@@ -513,6 +525,7 @@ class PaymentModel(QObject):
 
         self.amount_received += coin_value
         self.cash_received[coin_value] = self.cash_received.get(coin_value, 0) + 1
+        self._journal_payment()
         self.amount_received_updated.emit(self.amount_received)
         self._update_payment_status()
         self.payment_status_updated.emit(f"P{coin_value} coin received")
@@ -524,6 +537,7 @@ class PaymentModel(QObject):
 
         self.amount_received += bill_value
         self.cash_received[bill_value] = self.cash_received.get(bill_value, 0) + 1
+        self._journal_payment()
         self.amount_received_updated.emit(self.amount_received)
         self._update_payment_status()
         self.payment_status_updated.emit(f"P{bill_value} bill received")
@@ -657,24 +671,31 @@ class PaymentModel(QObject):
         if ref and ref == getattr(self, '_settled_ref', None):
             return
         td['status'] = 'paid'
+        # The row and the inventory change are saved together: power-loss
+        # recovery reads a `paid` row as "cash and change already counted" (ADR 0011).
+        conn = self.db_manager.conn
         try:
-            if not self.db_manager.log_transaction(td):
+            if not self.db_manager.log_transaction(td, commit=False):
                 print(f"ERROR: Transaction {ref} was not logged; skipping inventory update")
+                conn.rollback()
                 return
+            for denom, count in (self.cash_received or {}).items():
+                if count > 0:
+                    self.db_manager.adjust_cash_inventory(denom, count, 'bill' if denom >= 20 else 'coin',
+                                                          commit=False)
+            for denom, count in (self.change_dispensed or {}).items():
+                if count > 0:
+                    self.db_manager.adjust_cash_inventory(denom, -count, 'bill' if denom >= 20 else 'coin',
+                                                          commit=False)
+            conn.commit()
             self._settled_ref = ref
             print(f"Transaction settled: {td['file_name']}")
         except Exception as e:
-            print(f"ERROR: Error logging transaction: {e}")
-            return
-        try:
-            for denom, count in (self.cash_received or {}).items():
-                if count > 0:
-                    self.db_manager.adjust_cash_inventory(denom, count, 'bill' if denom >= 20 else 'coin')
-            for denom, count in (self.change_dispensed or {}).items():
-                if count > 0:
-                    self.db_manager.adjust_cash_inventory(denom, -count, 'bill' if denom >= 20 else 'coin')
-        except Exception as e:
-            print(f"ERROR: Error updating cash inventory: {e}")
+            print(f"ERROR: Error settling transaction: {e}")
+            try:
+                conn.rollback()
+            except Exception:
+                pass
 
     # Print job signals are now handled by the thank you screen
     # No need to connect them here since the thank you screen will manage the entire print lifecycle
@@ -785,6 +806,7 @@ class PaymentModel(QObject):
         self.change_owed = 0
         self.change_dispensed = {}
         self._cash_committed = False
+        self.journal_id = None
         self._clear_vouchers()
 
         self.amount_received_updated.emit(0)
@@ -803,10 +825,12 @@ class PaymentModel(QObject):
             return
         self.carried_credit = CarriedCredit(
             amount=int(self.amount_received), cash=dict(self.cash_received),
-            payment_data=self.payment_data, total_cost=self.total_cost)
+            payment_data=self.payment_data, total_cost=self.total_cost,
+            journal_id=self.journal_id)
         print(f"Payment left unfinished: P{self.amount_received} kept as carried credit")
         self.amount_received = 0
         self.cash_received = {}
+        self.journal_id = None
 
     def _restore_carried_credit(self):
         """Count the customer's Carried Credit toward this payment. Completes it
@@ -816,6 +840,7 @@ class PaymentModel(QObject):
             return
         self.amount_received = credit.amount
         self.cash_received = dict(credit.cash)
+        self.journal_id = credit.journal_id
         print(f"Carried credit restored: P{credit.amount}")
         self.amount_received_updated.emit(self.amount_received)
         self.payment_status_updated.emit(f"P{credit.amount} you already put in is counted")
@@ -867,6 +892,10 @@ class PaymentModel(QObject):
         print("=== PAYMENT MODEL ON_LEAVE START ===")
         print("Payment screen leaving")
         self._carry_unspent_cash()
+        if self.journal_id and not self._cash_committed and self.amount_received <= 0:
+            # Journaled at a commit that failed (a Voucher-only payment): nothing went in.
+            self.journal.delete(self.journal_id)
+            self.journal_id = None
 
         # Stop coin timeout timer
         if hasattr(self, 'coin_timeout_timer') and self.coin_timeout_timer is not None:
@@ -940,31 +969,27 @@ class PaymentModel(QObject):
                 'voucher_issued': voucher_value,
                 'payment_ref': payment_ref,
             }
+            # The row, the cash added to inventory and the payment journal row's
+            # deletion are saved together, so a power cut can't count it twice (ADR 0011).
+            conn = self.db_manager.conn
             try:
-                self.db_manager.log_transaction(transaction_data)
+                if not self.db_manager.log_transaction(transaction_data, commit=False):
+                    raise RuntimeError("the cancelled transaction was not logged")
+                for denomination, count in (credit.cash or {}).items():
+                    if count:
+                        self.db_manager.adjust_cash_inventory(
+                            int(denomination), int(count), 'bill' if denomination >= 20 else 'coin', commit=False)
+                delete_entry(conn, journal_id=credit.journal_id)
+                conn.commit()
             except Exception as log_err:
                 print(f"WARNING: Failed to log cancelled transaction: {log_err}")
-
-            # Safely increment cash inventory with received money (do not overwrite totals)
-            try:
-                current_inventory = {}
-                for item in (self.db_manager.get_cash_inventory() or []):
-                    if item.get('type') == 'coin' or item.get('type') == 'bill':
-                        current_inventory[(item.get('type'), int(item.get('denomination')))] = int(item.get('count') or 0)
-
-                for denomination, count in (credit.cash or {}).items():
-                    if not count:
-                        continue
-                    is_bill = denomination >= 20
-                    key = ('bill' if is_bill else 'coin', int(denomination))
-                    new_count = current_inventory.get(key, 0) + int(count)
-                    self.db_manager.update_cash_inventory(
-                        denomination=int(denomination),
-                        count=new_count,
-                        type='bill' if is_bill else 'coin'
-                    )
-            except Exception as inv_err:
-                print(f"WARNING: Failed to update cash inventory on cancel: {inv_err}")
+                try:
+                    conn.rollback()
+                except Exception:
+                    pass
+                if voucher_value:
+                    # The customer has a Voucher for this cash, so recovery mustn't owe it again.
+                    self.journal.delete(credit.journal_id)
 
             print(f"Logged cancelled transaction: {credit.amount} received, {credit.total_cost} required, "
                   f"voucher P{voucher_value}")
@@ -1001,6 +1026,10 @@ class PaymentModel(QObject):
             if self.is_print_job() and not main_app.admin_screen.check_paper_availability(total_pages):
                 return False, (f"Not enough paper to complete print job.\n"
                                f"Required: {total_pages} sheets. Please contact administrator to refill paper.")
+
+            # On disk with its payment_ref before anything is taken off a Voucher:
+            # power-loss recovery finds the Voucher value Applied by that ref.
+            self._journal_payment(payment_ref=self.payment_ref)
 
             # Take the Applied Vouchers' value now, all or nothing, before any
             # change comes out.
@@ -1054,7 +1083,8 @@ class PaymentModel(QObject):
                     amount=change_amount,
                     admin_screen=main_app.admin_screen,
                     db_threader=main_app.db_threader,
-                    coin_limits=self.payment_algorithm.get_coin_inventory()
+                    coin_limits=self.payment_algorithm.get_coin_inventory(),
+                    on_coin=lambda denomination, jid=self.journal_id: self.journal.coin_out(jid, denomination),
                 )
                 self.dispense_thread.status_update.connect(self.payment_status_updated.emit)
                 self.dispense_thread.dispensing_finished.connect(self._on_dispensing_finished)

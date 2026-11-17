@@ -6,6 +6,7 @@
 
 from datetime import datetime
 
+from managers.payment_recovery import owed_payments
 from managers.kiosk_status import (
     SETTING_LAST_SEEN, SETTING_PRINTER_AT, SETTING_PRINTER_LEVEL, SETTING_PRINTER_STATUS, SETTING_QR_STATUS,
 )
@@ -97,4 +98,9 @@ def build_overview(db, now=None):
         "ink_crit": INK_CRIT,
         "errors": errors,
         "error_total": error_total,
+        "owed": [
+            {key: r[key] for key in ("id", "payment_ref", "interrupted_at", "stage", "cash_received",
+                                     "voucher_applied", "change_dispensed", "amount_owed")}
+            for r in owed_payments(db)
+        ],
     }

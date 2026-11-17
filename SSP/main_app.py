@@ -15,6 +15,7 @@ import sys
 import os
 import signal
 import threading
+import time
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
 from PyQt5 import QtCore
@@ -58,6 +59,7 @@ from managers.session_vouchers import SessionVouchers
 from database.db_manager import DatabaseManager
 from managers.sms_manager import cleanup_sms
 from managers.print_refund import record_print_success, refund_failed_print, refund_partly_printed
+from managers.payment_recovery import mark_clean_exit, startup_recovery
 from screens.voucher.model import VoucherModel
 from managers.persistent_gpio import cleanup_persistent_gpio
 from managers.gpio_check import gpio_problem
@@ -76,6 +78,12 @@ from ui.theme import apply_theme, render_summary, COLORS
 # How often past-expiry intake Sessions are swept (issue #108). The pickup window
 # itself is SessionManager's DEFAULT_EXPIRY_MINUTES (12 hours), not this.
 SESSION_CLEANUP_INTERVAL_MS = 5 * 60 * 1000
+
+# After a run that didn't exit cleanly (power cut, crash), idle shows a neutral
+# "contact the attendant" notice for this long (ADR 0011).
+RESTART_NOTICE_SECONDS = 15 * 60
+# Monotonic time until which the notice shows; set by main() before the window opens.
+_restart_notice_until = 0.0
 
 
 class _QrReadBridge(QObject):
@@ -1053,9 +1061,19 @@ class PrintingSystemApp(QMainWindow):
             cleanup_persistent_gpio()
 
             print("✅ Application cleanup completed")
+            # Last: a cleanup that didn't get this far counts as an unclean exit.
+            db = DatabaseManager()
+            try:
+                mark_clean_exit(db)
+            finally:
+                db.close()
 
         except Exception as e:
             print(f"❌ Error during cleanup: {e}")
+
+    def restart_notice_active(self):
+        """True for a while after a start that followed a power cut or crash."""
+        return time.monotonic() < _restart_notice_until
 
     def _stop_hoppers(self):
         """Stop any change payout and switch both hopper motors off."""
@@ -1091,6 +1109,7 @@ def main():
     Initializes the database, creates the Qt application, and starts the main event loop.
     Shows the window in fullscreen mode for kiosk deployment.
     """
+    global _restart_notice_until
     log_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'logs')
     # All output goes to SSP/logs/app.log too, so the run is kept on the kiosk and
     # a terminal that goes away (Ctrl+C killing tee, SSH dropping) can't crash the app.
@@ -1122,6 +1141,17 @@ def main():
         print("\n🔄 Initializing database...")
         init_db()
         print("✅ Database initialization successful\n")
+
+        # A payment a power cut or crash interrupted becomes an Interrupted Payment
+        # for an operator to settle (ADR 0011). Motors first: a crashed run can
+        # leave one running, and nothing would count its coins.
+        stop_all_hopper_motors()
+        recovery_db = DatabaseManager()
+        try:
+            if startup_recovery(recovery_db, sim_mode=get_config().sim_mode):
+                _restart_notice_until = time.monotonic() + RESTART_NOTICE_SECONDS
+        finally:
+            recovery_db.close()
 
         pin_render_environment()
 
