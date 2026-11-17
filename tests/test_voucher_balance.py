@@ -22,9 +22,8 @@ import managers.voucher_manager as vm  # noqa: E402
 import screens.voucher_balance.model as balance_module  # noqa: E402
 from database.db_manager import DatabaseManager  # noqa: E402
 from database.models import init_db  # noqa: E402
-from managers.session_vouchers import SessionVouchers  # noqa: E402
 from managers.timeout_manager import TimeoutManager  # noqa: E402
-from managers.voucher_manager import MSG_FULLY_USED, MSG_UNKNOWN, VoucherManager, normalize_code  # noqa: E402
+from managers.voucher_manager import MSG_FULLY_USED, MSG_UNKNOWN, VoucherManager  # noqa: E402
 from screens.homepage.controller import HomepageController  # noqa: E402
 from screens.voucher_balance.controller import VoucherBalanceController  # noqa: E402
 from screens.voucher_balance.model import MSG_EMPTY, PESO  # noqa: E402
@@ -43,7 +42,7 @@ class Clock:
 
 class FakeMainApp:
     """Just enough of PrintingSystemApp: a real stack, show_screen()'s lifecycle (which
-    closes the popup and clears the remembered Vouchers at idle), and the popup itself."""
+    closes the popup), and the popup itself."""
 
     def __init__(self):
         self.window = QWidget()
@@ -53,7 +52,6 @@ class FakeMainApp:
         self.timeclock = SimpleNamespace(now=1000.0)
         self.timeouts = TimeoutManager(clock=lambda: self.timeclock.now)
         self.timeouts.expired.connect(lambda name, action: action() if action else None)
-        self.session_vouchers = SessionVouchers()
         self.homepage_screen = HomepageController(self)
         self._by_name = {'homepage': self.homepage_screen}
         for widget in self._by_name.values():
@@ -69,8 +67,6 @@ class FakeMainApp:
         if self.screens and current is not None:
             current.on_leave()
         self.screens.append(name)
-        if name == 'idle':
-            self.session_vouchers.clear()
         widget = self._by_name.get(name)
         if widget is None:
             self.timeouts.enter(name, None)
@@ -226,61 +222,19 @@ class TestPopup:
         assert "QR" in READER_HINT
 
 
-class TestRememberedVouchers:
-    """A Voucher that checks out is kept for the session so payment can offer it."""
+class TestNothingIsRemembered:
+    """A balance check keeps no code, so the next customer can't use it at payment."""
 
-    def test_a_found_voucher_is_remembered(self, kiosk, issue):
+    def test_the_popup_keeps_nothing_for_the_session(self, kiosk, issue):
+        v = issue(7)
+        check(open_balance_check(kiosk), v.display_code)
+        assert not hasattr(kiosk, 'session_vouchers')
+
+    def test_the_popup_no_longer_says_it_saved_the_voucher(self, kiosk, issue):
         v = issue(7)
         screen = open_balance_check(kiosk)
         check(screen, v.display_code)
-        [remembered] = kiosk.session_vouchers.items()
-        assert remembered.code == normalize_code(v.code)
-        assert remembered.remaining == 7
-        assert remembered.expires_at.year == 2026
-
-    def test_the_popup_says_it_was_saved(self, kiosk, issue):
-        v = issue(7)
-        screen = open_balance_check(kiosk)
-        check(screen, v.display_code)
-        assert "Saved for this session" in screen.view.saved_note.text()
-
-    def test_the_qr_form_is_remembered_too(self, kiosk, issue):
-        v = issue(7)
-        open_balance_check(kiosk).check_voucher_code(f"V1:{v.code}")
-        assert [r.code for r in kiosk.session_vouchers.items()] == [v.code]
-
-    def test_failed_checks_are_not_remembered(self, kiosk, issue, db, clock):
-        used = issue(4)
-        VoucherManager(db, now_fn=clock).apply([used.code], 4)
-        screen = open_balance_check(kiosk)
-        check(screen, used.display_code)
-        check(screen, "ZZZZ-ZZZZ")
-        check(screen, "  ")
-        assert kiosk.session_vouchers.items() == []
-
-    def test_several_are_kept_in_the_order_checked(self, kiosk, issue):
-        a, b = issue(5), issue(9)
-        screen = open_balance_check(kiosk)
-        check(screen, a.display_code)
-        check(screen, b.display_code)
-        assert [r.remaining for r in kiosk.session_vouchers.items()] == [5, 9]
-
-    def test_checking_again_refreshes_the_balance(self, kiosk, issue, db, clock):
-        v = issue(10)
-        screen = open_balance_check(kiosk)
-        check(screen, v.display_code)
-        VoucherManager(db, now_fn=clock).apply([v.code], 4)
-        check(screen, v.display_code)
-        assert [r.remaining for r in kiosk.session_vouchers.items()] == [6]
-
-    def test_they_survive_closing_the_popup_but_not_going_back_to_idle(self, kiosk, issue):
-        v = issue(7)
-        screen = open_balance_check(kiosk)
-        check(screen, v.display_code)
-        screen.view.close_button.click()
-        assert len(kiosk.session_vouchers) == 1
-        kiosk.show_screen('idle')
-        assert len(kiosk.session_vouchers) == 0
+        assert not hasattr(screen.view, 'saved_note')
 
     def test_they_are_never_applied_by_checking(self, kiosk, issue, db_path):
         v = issue(7)

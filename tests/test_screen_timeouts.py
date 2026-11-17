@@ -15,7 +15,6 @@ from PyQt5.QtTest import QTest  # noqa: E402
 from PyQt5.QtWidgets import QApplication, QLabel, QPushButton, QWidget  # noqa: E402
 
 from main_app import PrintingSystemApp  # noqa: E402
-from managers.session_vouchers import SessionVouchers  # noqa: E402
 from managers.timeout_manager import TimeoutManager, TimeoutPolicy  # noqa: E402
 from screens.email import EmailController  # noqa: E402
 from screens.file_browser import FileBrowserController  # noqa: E402
@@ -172,7 +171,6 @@ def app_stand_in(current_name="homepage", widget=None):
     return SimpleNamespace(
         timeouts=MagicMock(), global_timer_label=label, _place_timer_label=lambda: None,
         _current_screen_name=lambda: current_name,
-        session_vouchers=SessionVouchers(),
         stacked_widget=SimpleNamespace(currentWidget=lambda: widget),
     )
 
@@ -229,14 +227,6 @@ class TestMainAppWiring:
         a = app_stand_in()
         PrintingSystemApp.note_activity(a)
         a.timeouts.note_activity.assert_called_once()
-
-    def test_end_session_forgets_the_vouchers_the_customer_checked(self, monkeypatch):
-        import managers.usb_file_manager as ufm
-        monkeypatch.setattr(ufm, 'USBFileManager', lambda: MagicMock())
-        a = app_stand_in()
-        a.session_vouchers.add("ABCD1234", 7)
-        PrintingSystemApp.end_session(a)
-        assert len(a.session_vouchers) == 0
 
     def test_end_session_clears_temp_files_and_never_raises(self, monkeypatch):
         import managers.usb_file_manager as ufm

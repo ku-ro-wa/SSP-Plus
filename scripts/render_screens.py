@@ -91,6 +91,19 @@ def fill_live_content(name, screen):
         names = ["Thesis chapter 3 - final draft (revised) v12.pdf"] + [f"Form {n}.pdf" for n in range(2, 11)]
         screen.set_items([PrintItem({'path': pdf, 'filename': n}, [1, 2]) for n in names[:MAX_FILES_PER_TRANSACTION]],
                          source="usb")
+    if name == "payment":
+        # "Use a voucher" open: entry, Apply and the code keypad, with a message under it
+        from types import SimpleNamespace
+        view = screen.view
+        view.update_payment_data({
+            'total_cost': 45, 'document_name': "Thesis chapter 3 - final draft (revised) v12.pdf", 'copies': 2,
+            'color_mode': "Mixed", 'black_pages': 6, 'color_pages': 4, 'print_job': True, 'digital_fee': 0})
+        view.update_inline_suggestion("Max payment we can receive: P50.00 (exact). "
+                                      "Any change the kiosk can't give back will be issued as a Voucher.")
+        view.update_payment_status("Payment mode enabled - Insert coins or bills")
+        view.update_vouchers([SimpleNamespace(label="Voucher \u2022\u2022\u2022\u2022-VTPH", amount=5, remaining=0)])
+        view._show_voucher_input()
+        view.show_voucher_message("Voucher not found. Check the code and try again.", True)
     if name == "settings":
         screen.on_enter()
         screen.view.show_errors({"max_change_limit": "Maximum change must be between 0 and 1000 ₱."})
@@ -157,7 +170,7 @@ def build_popup_preview(name):
     popup.open()
     model = popup.model
     model.state, model.remaining, model.expires_at = model.FOUND, 50, datetime(2027, 1, 31)
-    popup.view.render(model, "Saved for this session: you can use it when you pay.")
+    popup.view.render(model)
     return host
 
 
