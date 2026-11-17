@@ -65,6 +65,8 @@ Two persistent `QThread` managers are started in `PrintingSystemApp.__init__` an
 | SMS alerts | `managers/sms_manager.py` | `pyserial` (AT commands to GSM modem) |
 | QR reader (kiosk 2D reader) | `managers/qr_reader.py` | `pyserial` (USB serial, CR-terminated reads) |
 
+SMS alerts go to `PHONE_NUMBER` (blank or the `09XXXXXXXXX` placeholder = none sent) through the GSM modem on `/dev/serial0`. Every alert goes through `sms_manager.send_operator_alert()`: a background thread, one send at a time, opening and closing the port per message, so no caller ever waits on the modem. A send counts only once the network answers `+CMGS` (waited for up to 60 s; Globe has taken ~45 s); otherwise one `error_log` row (`SMS`) with the modem's reason, e.g. `+CMS ERROR: ...` (a prepaid SIM with no load is refused this way). After putting a SIM in, restart the modem (power or `AT+CFUN=1,1`): it only reads the SIM at startup. One SMS per print failure, sent by `main_app.on_print_failed` (the printer thread only sends the out-of-paper one, which `on_print_failed` then skips). Test the modem on its own from the repo root (where `.env` is), app stopped: `PYTHONPATH=SSP python -c "from managers.sms_manager import get_sms_manager as g; print(g().send_sms_and_close('test'))"` (prefix `PHONE_NUMBER=... SIM_MODE=false` to override `.env`).
+
 The QR reader is on when `QR_READER_PORT` is set in `.env` (blank = off, typed codes only, and the screens' `ReaderHint` is hidden). Reads are
 classified and decided in `managers/qr_reader.py` (`classify_payload`, `decide_qr_read`), then
 `main_app._on_qr_read` acts on them via `open_session_files()` — the same path a typed OTP takes.

@@ -201,9 +201,8 @@ class ThankYouModel(QObject):
             f"Error: {clean_message}\nPlease contact an administrator."
         )
 
-        # SMS notification disabled for print job failures (not critical enough)
-        # Only log to database for tracking
-        print(f"⚠️ Print job failure (SMS disabled): {clean_message}")
+        # No SMS here: main_app.on_print_failed already sent one for this failure
+        print(f"⚠️ Print job failure: {clean_message}")
 
         # Log error to database
         try:

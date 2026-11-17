@@ -5,7 +5,7 @@ a refill made there (e.g. POST /paper-reset) used to be silently overwritten
 by the kiosk's next print, because decrement_paper_count subtracted from the
 stale self.paper_count it loaded on screen entry.
 """
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import pytest
 
@@ -25,9 +25,10 @@ def model(db_path):
     from screens.admin import model as admin_model
 
     with patch.object(admin_model, "DatabaseManager", lambda: DatabaseManager(db_path=db_path)), \
-            patch.object(admin_model, "get_sms_manager", lambda: MagicMock()):
+            patch.object(admin_model, "send_operator_alert") as alert:
         m = admin_model.AdminModel()
-    return m
+        m.sent_alerts = alert
+        yield m
 
 
 def _dashboard_sets_paper_count(db_path, count):
@@ -84,25 +85,23 @@ class TestLowPaperAlertThreshold:
 
     def test_alert_fires_at_the_configured_count(self, model, db_path, monkeypatch):
         monkeypatch.setenv('LOW_PAPER_ALERT_SHEETS', '20')
-        model.sms_manager.send_custom_alert.return_value = True
         _dashboard_sets_paper_count(db_path, 25)
         model.load_paper_count()
 
         assert model.decrement_paper_count(4) is True   # 21: still above 20
-        model.sms_manager.send_custom_alert.assert_not_called()
+        model.sent_alerts.assert_not_called()
 
         assert model.decrement_paper_count(1) is True   # 20: at the threshold
-        model.sms_manager.send_custom_alert.assert_called_once()
+        model.sent_alerts.assert_called_once()
 
     def test_alert_is_sent_once_until_paper_is_refilled(self, model, db_path, monkeypatch):
         monkeypatch.setenv('LOW_PAPER_ALERT_SHEETS', '10')
-        model.sms_manager.send_custom_alert.return_value = True
         _dashboard_sets_paper_count(db_path, 12)
         model.load_paper_count()
 
         model.decrement_paper_count(2)
         model.decrement_paper_count(1)
-        assert model.sms_manager.send_custom_alert.call_count == 1
+        assert model.sent_alerts.call_count == 1
 
 
 class TestMarkPaperEmpty:
@@ -117,17 +116,15 @@ class TestMarkPaperEmpty:
 
     def test_sends_no_low_paper_sms(self, model, db_path):
         """The printer thread already sent the out-of-paper SMS."""
-        model.sms_manager.send_custom_alert.return_value = True
         _dashboard_sets_paper_count(db_path, 40)
         model.load_paper_count()
 
         model.mark_paper_empty()
         model.check_low_paper_alert()
 
-        model.sms_manager.send_custom_alert.assert_not_called()
+        model.sent_alerts.assert_not_called()
 
     def test_refill_rearms_the_low_paper_alert(self, model, db_path):
-        model.sms_manager.send_custom_alert.return_value = True
         model.mark_paper_empty()
 
         model.reset_paper_count()
@@ -135,4 +132,4 @@ class TestMarkPaperEmpty:
         model.load_paper_count()
         model.check_low_paper_alert()
 
-        model.sms_manager.send_custom_alert.assert_called_once()
+        model.sent_alerts.assert_called_once()

@@ -3,8 +3,6 @@ import os
 import re
 import threading
 import time
-from PyQt5.QtCore import QObject, pyqtSignal
-
 from config import get_config
 
 try:
@@ -29,217 +27,121 @@ def configured_phone_number():
     return value if _PHONE_NUMBER_RE.fullmatch(value) else None
 
 
-class SMSManager(QObject):
+class SMSManager:
+    """Sends operator SMS through the GSM modem on the serial port.
+
+    Each message opens the port, sends, and closes it again (~22 s of modem
+    waits), so call it only through send_operator_alert(), which runs it off
+    the caller's thread.
     """
-    Manages SMS notifications for the printing system.
-    """
-    sms_sent = pyqtSignal(str)  # Signal emitted when SMS is sent successfully
-    sms_failed = pyqtSignal(str)  # Signal emitted when SMS fails
 
     def __init__(self, phone_number=None, serial_port="/dev/serial0", baudrate=9600):
-        super().__init__()
         self.phone_number = phone_number
         self.serial_port = serial_port
         self.baudrate = baudrate
-        self.ser = None
-        self.is_initialized = False
+        self.last_error = None
 
-    def initialize_modem(self):
-        """Initialize the GSM modem connection."""
-        sim_mode = os.getenv('SIM_MODE', 'false').lower() in ('true', '1', 'yes')
-        if sim_mode or not SERIAL_AVAILABLE:
-            print("[SIM] GSM modem initialization skipped (SIM_MODE or pyserial unavailable).")
-            return False
-        try:
-            print("Initializing GSM modem...")
-            self.ser = serial.Serial(self.serial_port, baudrate=self.baudrate, timeout=1)
-
-            # Give modem time to boot up (like your working code)
-            time.sleep(5)
-
-            # Basic AT check (like your working code)
-            self.ser.write(b'AT\r')
-            time.sleep(1)
-            response = self.ser.read(100).decode(errors="ignore").strip()
-            print("AT Response: " + response)
-
-            if "OK" in response:
-                print("GSM modem initialized successfully")
-                self.is_initialized = True
-                return True
-            else:
-                print("GSM modem initialization failed")
-                self.is_initialized = False
-                return False
-
-        except serial.SerialException as e:
-            print(f"Serial error during initialization: {e}")
-            self.is_initialized = False
-            return False
-        except Exception as e:
-            print(f"Error initializing GSM modem: {e}")
-            self.is_initialized = False
-            return False
-
-    def send_sms(self, message):
-        """
-        Sends an SMS message to the configured phone number.
-        """
-        if not self.phone_number:
-            print(f"SMS not sent, no PHONE_NUMBER set in .env: {message}")
-            self.sms_failed.emit("No PHONE_NUMBER set")
-            return False
-        sim_mode = os.getenv('SIM_MODE', 'false').lower() in ('true', '1', 'yes')
-        if sim_mode or not SERIAL_AVAILABLE:
-            print(f"[SIM] SMS to {self.phone_number}: {message}")
-            self.sms_sent.emit(f"[SIM] SMS to {self.phone_number}")
-            return True
-        if not self.is_initialized:
-            print("GSM modem not initialized. Attempting to initialize...")
-            if not self.initialize_modem():
-                error_msg = "Failed to initialize GSM modem"
-                print(error_msg)
-                self.sms_failed.emit(error_msg)
-                return False
-
-        print(f"Sending SMS: {message}")
-
-        try:
-            # Set SMS to text mode (like your working code)
-            self.ser.write(b'AT+CMGF=1\r')
-            time.sleep(1)
-            response = self.ser.read(100).decode(errors="ignore").strip()
-            print("CMGF Response: " + response)
-
-            # Set the recipient's phone number (like your working code)
-            cmd = f'AT+CMGS="{self.phone_number}"\r'
-            self.ser.write(cmd.encode())
-            time.sleep(1)
-            response = self.ser.read(100).decode(errors="ignore").strip()
-            print("CMGS Prompt: " + response)
-
-            # Send the message followed immediately by Ctrl+Z (like your working code)
-            self.ser.write(message.encode() + bytes([26]))
-            self.ser.flush()
-            print("Message sent, waiting for confirmation...")
-
-            # Wait for the final response (like your working code)
-            time.sleep(15)
-            response = self.ser.read(500).decode(errors="ignore").strip()
-            print("Final Response: " + response)
-
-            if "+CMGS:" in response and "OK" in response:
-                success_msg = f"SMS sent successfully to {self.phone_number}"
-                print("✅ Message sent successfully!")
-                self.sms_sent.emit(success_msg)
-                return True
-            else:
-                error_msg = f"Failed to send SMS. Response: {response}"
-                print("❌ Failed to send message.")
-                self.sms_failed.emit(error_msg)
-                return False
-
-        except serial.SerialException as e:
-            error_msg = f"Serial error: {e}"
-            print(error_msg)
-            self.sms_failed.emit(error_msg)
-            return False
-        except Exception as e:
-            error_msg = f"Error sending SMS: {e}"
-            print(error_msg)
-            self.sms_failed.emit(error_msg)
-            return False
-
-    def send_low_paper_alert(self):
-        """Send low paper alert SMS."""
-        message = "Low paper, please refill."
-        return self.send_sms(message)
-
-    def send_paper_jam_alert(self):
-        """Send paper jam alert SMS."""
-        message = "Printer jam"
-        return self.send_sms(message)
-
-    def send_printing_error_alert(self, error_message):
-        """Send printing error alert SMS."""
-        message = f"Printing error: {error_message}"
-        return self.send_sms(message)
-
-    def send_custom_alert(self, message):
-        """Send custom alert SMS."""
-        return self.send_sms(message)
-
-    def close(self):
-        """Close the serial connection."""
-        if self.ser and self.ser.is_open:
-            self.ser.close()
-            print("SMS serial port closed.")
-            self.is_initialized = False
+    # The network answers a send with +CMGS (sent) or +CMS ERROR; Globe has taken
+    # ~45 s to refuse one, so wait for the answer instead of a fixed time.
+    PROMPT_TIMEOUT = 5
+    SEND_TIMEOUT = 60
 
     def send_sms_and_close(self, message):
-        """
-        Sends an SMS message and closes the connection (like your working code).
-        This method opens a new connection, sends the SMS, and closes it.
-        """
+        """Opens the port, sends one SMS, closes the port. True only once the network
+        confirms it (+CMGS ... OK); otherwise False, with the reason in last_error."""
+        self.last_error = None
         if not self.phone_number:
             print(f"SMS not sent, no PHONE_NUMBER set in .env: {message}")
+            self.last_error = "No PHONE_NUMBER set"
             return False
         sim_mode = os.getenv('SIM_MODE', 'false').lower() in ('true', '1', 'yes')
         if sim_mode or not SERIAL_AVAILABLE:
             print(f"[SIM] SMS to {self.phone_number}: {message}")
             return True
+        ser = None
         try:
             print("Initializing modem...")
-            # Give modem time to boot up
-            time.sleep(5)
-
-            # Open serial connection
             ser = serial.Serial(self.serial_port, baudrate=self.baudrate, timeout=1)
+            ser.reset_input_buffer()
 
-            # Basic AT check
             ser.write(b'AT\r')
             time.sleep(1)
             print("AT Response: " + ser.read(100).decode(errors="ignore").strip())
 
-            # Set SMS to text mode
+            # No echo (so the message text can't be mistaken for the modem's reply),
+            # errors as words (e.g. "+CMS ERROR: ...") rather than numbers, text mode
+            for setup in (b'ATE0\r', b'AT+CMEE=2\r'):
+                ser.write(setup)
+                time.sleep(1)
+                ser.read(100)
             ser.write(b'AT+CMGF=1\r')
             time.sleep(1)
             print("CMGF Response: " + ser.read(100).decode(errors="ignore").strip())
 
-            # Set the recipient's phone number
-            cmd = f'AT+CMGS="{self.phone_number}"\r'
-            ser.write(cmd.encode())
-            time.sleep(1)
-            print("CMGS Prompt: " + ser.read(100).decode(errors="ignore").strip())
+            ser.write(f'AT+CMGS="{self.phone_number}"\r'.encode())
+            prompt = self._read_until(ser, ('>', 'ERROR'), self.PROMPT_TIMEOUT)
+            print("CMGS Prompt: " + prompt.strip())
+            if '>' not in prompt:
+                ser.write(bytes([27]))   # Esc: cancel the half-started message
+                self.last_error = f"Modem refused the number: {self._error_text(prompt)}"
+                print(f"❌ {self.last_error}")
+                return False
 
-            # Send the message followed immediately by Ctrl+Z (0x1A)
+            # The message, then Ctrl+Z (0x1A) to send it
             ser.write(message.encode() + bytes([26]))
             ser.flush()
-            print("Message sent, waiting for confirmation...")
+            print("Message sent, waiting for the network...")
 
-            # Wait for the final response
-            time.sleep(15)
-            response = ser.read(500).decode(errors="ignore").strip()
-            print("Final Response: " + response)
+            response = self._read_until(ser, ('OK', 'ERROR'), self.SEND_TIMEOUT, after='+CMGS:')
+            print("Final Response: " + response.strip())
 
             if "+CMGS:" in response and "OK" in response:
                 print("✅ Message sent successfully!")
                 return True
+            if "ERROR" in response:
+                self.last_error = f"Network refused it: {self._error_text(response)}"
             else:
-                print("❌ Failed to send message.")
-                return False
-
-        except serial.SerialException as e:
-            print(f"Serial error: {e}")
+                self.last_error = f"No answer from the network within {self.SEND_TIMEOUT} s"
+            print(f"❌ {self.last_error}")
             return False
+
         except Exception as e:
-            print(f"An error occurred: {e}")
+            self.last_error = f"Serial error: {e}"
+            print(self.last_error)
             return False
         finally:
-            # Close the serial port
-            if 'ser' in locals() and ser.is_open:
+            if ser is not None and ser.is_open:
                 ser.close()
                 print("Serial port closed.")
+
+    @staticmethod
+    def _read_until(ser, endings, timeout, after=None):
+        """Reads what the modem says until one of `endings` appears (only counting
+        text after `after`, when given, or any ERROR) or `timeout` seconds pass."""
+        text = ''
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            chunk = ser.read(ser.in_waiting or 1).decode(errors="ignore")
+            text += chunk
+            if 'ERROR' in text:
+                return text
+            if after:
+                if after not in text:
+                    continue
+                tail = text.split(after, 1)[1]
+            else:
+                tail = text
+            if any(e in tail for e in endings):
+                return text
+        return text
+
+    @staticmethod
+    def _error_text(response):
+        """The modem's error line, e.g. '+CMS ERROR: User busy', or the whole reply."""
+        for line in response.splitlines():
+            if 'ERROR' in line:
+                return line.strip()
+        return response.strip() or "no reply"
 
 
 # Global SMS manager instance
@@ -254,51 +156,66 @@ def get_sms_manager():
     return sms_manager
 
 
-def initialize_sms():
-    """Initialize the SMS system."""
-    manager = get_sms_manager()
-    return manager.initialize_modem()
-
-
 def send_low_paper_sms():
-    """Send low paper SMS alert."""
-    manager = get_sms_manager()
-    return manager.send_sms_and_close("Low paper, please refill.")
+    """Send low paper SMS alert (in the background)."""
+    send_operator_alert("Low paper, please refill.")
 
 
 def send_paper_jam_sms():
-    """Send paper jam SMS alert."""
-    manager = get_sms_manager()
-    return manager.send_sms_and_close("Printer jam")
+    """Send paper jam SMS alert (in the background)."""
+    send_operator_alert("Printer jam")
 
 
 def send_printing_error_sms(error_message):
-    """Send printing error SMS alert."""
-    manager = get_sms_manager()
-    return manager.send_sms_and_close(f"Printing error: {error_message}")
+    """Send printing error SMS alert (in the background)."""
+    send_operator_alert(f"Printing error: {error_message}")
 
 
 def send_no_paper_sms():
-    """Send no paper / media empty SMS alert."""
-    manager = get_sms_manager()
-    return manager.send_sms_and_close("Printer is out of paper. Please refill.")
+    """Send no paper / media empty SMS alert (in the background)."""
+    send_operator_alert("Printer is out of paper. Please refill.")
 
 
 _operator_alert_lock = threading.Lock()
 
 
+def _log_send_failure(message, reason=None):
+    """One error_log row for an SMS the modem didn't confirm. Never raises."""
+    try:
+        from database.db_manager import DatabaseManager
+        db = DatabaseManager()
+        try:
+            why = f" ({reason})" if reason else ""
+            db.log_error("SMS", f"Could not send SMS{why}: {message}", "sms_manager")
+        finally:
+            db.close()
+    except Exception as e:
+        print(f"Could not log the SMS failure: {e}")
+
+
 def send_operator_alert(message):
     """Send an operator SMS without blocking the caller (the modem round trip
-    takes ~20 s); alerts are sent one at a time so they don't share the port."""
+    takes ~20 s); alerts are sent one at a time so they don't share the port.
+    With no PHONE_NUMBER set, nothing is sent and no thread is started."""
+    manager = get_sms_manager()
+    if not manager.phone_number:
+        print(f"SMS not sent, no PHONE_NUMBER set in .env: {message}")
+        return
+
     def send():
         with _operator_alert_lock:
-            get_sms_manager().send_sms_and_close(message)
+            try:
+                sent = manager.send_sms_and_close(message)
+                reason = manager.last_error
+            except Exception as e:
+                print(f"SMS send raised: {e}")
+                sent, reason = False, str(e)
+        if not sent:
+            _log_send_failure(message, reason)
     threading.Thread(target=send, name="operator-sms", daemon=True).start()
 
 
 def cleanup_sms():
-    """Clean up SMS resources."""
+    """Forget the SMS manager (the port is only ever open during a send)."""
     global sms_manager
-    if sms_manager:
-        sms_manager.close()
-        sms_manager = None
+    sms_manager = None

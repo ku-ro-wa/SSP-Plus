@@ -35,7 +35,6 @@ def private_temp_dir(tmp_path, monkeypatch):
     monkeypatch.setattr(pt.tempfile, 'tempdir', str(folder))
     monkeypatch.setattr(pt.time, 'sleep', lambda s: None)
     monkeypatch.setattr(pt, 'send_no_paper_sms', lambda: None)
-    monkeypatch.setattr(pt, 'send_paper_jam_sms', lambda: None)
     monkeypatch.delenv('SIM_MODE', raising=False)
     return folder
 

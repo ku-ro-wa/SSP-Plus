@@ -133,7 +133,7 @@ class TestKioskAdmin:
         from screens.admin import model as admin_model
 
         with patch.object(admin_model, "DatabaseManager", lambda: DatabaseManager(db_path=db_path)), \
-                patch.object(admin_model, "get_sms_manager", lambda: MagicMock()):
+                patch.object(admin_model, "send_operator_alert", lambda message: None):
             return AdminController(MagicMock())
 
     def test_confirm_collects_and_zeroes(self, controller, db):

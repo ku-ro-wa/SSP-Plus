@@ -4,7 +4,7 @@ both hoppers' counts so a sim payment with change hits a Shortfall and shows
 the Voucher screen, and it is never built outside SIM_MODE.
 """
 import os
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import pytest
 
@@ -34,7 +34,7 @@ def model(db_path):
     from screens.admin import model as admin_model
 
     with patch.object(admin_model, "DatabaseManager", lambda: DatabaseManager(db_path=db_path)), \
-            patch.object(admin_model, "get_sms_manager", lambda: MagicMock()):
+            patch.object(admin_model, "send_operator_alert", lambda message: None):
         m = admin_model.AdminModel()
     return m
 
