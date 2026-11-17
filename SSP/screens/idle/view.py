@@ -9,6 +9,12 @@ from ui.theme import COLORS, FONT
 from ui.widgets import Header, LowChangeBanner, ReaderHint, SecondaryButton, StatusBanner
 
 
+# Shown for a while after a power cut or crash, the same whether or not anything
+# is owed: whoever is at the kiosk may not be the customer who paid (ADR 0011).
+RESTART_NOTICE = ("The kiosk restarted unexpectedly. If you were paying when it went off, "
+                  "please contact the attendant.")
+
+
 class IdleScreenView(QWidget):
     """The user interface for the Idle Screen. Contains no logic."""
     screen_touched = pyqtSignal(object)  # Emits mouse event
@@ -79,6 +85,9 @@ class IdleScreenView(QWidget):
 
     def show_status(self, message, is_error=True):
         self.status_banner.show_message(message, variant="error" if is_error else "success")
+
+    def show_restart_notice(self):
+        self.status_banner.show_message(RESTART_NOTICE, variant="warning")
 
     def set_change_low(self, low):
         self.low_change_banner.set_low(low)
