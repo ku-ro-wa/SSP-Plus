@@ -9,6 +9,7 @@ Each outcome applies at most once per payment_ref.
 from dataclasses import dataclass
 from typing import Optional
 
+from managers import payment_journal
 from managers.sms_manager import send_operator_alert
 from managers.voucher_manager import IssuedVoucher, VoucherManager
 from utils.error_logger import log_error
@@ -28,9 +29,25 @@ class RefundOutcome:
     amount: int = 0
 
 
+def _finished(db, payment_ref):
+    """The outcome is recorded, so the payment no longer needs recovering after a
+    power cut (ADR 0011). Checks the row rather than trusting the caller: a row
+    still `paid` keeps its journal entry."""
+    if not payment_ref:
+        return
+    try:
+        row = db.get_transaction_by_ref(payment_ref)
+        if row and row['status'] != PAID:
+            payment_journal.finish(db, payment_ref)
+    except Exception as e:
+        print(f"WARNING: could not clear the payment journal for {payment_ref}: {e}")
+
+
 def record_print_success(db, payment_ref):
     """paid -> completed. Returns True if the row moved."""
-    return db.update_transaction_outcome(payment_ref, COMPLETED, from_status=PAID)
+    moved = db.update_transaction_outcome(payment_ref, COMPLETED, from_status=PAID)
+    _finished(db, payment_ref)
+    return moved
 
 
 def record_digital_refund(db, payment_ref, refunded, digital_only, error_message=""):
@@ -41,10 +58,12 @@ def record_digital_refund(db, payment_ref, refunded, digital_only, error_message
     row = db.get_transaction_by_ref(payment_ref)
     if not row or row['status'] != PAID:
         return False
-    return db.update_transaction_outcome(
+    moved = db.update_transaction_outcome(
         payment_ref, DIGITAL_FAILED if digital_only else PAID, from_status=PAID,
         voucher_issued=(row['voucher_issued'] or 0) + refunded,
         error_message=error_message or None)
+    _finished(db, payment_ref)
+    return moved
 
 
 def refund_failed_print(db, payment_ref, error_message="", already_refunded=0, failed_position=None):
@@ -79,6 +98,7 @@ def refund_failed_print(db, payment_ref, error_message="", already_refunded=0, f
     outcome.applied = db.update_transaction_outcome(
         payment_ref, PRINT_FAILED, from_status=PAID,
         voucher_issued=issued, error_message=error_message or None)
+    _finished(db, payment_ref)
     return outcome
 
 
@@ -119,6 +139,7 @@ def refund_partly_printed(db, payment_ref, failed_position, error_message=""):
     outcome.applied = db.update_transaction_outcome(
         payment_ref, PARTLY_PRINTED, from_status=PAID,
         voucher_issued=issued, error_message=error_message or None)
+    _finished(db, payment_ref)
     return outcome
 
 

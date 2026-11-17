@@ -917,7 +917,8 @@ class TestDashboardReflectsVouchers:
         row = logged_row(db)
         assert (row['change_dispensed'], row['voucher_issued']) == (3, 7)
         assert dashboard()["vouchers"] == {
-            "change_dispensed": 3, "voucher_issued": 7, "voucher_applied": 0, "liability": 7}
+            "change_dispensed": 3, "voucher_issued": 7, "voucher_applied": 0, "liability": 7,
+            "interrupted_owed": 0}
 
         # A later payment Applies it; any cost left is paid in cash.
         main_app.screens.clear()
@@ -931,7 +932,7 @@ class TestDashboardReflectsVouchers:
         after = dashboard()
         assert after["vouchers"] == {
             "change_dispensed": 3, "voucher_issued": 7, "voucher_applied": applied,
-            "liability": 7 - applied}
+            "liability": 7 - applied, "interrupted_owed": 0}
         assert [a['amount'] for a in applications(db.db_path)] == [applied]
         usb = {r["source"]: r for r in after["sources"]}["usb"]
         assert (usb["revenue"], usb["transaction_count"]) == (2 * cost, 2)

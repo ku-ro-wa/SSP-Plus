@@ -27,10 +27,13 @@ def range_start(range_key, now=None):
 
 def voucher_figures(db, since):
     """Change / Voucher amounts for the window plus the outstanding Voucher
-    liability, which is as of now whatever the window (issue #28)."""
+    liability, which is as of now whatever the window (issue #28), and what is
+    owed on Interrupted Payments not settled yet (ADR 0011), also as of now."""
+    from managers.payment_recovery import owed_total
     return {
         **db.get_change_and_voucher_totals(since=since),
         "liability": db.get_voucher_liability(datetime.now()),
+        "interrupted_owed": owed_total(db),
     }
 
 

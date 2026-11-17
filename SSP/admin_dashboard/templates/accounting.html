@@ -98,6 +98,11 @@
                     <span class="note">Unexpired Vouchers, as of now</span></td>
                 <td class="numeric" id="voucher-liability">₱{{ "%.2f"|format(vouchers.liability) }}</td>
             </tr>
+            <tr>
+                <td class="label">Owed on interrupted payments<br>
+                    <span class="note">A power cut or crash mid-payment, not settled yet, as of now</span></td>
+                <td class="numeric" id="interrupted-owed">₱{{ "%.2f"|format(vouchers.interrupted_owed) }}</td>
+            </tr>
         </tbody>
     </table>
 
@@ -166,6 +171,7 @@
         document.getElementById("voucher-issued").textContent = peso(vouchers.voucher_issued);
         document.getElementById("voucher-applied").textContent = peso(vouchers.voucher_applied);
         document.getElementById("voucher-liability").textContent = peso(vouchers.liability);
+        document.getElementById("interrupted-owed").textContent = peso(vouchers.interrupted_owed);
     }
 
     function renderChart(sources) {

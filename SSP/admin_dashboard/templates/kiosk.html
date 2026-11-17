@@ -24,6 +24,21 @@
     </div>
 </section>
 
+{% if o.owed %}
+<section id="owed">
+    <h2>Owed on interrupted payments ({{ o.owed|length }})</h2>
+    <div class="muted">A power cut or crash cut these payments off. Issue the voucher on the kiosk's touchscreen (Kiosk Admin), with the customer there; the code is shown only once.</div>
+    <div class="scroll"><table>
+        <thead><tr><th>Interrupted</th><th>During</th><th class="numeric">Cash in</th><th class="numeric">Vouchers</th><th class="numeric">Change out</th><th class="numeric">Owed</th><th>Ref</th>{% if can_edit %}<th></th>{% endif %}</tr></thead>
+        <tbody>
+        {% for p in o.owed %}
+            <tr><td>{{ p.interrupted_at }}</td><td>{{ 'printing' if p.stage == 'printing' else 'payment' }}</td><td class="numeric">₱{{ "%g"|format(p.cash_received) }}</td><td class="numeric">₱{{ "%g"|format(p.voucher_applied) }}</td><td class="numeric">₱{{ "%g"|format(p.change_dispensed) }}</td><td class="numeric">₱{{ p.amount_owed }}</td><td>{{ p.payment_ref[:8] }}</td>{% if can_edit %}<td><button type="button" class="btn" data-owed-cash="{{ p.id }}">Refunded in cash</button></td>{% endif %}</tr>
+        {% endfor %}
+        </tbody>
+    </table></div>
+</section>
+{% endif %}
+
 <section id="paper">
     <h2>Paper</h2>
     <div class="card">
@@ -165,6 +180,16 @@ document.querySelectorAll("[data-resolve]").forEach((button) => {
     button.addEventListener("click", async () => {
         button.disabled = true;
         const result = await send(`/errors/${button.dataset.resolve}/resolve`);
+        if (result.ok) location.reload();
+        else { button.disabled = false; button.textContent = failure(result); }
+    });
+});
+
+document.querySelectorAll("[data-owed-cash]").forEach((button) => {
+    button.addEventListener("click", async () => {
+        if (!confirm("Record that the attendant paid this back in cash?")) return;
+        button.disabled = true;
+        const result = await send(`/kiosk/owed/${button.dataset.owedCash}/refunded-in-cash`);
         if (result.ok) location.reload();
         else { button.disabled = false; button.textContent = failure(result); }
     });

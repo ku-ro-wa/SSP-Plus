@@ -3,7 +3,10 @@
 from PyQt5.QtWidgets import QWidget, QGridLayout
 
 from config import get_config
+from managers.inventory_edits import TOUCHSCREEN
+from managers.payment_recovery import owed_payments, settle_in_cash, settle_with_voucher
 from managers.printer_status import read_printer_status
+from screens.voucher.model import VoucherModel
 
 from .model import AdminModel
 from .view import AdminScreenView
@@ -53,6 +56,7 @@ class AdminController(QWidget):
         self.view.reset_coins_clicked.connect(self.model.reset_coin_counts)
         self.view.empty_coins_clicked.connect(self.model.empty_coin_counts)
         self.view.collect_cash_clicked.connect(self._collect_cash)
+        self.view.owed_payments_clicked.connect(self._review_owed_payments)
         self.view.update_cmyk_clicked.connect(self.model.update_cmyk_levels)
         self.view.reset_cmyk_clicked.connect(self.model.reset_cmyk_levels)
         self.view.refresh_cmyk_clicked.connect(self.model.refresh_cmyk_levels)
@@ -68,6 +72,40 @@ class AdminController(QWidget):
         preview = self.model.get_collection_preview()
         if self.view.confirm_collect_cash(preview['items'], preview['total']):
             self.model.collect_cash()
+
+    def _refresh_owed_payments(self):
+        owed = owed_payments(self.model.db_manager)
+        self.view.update_owed_payments(len(owed), sum(int(r['amount_owed']) for r in owed))
+
+    def _review_owed_payments(self):
+        """Settle Interrupted Payments one at a time (ADR 0011). A Voucher is shown
+        on the voucher screen straight away, to the customer standing here; it
+        then comes back to Kiosk Admin."""
+        db = self.model.db_manager
+        vouchers_enabled = bool(db.get_setting('vouchers_enabled', 1))
+        for row in owed_payments(db):
+            choice = self.view.ask_settle_owed(row, vouchers_enabled)
+            if choice is None:
+                break
+            if choice == 'cash':
+                settle_in_cash(db, row['id'], TOUCHSCREEN)
+                continue
+            try:
+                voucher = settle_with_voucher(db, row['id'], TOUCHSCREEN)
+            except Exception as e:
+                print(f"❌ Could not issue the voucher for an owed payment: {e}")
+                self.view.show_message_box(
+                    "Voucher not issued",
+                    f"The voucher couldn't be saved, so the payment is still owed. ({e})")
+                break
+            if voucher is None:
+                continue  # settled meanwhile
+            screen = self.main_app.voucher_screen
+            screen.show_issued(voucher, reason=VoucherModel.INTERRUPTED,
+                               on_continue=lambda: self.main_app.show_screen('admin'))
+            self.main_app.show_screen('voucher')
+            return
+        self._refresh_owed_payments()
 
     def _connect_to_database_thread_manager(self):
         """Connect to database thread manager for real-time updates."""
@@ -98,6 +136,7 @@ class AdminController(QWidget):
         self.view.update_qr_reader_status(self.main_app.qr_reader_status_text())
         self.view.update_printer_status(*read_printer_status())
         self.view.update_unresolved_errors(self.model.db_manager.count_unresolved_errors())
+        self._refresh_owed_payments()
         # Debug: Show what paper count is loaded
         print(f"Admin on_enter: Paper count loaded as {self.model.paper_count}")
         print(f"Admin on_enter: Fresh DB value: {self.model.db_manager.get_setting('paper_count', default=100)}")

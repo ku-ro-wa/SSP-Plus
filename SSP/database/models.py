@@ -37,6 +37,50 @@ def ensure_admin_actions_table(conn):
     conn.commit()
 
 
+def ensure_payment_recovery_tables(conn):
+    """Power-loss recovery (ADR 0011, issue #156). Idempotent; run by init_db()
+    and by the dashboard's open_db().
+
+    pending_payments is the journal of payments in progress: one row per payment
+    from its first coin (or its commit, for one paid by Voucher alone) until its
+    outcome is recorded. A row found at startup belongs to a run that never
+    finished it. interrupted_payments is what recovery made of such a row: what
+    the customer is owed, until an operator settles it."""
+    conn.execute('''
+    CREATE TABLE IF NOT EXISTS pending_payments (
+        journal_id TEXT PRIMARY KEY,
+        payment_ref TEXT,
+        cash_received TEXT NOT NULL,
+        coins_1_out INTEGER NOT NULL DEFAULT 0,
+        coins_5_out INTEGER NOT NULL DEFAULT 0,
+        total_cost REAL NOT NULL,
+        source TEXT,
+        summary TEXT,
+        started_at DATETIME NOT NULL,
+        updated_at DATETIME NOT NULL
+    )
+    ''')
+    conn.execute('''
+    CREATE TABLE IF NOT EXISTS interrupted_payments (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        payment_ref TEXT UNIQUE NOT NULL,
+        interrupted_at DATETIME NOT NULL,
+        recovered_at DATETIME NOT NULL,
+        stage TEXT NOT NULL,
+        cash_received REAL NOT NULL,
+        voucher_applied REAL NOT NULL,
+        change_dispensed REAL NOT NULL,
+        amount_owed INTEGER NOT NULL,
+        status TEXT NOT NULL DEFAULT 'owed',
+        settled_at DATETIME,
+        settled_how TEXT,
+        settled_by TEXT,
+        alerted_at DATETIME
+    )
+    ''')
+    conn.commit()
+
+
 # Settings key marking that users.role holds the current role names. Its
 # absence means the rows (if any) still use the original names.
 DASHBOARD_ROLES_VERSION_KEY = 'dashboard_roles_version'
@@ -355,5 +399,6 @@ def init_db(db_path=None):
     migrate_dashboard_roles(conn)
     ensure_admin_actions_table(conn)
     migrate_transaction_files(conn)
+    ensure_payment_recovery_tables(conn)
     conn.close()
     print("OK - Database initialization complete")

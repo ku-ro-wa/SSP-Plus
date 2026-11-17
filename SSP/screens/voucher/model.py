@@ -25,6 +25,7 @@ class VoucherModel:
     REFUND = "refund"    # a paid print that failed (#59)
     PARTIAL_REFUND = "partial_refund"  # some of a multi-file print didn't print (#119)
     DIGITAL_REFUND = "digital_refund"  # a paid-for digital copy that couldn't be made
+    INTERRUPTED = "interrupted"  # an operator settling an Interrupted Payment (ADR 0011)
 
     def __init__(self):
         self.clear()
@@ -80,7 +81,7 @@ class VoucherModel:
             return "Sorry, your print failed"
         if self.reason == self.PARTIAL_REFUND:
             return "Some of your files didn't print"
-        if self.reason == self.DIGITAL_REFUND:
+        if self.reason in (self.DIGITAL_REFUND, self.INTERRUPTED):
             return "Here's your refund voucher"
         return "Here's your voucher" if self.reason == self.UNSPENT else "Here's your change voucher"
 
@@ -107,6 +108,12 @@ class VoucherModel:
                 f"We couldn't prepare your digital copy, so we've issued a voucher worth "
                 f"{amount} for the fee."
             )
+        if self.reason == self.INTERRUPTED:
+            if self.state == self.FAILED:
+                return (f"We couldn't issue a voucher for the {amount} we owe you. "
+                        "Please contact the attendant and mention this amount.")
+            return (f"The kiosk restarted during your payment, so we've issued a voucher "
+                    f"worth {amount} for what we owe you.")
         if self.reason == self.UNSPENT:
             if self.state == self.FAILED:
                 return (

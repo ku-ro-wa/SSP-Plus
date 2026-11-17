@@ -336,11 +336,22 @@ class ChangeDispenser:
             return False
 
     def dispense_change(self, amount: float, status_callback=None, admin_screen=None, db_threader=None,
-                        coin_limits=None):
+                        coin_limits=None, on_coin=None):
         """Dispenses up to `amount` in change, one coin at a time, and reports what
         actually came out. `coin_limits` ({5: n, 1: m}: the coins in each hopper,
         from PaymentAlgorithmManager.get_coin_inventory) caps how many coins of
-        each kind are attempted; without it the hoppers are assumed full."""
+        each kind are attempted; without it the hoppers are assumed full.
+        `on_coin(denomination)` is called after each coin the sensor sees (the
+        payment journal counts it, ADR 0011); a failing callback is logged and
+        never stops the payout."""
+
+        def counted(denomination):
+            if on_coin is None:
+                return
+            try:
+                on_coin(denomination)
+            except Exception as e:
+                print(f"WARNING: could not record a dispensed P{denomination} coin: {e}")
         if amount <= 0:
             return {'success': True, 'coins_1': 0, 'coins_5': 0}
 
@@ -390,6 +401,7 @@ class ChangeDispenser:
 
             if self._dispense_coin(5):
                 actual_fives += 1
+                counted(5)
                 print(f"DEBUG: Successfully dispensed ₱5 coin {actual_fives}/{num_fives}")
             else:
                 stopped_early = True
@@ -411,6 +423,7 @@ class ChangeDispenser:
 
             if self._dispense_coin(1):
                 actual_ones += 1
+                counted(1)
                 print(f"DEBUG: Successfully dispensed ₱1 coin {actual_ones}/{num_ones}")
             else:
                 stopped_early = True
@@ -484,11 +497,12 @@ class DispenseThread(QThread):
     dispensing_finished = pyqtSignal(dict)  # Changed to emit the full result dict
 
     def __init__(self, dispenser: ChangeDispenser, amount: float, admin_screen=None, db_threader=None,
-                 coin_limits=None):
+                 coin_limits=None, on_coin=None):
         super().__init__()
         self.dispenser = dispenser
         self.amount = amount
         self.coin_limits = coin_limits
+        self.on_coin = on_coin
         self.admin_screen = admin_screen
         self.db_threader = db_threader
 
@@ -510,6 +524,7 @@ class DispenseThread(QThread):
             self.status_update.emit,
             self.admin_screen,
             self.db_threader,
-            coin_limits=self.coin_limits
+            coin_limits=self.coin_limits,
+            on_coin=self.on_coin,
         )
         self.dispensing_finished.emit(result)

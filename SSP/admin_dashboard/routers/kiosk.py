@@ -16,6 +16,7 @@ from admin_dashboard.kiosk_overview import build_overview
 from admin_dashboard.templating import templates
 from managers import inventory_edits as edits
 from managers.error_resolution import resolve_error
+from managers.payment_recovery import settle_in_cash
 from managers.log_pages import (
     ERROR_COLUMNS, NUMERIC_COLUMNS, PAGE_SIZE, TRANSACTION_COLUMNS, page_count,
 )
@@ -196,6 +197,17 @@ def resolve_error_route(error_id: int, request: Request, user: dict = Depends(re
     if outcome == "missing":
         return JSONResponse({"error": "No such error."}, status_code=404)
     return {"resolved": True, "changed": outcome == "resolved", "unresolved": db.count_unresolved_errors()}
+
+
+@router.post("/kiosk/owed/{payment_id}/refunded-in-cash")
+def owed_refunded_in_cash(payment_id: int, request: Request, user: dict = Depends(require_write_role),
+                          db=Depends(get_db)):
+    """An Interrupted Payment (ADR 0011) the attendant paid back by hand. The
+    Voucher option is only on the touchscreen, so its code is shown once, to the
+    customer standing there. 409 if it isn't owed (already settled, or no such one)."""
+    if not settle_in_cash(db, payment_id, _who(request, user)):
+        return JSONResponse({"error": "That payment isn't owed any more."}, status_code=409)
+    return {"settled": True}
 
 
 @router.get("/kiosk/collect-cash/preview")
