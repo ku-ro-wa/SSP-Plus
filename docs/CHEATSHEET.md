@@ -131,6 +131,14 @@ ssh -L 8100:127.0.0.1:8100 <user>@<kiosk-host>              # leave open, then b
 
 The kiosk's own browser uses `http://127.0.0.1:8100/login` directly. It listens on loopback only (`ADMIN_DASHBOARD_HOST`), so `http://<kiosk-ip>:8100` doesn't work, by design.
 
+| Symptom | Cause / fix |
+|---|---|
+| `127.0.0.1:8100` doesn't load on the laptop | The tunnel isn't open (or its SSH session ended). Reopen it; nothing changes on the Pi. To tell which side is down, run `curl -sI http://127.0.0.1:8100/login` on the Pi: 200 there means the tunnel. |
+| `make run-admin-dashboard` on the Pi: address already in use | The boot service already runs it. Use `sudo systemctl restart ssp-admin-dashboard`, not a second copy. If `sudo ss -ltnp \| grep 8100` shows a stray manual copy, kill it, then restart the service. |
+| Page looks unstyled or a button does nothing after a deploy | Stale cached CSS/JS: hard refresh (Cmd+Shift+R on a Mac, Ctrl+Shift+R elsewhere). DevTools → Network should show `dashboard.css` and the page's `.js` as 200. A 404 on `favicon.ico` is normal. |
+| Signed out after a while | `ADMIN_DASHBOARD_SESSION_HOURS` of inactivity (2 on the kiosk). Sign in again. |
+| Sign-in succeeds but bounces back to `/login` | `ADMIN_DASHBOARD_SECURE_COOKIE=true` over plain HTTP: the browser won't send the cookie back. Leave it `false` with the tunnel; `true` only behind Tailscale Serve's HTTPS. |
+
 Accounts exist only through this CLI. With `SIM_MODE=true` it writes to the demo DB, not the real one. Run it from the repo root with `PYTHONPATH=SSP`, not as `python SSP/admin_dashboard/cli.py` (import error).
 
 ## 9. Wi-Fi hotspot and portal  [pi]
