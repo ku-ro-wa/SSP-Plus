@@ -72,6 +72,40 @@ pgrep -a apt                  # wait until this prints nothing; don't kill apt
 sudo apt update && sudo apt full-upgrade -y
 ```
 
+### SSH: keys only (#163)
+
+SSH is the only way in until Tailscale (step 15), so lock it to keys once step 3's packages are in.
+
+1. From each laptop that needs access, copy its key (`ssh-keygen -t ed25519` first if it has none):
+
+   ```bash
+   ssh-copy-id <user>@aio-spark-kiosk.local
+   ssh -o PasswordAuthentication=no <user>@aio-spark-kiosk.local true   # must log in without the Pi's password
+   ```
+
+2. On the kiosk, `sudo nano /etc/ssh/sshd_config.d/10-hardening.conf`:
+
+   ```
+   PasswordAuthentication no
+   KbdInteractiveAuthentication no
+   PermitRootLogin no
+   ```
+
+   Raspberry Pi OS also ships `50-cloud-init.conf` with `PasswordAuthentication yes`. sshd uses the
+   first value it reads, so the `10-` file wins, but set that line to `no` as well so a rename can't
+   turn passwords back on.
+
+3. `sudo sshd -t && sudo systemctl reload ssh`. Keep your current session open, and log in from a
+   second terminal with the key **before** closing it.
+4. Check the effective settings (needs sudo): `sudo sshd -T | grep -Ei "^(passwordauthentication|kbdinteractiveauthentication|permitrootlogin)"` prints `no` three times.
+   A password login (`ssh -o PubkeyAuthentication=no -o PreferredAuthentications=password ...`)
+   and `ssh root@...` both answer `Permission denied (publickey)`.
+5. The hotspot firewall (step 10) drops everything but DHCP, DNS and the portal's ports on
+   `wlan0`. From a device on the hotspot, `nc -vz -w 3 10.3.141.1 22` and `... 8100` time out while
+   `... 8000` connects.
+
+To reach the Admin Dashboard from a laptop, open the tunnel from step 7 (`ssh -L 8100:127.0.0.1:8100 <user>@aio-spark-kiosk.local`, then `http://127.0.0.1:8100/login`). The dashboard's session lasts `ADMIN_DASHBOARD_SESSION_HOURS=2` of inactivity on the kiosk. Give only people who must edit the `admin` role and everyone else `operator`. The CLI can create accounts and reset passwords but not delete them: remove one with `sqlite3 SSP/database/ssp_database.db "delete from users where username='<name>'"`.
+
 ## 4. Clone the repo
 
 ```bash
@@ -478,6 +512,8 @@ tunnel from step 7.
 ## 16. Final checks
 
 - **Dashboard key:** `.env` on the kiosk has its own `ADMIN_DASHBOARD_SECRET_KEY` (not the dev default); see "Admin Dashboard secret key" in step 7. A key set only on a laptop does nothing for the kiosk.
+- **SSH:** key-only, and 22 and 8100 refused from the hotspot ("SSH: keys only" in step 3). `ss -ltnp | grep 8100` shows `127.0.0.1:8100`.
+- **Dashboard accounts:** `select username, role from users` lists only people who need access, with `admin` only for those who edit.
 - **Reboot test:** everything comes up without anyone touching it.
 - **Power and heat**, after the kiosk has run for a while (ideally after a few prints):
 
