@@ -309,7 +309,9 @@ Same `.env` as everything else (`cp .env.example .env`, `SIM_MODE=true`). Releva
 dashboard-specific vars, already set to sane defaults in `.env.example`:
 
 ```env
+ADMIN_DASHBOARD_HOST=127.0.0.1
 ADMIN_DASHBOARD_PORT=8100
+ADMIN_DASHBOARD_SECURE_COOKIE=false
 ADMIN_DASHBOARD_SESSION_HOURS=10
 ADMIN_DASHBOARD_LOCKOUT_MINUTES=15
 ```
@@ -348,6 +350,25 @@ This launches Uvicorn directly against the `admin_dashboard` package on
 `ADMIN_DASHBOARD_PORT` (default 8100). It's a standalone process — run it alongside
 `make run-sim` in a separate terminal if you want real transactions to show up, or on
 its own against whatever's already in `SSP/database/ssp_database.db`.
+
+It listens on `ADMIN_DASHBOARD_HOST`, `127.0.0.1` by default, so only the machine it runs on
+can open it. On the kiosk, reach it from your laptop through an SSH tunnel:
+
+```bash
+ssh -L 8100:127.0.0.1:8100 <user>@<kiosk-host>   # leave open, then http://127.0.0.1:8100/login
+```
+
+Don't set the host to `0.0.0.0`: that puts the login on the LAN over plain HTTP. Set
+`ADMIN_DASHBOARD_SECURE_COOKIE=true` only once the dashboard is served over HTTPS (Tailscale
+Serve, ADR-0005); with it on, a browser won't send the login cookie over plain HTTP, the tunnel
+included.
+
+**At boot (kiosk).** `scripts/install_dashboard_service.sh` installs
+`deploy/systemd/ssp-admin-dashboard.service` as a system service: it runs as the user who ran
+the script, from the repo root (so `.env` resolves), restarts on failure, and is sandboxed
+(read-only filesystem except `SSP/database/`). Run it on the kiosk as the repo's owner, not
+root (it asks for sudo); `--uninstall` removes it. Logs: `journalctl -u ssp-admin-dashboard -f`.
+Check the bind with `ss -ltnp | grep 8100` (expect `127.0.0.1:8100`).
 
 - `http://127.0.0.1:8100/` → redirects to `/accounting`; any dashboard page visited
   without a valid session redirects to the `/login` sign-in form

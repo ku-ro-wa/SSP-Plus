@@ -67,7 +67,9 @@ def main():
 
     import uvicorn
 
-    uvicorn.run(app, host="0.0.0.0", port=config.admin_dashboard_port)
+    # Loopback by default (ADMIN_DASHBOARD_HOST): reached through an SSH
+    # tunnel, later Tailscale Serve, never directly from the LAN or hotspot.
+    uvicorn.run(app, host=config.admin_dashboard_host, port=config.admin_dashboard_port)
     return 0
 
 

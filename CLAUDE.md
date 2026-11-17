@@ -172,7 +172,12 @@ A separate, authenticated FastAPI/Uvicorn process for kiosk revenue reporting â€
 `SSP/webapp/` (the Wi-Fi portal), never started by `main_app.py` or `WebAppThreadManager`.
 Start it with `make run-admin-dashboard`; it runs on its own port (`ADMIN_DASHBOARD_PORT`,
 default 8100, distinct from the Wi-Fi portal's 8000) so a bug or compromise in the low-trust,
-unauthenticated portal can never become a path into this DB-write-capable surface.
+unauthenticated portal can never become a path into this DB-write-capable surface. It binds
+`ADMIN_DASHBOARD_HOST` (default `127.0.0.1`), so off the kiosk it's reached only through an SSH
+tunnel (`ssh -L 8100:127.0.0.1:8100 ...`) until Tailscale Serve (ADR-0005); `ADMIN_DASHBOARD_SECURE_COOKIE`
+marks the login cookie `Secure` once HTTPS exists (`auth.set_session_cookie`, the one place the
+cookie is issued). Boot service: `scripts/install_dashboard_service.sh` installs
+`deploy/systemd/ssp-admin-dashboard.service`.
 
 Auth is individual accounts in a `users` table, Argon2id-hashed passwords, two roles: `admin`
 (full read/write) and `operator` (read-only), both unrelated to the touchscreen's

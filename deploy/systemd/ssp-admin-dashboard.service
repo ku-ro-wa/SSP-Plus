@@ -1,0 +1,36 @@
+# Admin Dashboard as a boot service (issue #45, ADR-0005), independent of the
+# kiosk GUI. Installed by scripts/install_dashboard_service.sh, which fills in
+# @USER@ and @REPO@ and writes /etc/systemd/system/ssp-admin-dashboard.service.
+# Logs: journalctl -u ssp-admin-dashboard -f
+[Unit]
+Description=SSP Admin Dashboard
+After=network.target
+
+[Service]
+Type=simple
+User=@USER@
+# The repo root, so config.py finds .env (ADMIN_DASHBOARD_HOST/PORT, the key).
+WorkingDirectory=@REPO@
+Environment=PYTHONPATH=SSP
+Environment=PYTHONUNBUFFERED=1
+Environment=PYTHONDONTWRITEBYTECODE=1
+ExecStart=@REPO@/.venv/bin/python -X utf8 -m admin_dashboard.main
+Restart=on-failure
+RestartSec=5
+
+# Sandboxing: read-only everywhere except the database folder (SQLite also
+# writes its -journal/-wal files next to the DB).
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=@REPO@/SSP/database
+PrivateTmp=true
+PrivateDevices=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true
+
+[Install]
+WantedBy=multi-user.target

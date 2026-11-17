@@ -117,8 +117,19 @@ make seed-demo-data                                         # [sim] fills ssp_da
 PYTHONPATH=SSP python -m admin_dashboard.cli --help
 PYTHONPATH=SSP python -m admin_dashboard.cli create-account --username alice --password '...' --role admin    # or operator
 PYTHONPATH=SSP python -m admin_dashboard.cli reset-password --username alice --password '...'
+scripts/install_dashboard_service.sh                        # [pi] run at boot (--uninstall to remove)
 journalctl -u ssp-admin-dashboard -f                        # [pi] if installed as a system service
+ss -ltnp | grep 8100                                        # [pi] expect 127.0.0.1:8100, never 0.0.0.0
 ```
+
+**Open it from your laptop over SSH** (`localhost` in a laptop browser is the laptop, not the kiosk, so tunnel the port):
+
+```bash
+ssh -L 8100:127.0.0.1:8100 <user>@<kiosk-host>              # leave open, then browse to:
+# http://127.0.0.1:8100/login
+```
+
+The kiosk's own browser uses `http://127.0.0.1:8100/login` directly. It listens on loopback only (`ADMIN_DASHBOARD_HOST`), so `http://<kiosk-ip>:8100` doesn't work, by design.
 
 Accounts exist only through this CLI. With `SIM_MODE=true` it writes to the demo DB, not the real one. Run it from the repo root with `PYTHONPATH=SSP`, not as `python SSP/admin_dashboard/cli.py` (import error).
 
