@@ -15,12 +15,11 @@ from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
 
 from admin_dashboard.auth import (
-    SESSION_COOKIE_NAME,
-    create_session_token,
     get_current_user,
     is_locked_out,
     register_failed_attempt,
     register_successful_login,
+    set_session_cookie,
     verify_password,
 )
 from admin_dashboard.dependencies import get_db
@@ -63,8 +62,7 @@ def login(credentials: LoginRequest, request: Request, response: Response, db=De
     register_successful_login(db, user["username"])
     db.record_login_attempt(credentials.username, True, source_ip)
 
-    token = create_session_token(user["username"])
-    response.set_cookie(key=SESSION_COOKIE_NAME, value=token, httponly=True, samesite="lax")
+    set_session_cookie(response, user["username"])
     return {"username": user["username"], "role": user["role"]}
 
 

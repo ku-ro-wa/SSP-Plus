@@ -155,7 +155,7 @@ Set at least the following. Restore the values from the team's credential store,
 
 3. Save a copy in the team's credential store under that kiosk's name. Each kiosk gets its own key.
 4. If you can't reach the kiosk yet, keep the key in your own `.env` (the same variable) and copy it over later, see "Getting the key onto the kiosk" below.
-5. Start the dashboard (`make run-admin-dashboard`, or the service once it exists). It should log a normal Uvicorn start-up on port 8100.
+5. Start the dashboard (`make run-admin-dashboard`, or install the boot service with `scripts/install_dashboard_service.sh`, see `SETUP.md`). It should log a normal Uvicorn start-up on `127.0.0.1:8100`. It listens on loopback only: from a laptop, open it through an SSH tunnel (`ssh -L 8100:127.0.0.1:8100 <user>@<kiosk-host>`, then `http://127.0.0.1:8100/login`).
 
 **Getting the key onto the kiosk.** `.env` is gitignored, so `git pull` never delivers it. Copy it by hand, over SSH from the machine whose `.env` holds the key (replace `<user>@<kiosk>`; the repo is assumed at `~/SSP-Plus`). This doesn't print the key:
 
@@ -470,9 +470,10 @@ Design: ADR-0005. Accounts: `SETUP.md` → "External accounts". In short:
 
 3. The dashboard is then at `https://aio-spark-kiosk.<tailnet>.ts.net/`.
 
-On a rebuild, remove the old device from the tailnet first. ADR-0005 also moves the dashboard to
-`127.0.0.1` behind Serve; until that change lands it listens on `0.0.0.0:8100` (the hotspot
-firewall blocks it from phones).
+On a rebuild, remove the old device from the tailnet first. The dashboard already listens on
+`127.0.0.1:8100` only (#45), which is what Serve forwards to; once Serve is up, set
+`ADMIN_DASHBOARD_SECURE_COOKIE=true` in `.env` and restart the dashboard. Until then, use the SSH
+tunnel from step 7.
 
 ## 16. Final checks
 

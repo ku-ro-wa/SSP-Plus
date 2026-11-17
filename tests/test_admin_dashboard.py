@@ -926,3 +926,45 @@ def test_main_exits_nonzero_without_starting_server(monkeypatch, capsys):
     monkeypatch.setattr(dash, "config", _FakeConfig(False, None))
     assert dash.main() == 1
     assert "ADMIN_DASHBOARD_SECRET_KEY" in capsys.readouterr().err
+
+
+class TestNetworkExposure:
+    """Issue #45: loopback bind by default, and an optional Secure cookie."""
+
+    def test_binds_to_loopback_by_default(self, monkeypatch):
+        from config import get_config
+        monkeypatch.delenv("ADMIN_DASHBOARD_HOST", raising=False)
+        assert get_config().admin_dashboard_host == "127.0.0.1"
+        monkeypatch.setenv("ADMIN_DASHBOARD_HOST", "  ")
+        assert get_config().admin_dashboard_host == "127.0.0.1"
+
+    def test_main_runs_uvicorn_on_the_configured_host(self, monkeypatch):
+        import uvicorn
+        import admin_dashboard.main as dash
+        calls = {}
+        monkeypatch.setattr(uvicorn, "run", lambda app, **kw: calls.update(kw))
+        monkeypatch.setattr(dash, "secret_key_problem", lambda config: None)
+        monkeypatch.delenv("ADMIN_DASHBOARD_HOST", raising=False)
+        assert dash.main() == 0
+        assert calls["host"] == "127.0.0.1"
+
+    @pytest.mark.parametrize("secure", [True, False])
+    def test_login_and_refresh_cookies_follow_the_secure_setting(
+        self, client, temp_db, monkeypatch, secure
+    ):
+        monkeypatch.setenv("ADMIN_DASHBOARD_SECURE_COOKIE", "true" if secure else "false")
+        create_account(temp_db, "alice", "s3cret!", "admin")
+
+        login = client.post("/login", json={"username": "alice", "password": "s3cret!"})
+        client.cookies.set(SESSION_COOKIE_NAME, login.cookies[SESSION_COOKIE_NAME])
+        refresh = client.get("/me")
+
+        for response in (login, refresh):
+            set_cookie = [
+                h for h in response.headers.get_list("set-cookie")
+                if h.startswith(SESSION_COOKIE_NAME + "=")
+            ]
+            assert set_cookie, "no session cookie issued"
+            flags = set_cookie[0].lower()
+            assert ("; secure" in flags) is secure
+            assert "httponly" in flags and "samesite=lax" in flags

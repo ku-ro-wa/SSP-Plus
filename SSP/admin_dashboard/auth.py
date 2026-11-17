@@ -62,6 +62,20 @@ def create_session_token(username: str, last_activity: Optional[float] = None) -
     return _serializer().dumps({"username": username, "last_activity": last_activity})
 
 
+def set_session_cookie(response: Response, username: str) -> None:
+    """Issue (or refresh) the login cookie. One place for its flags, so the
+    login and every sliding refresh can't differ: HttpOnly, SameSite=Lax,
+    and Secure when ADMIN_DASHBOARD_SECURE_COOKIE is on (HTTPS via
+    Tailscale Serve, issue #45)."""
+    response.set_cookie(
+        key=SESSION_COOKIE_NAME,
+        value=create_session_token(username),
+        httponly=True,
+        samesite="lax",
+        secure=get_config().admin_dashboard_secure_cookie,
+    )
+
+
 def read_session_token(token: str) -> Optional[dict]:
     try:
         return _serializer().loads(token)
@@ -96,12 +110,7 @@ def get_current_user(
         response.delete_cookie(SESSION_COOKIE_NAME)
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Not authenticated")
 
-    response.set_cookie(
-        key=SESSION_COOKIE_NAME,
-        value=create_session_token(user["username"]),
-        httponly=True,
-        samesite="lax",
-    )
+    set_session_cookie(response, user["username"])
     return {"username": user["username"], "role": user["role"]}
 
 

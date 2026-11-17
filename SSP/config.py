@@ -792,6 +792,26 @@ class Config:
     # docs/adr/0002-admin-dashboard-auth-and-remote-access-architecture.md.
 
     @property
+    def admin_dashboard_host(self) -> str:
+        """Address the dashboard's Uvicorn binds to. Loopback by default, so
+        it is reachable only from the kiosk itself: an SSH tunnel today,
+        Tailscale Serve later (ADR-0005). Never the LAN or the hotspot."""
+        try:
+            return self.get('ADMIN_DASHBOARD_HOST', str).strip() or "127.0.0.1"
+        except KeyError:
+            return "127.0.0.1"
+
+    @property
+    def admin_dashboard_secure_cookie(self) -> bool:
+        """Mark the login cookie Secure (sent over HTTPS only). Off by default
+        so plain-HTTP use (a laptop, an SSH tunnel) still works; turn it on
+        once Tailscale Serve provides HTTPS."""
+        try:
+            return self.get('ADMIN_DASHBOARD_SECURE_COOKIE', bool)
+        except KeyError:
+            return False
+
+    @property
     def admin_dashboard_port(self) -> int:
         """Port the dashboard's own Uvicorn instance listens on — distinct
         from the Wi-Fi portal's port so the two processes never collide."""
