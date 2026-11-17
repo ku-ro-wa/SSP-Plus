@@ -87,9 +87,11 @@ CATALOG: Tuple[Setting, ...] = (
     Setting('max_change_limit', 'Maximum change', '₱', 0, 1000, 50,
             'The most change the kiosk will hand out in one payment.'),
     Setting('min_coin_threshold_1', 'Warn when ₱1 coins fall to', 'coins', 0, 1000, 0,
-            'Treat the last N ₱1 coins as unavailable when working out how much change to offer. Only affects the low-change warning and suggested payment amounts; change can still use these coins.'),
+            'Treat the last N ₱1 coins as unavailable when working out how much change to offer. '
+            'Only affects the low-change warning and suggested payment amounts; change can still use these coins.'),
     Setting('min_coin_threshold_5', 'Warn when ₱5 coins fall to', 'coins', 0, 1000, 0,
-            'Treat the last N ₱5 coins as unavailable when working out how much change to offer. Only affects the low-change warning and suggested payment amounts; change can still use these coins.'),
+            'Treat the last N ₱5 coins as unavailable when working out how much change to offer. '
+            'Only affects the low-change warning and suggested payment amounts; change can still use these coins.'),
     Setting('low_change_warning_threshold', 'Low-change warning', '₱', 0, 1000, 20,
             'Warn customers when the change available falls below this.'),
     Setting('scan_digital_fee', 'Digital Copy fee', '₱', 0, 100, 5,
