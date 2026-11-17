@@ -9,7 +9,6 @@
 # (issue #17) is the one write action here, and it is role-gated to `admin`
 # via require_write_role.
 
-import json
 
 from fastapi import APIRouter, Depends, Query, Request
 from fastapi.responses import HTMLResponse
@@ -69,10 +68,6 @@ def accounting_page(
             "active": "accounting",
             "range": "today",
             "sources": sources,
-            # Jinja2Templates doesn't register Flask's `tojson` filter, so
-            # the chart's initial render (issue #16) gets its data as a
-            # pre-serialized string instead.
-            "sources_json": json.dumps(sources),
             "vouchers": voucher_figures(db, since),
             "cash": collection_figures(db),
         },

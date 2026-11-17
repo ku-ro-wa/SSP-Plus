@@ -177,7 +177,12 @@ unauthenticated portal can never become a path into this DB-write-capable surfac
 tunnel (`ssh -L 8100:127.0.0.1:8100 ...`) until Tailscale Serve (ADR-0005); `ADMIN_DASHBOARD_SECURE_COOKIE`
 marks the login cookie `Secure` once HTTPS exists (`auth.set_session_cookie`, the one place the
 cookie is issued). Boot service: `scripts/install_dashboard_service.sh` installs
-`deploy/systemd/ssp-admin-dashboard.service`.
+`deploy/systemd/ssp-admin-dashboard.service`. Every response carries a strict CSP and other
+security headers (`admin_dashboard/security_headers.py`, issue #162; pages and JSON `no-store`),
+so templates hold no inline `<script>` code, `on*=` handlers or `style=` attributes: JS goes in
+`static/js/<page>.js`, CSS in `static/css/dashboard.css` (page rules scoped by base.html's
+`<body class="page-{{ active }}">`), server data in a `<script type="application/json">` block via
+`|tojson`. `tests/test_dashboard_security_headers.py` greps the templates.
 
 Auth is individual accounts in a `users` table, Argon2id-hashed passwords, two roles: `admin`
 (full read/write) and `operator` (read-only), both unrelated to the touchscreen's

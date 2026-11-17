@@ -1,9 +1,6 @@
 {% extends "base.html" %}
 {% block title %}Logs{% endblock %}
 {% block heading %}Logs{% endblock %}
-{% block style %}
-        .btn { font-size: 14px; padding: 8px 14px; min-height: 40px; border: 0; border-radius: 8px; background: #000; color: #fff; cursor: pointer; margin-left: 8px; }
-{% endblock %}
 {% block content %}
 {% macro pager(p, own, anchor) %}
 {% set pages = {'tx_page': logs.transactions.page, 'err_page': logs.errors.page, 'act_page': logs.actions.page} %}
@@ -75,15 +72,6 @@
 {% endblock %}
 {% block scripts %}
 {% if can_edit %}
-<script>
-document.querySelectorAll("[data-resolve]").forEach((button) => {
-    button.addEventListener("click", async () => {
-        button.disabled = true;
-        const response = await fetch(`/errors/${button.dataset.resolve}/resolve`, {method: "POST"});
-        if (response.ok) location.reload();
-        else { button.disabled = false; button.textContent = "Could not save (" + response.status + ")"; }
-    });
-});
-</script>
+<script src="/static/js/logs.js"></script>
 {% endif %}
 {% endblock %}
