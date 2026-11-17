@@ -55,7 +55,6 @@ from managers.printer_status import read_printer_status
 from managers.kiosk_status import (SETTING_LAST_SEEN, SETTING_PRINTER_AT, SETTING_PRINTER_LEVEL, SETTING_PRINTER_STATUS,
                                    SETTING_QR_STATUS, heartbeat_timestamp)
 from managers.session_manager import SessionManager
-from managers.session_vouchers import SessionVouchers
 from database.db_manager import DatabaseManager
 from managers.sms_manager import cleanup_sms
 from managers.print_refund import record_print_success, refund_failed_print, refund_partly_printed
@@ -268,7 +267,6 @@ class PrintingSystemApp(QMainWindow):
 
         # "Check voucher balance" is a popup over whichever screen opened it, not a screen
         # (screens/voucher_balance); the Vouchers it checks are remembered for the session.
-        self.session_vouchers = SessionVouchers()
         self.voucher_balance = VoucherBalanceController(self, parent_widget=self)
 
         # Manually disable payment acceptors at startup
@@ -671,8 +669,6 @@ class PrintingSystemApp(QMainWindow):
         self.stacked_widget.setCurrentIndex(target_index)
         self.tap_guard.arm()
 
-        if screen_name == 'idle':
-            self.session_vouchers.clear()   # the next customer starts with none checked
         self._enter_timeout(screen_name)
 
         # Call on_enter lifecycle method for new screen
@@ -988,8 +984,7 @@ class PrintingSystemApp(QMainWindow):
 
     def end_session(self):
         """Clear what a customer who walked away left behind: the copies of their USB, Wi-Fi
-        and email files, and the Vouchers they checked, so the next customer can't find them."""
-        self.session_vouchers.clear()
+        and email files, so the next customer can't find them."""
         try:
             from managers.usb_file_manager import USBFileManager
             USBFileManager().cleanup_all_temp_folders()

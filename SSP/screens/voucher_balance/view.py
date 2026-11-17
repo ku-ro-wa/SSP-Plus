@@ -105,17 +105,9 @@ class VoucherBalancePopupView(QFrame):
             f"color: {COLORS['text']}; font-size: {FONT['size_lg']}px; font-weight: 600;"
         )
 
-        self.saved_note = QLabel("")
-        self.saved_note.setAlignment(Qt.AlignCenter)
-        self.saved_note.setWordWrap(True)
-        self.saved_note.setStyleSheet(
-            f"color: {COLORS['text_secondary']}; font-size: {FONT['size_md']}px; font-weight: 600;"
-        )
-
         result.addWidget(caption)
         result.addWidget(self.amount_label)
         result.addWidget(self.expiry_label)
-        result.addWidget(self.saved_note)
         self.result_panel.hide()
 
         self.status_banner = StatusBanner()
@@ -148,12 +140,11 @@ class VoucherBalancePopupView(QFrame):
     def hide_popup(self):
         self.hide()
 
-    def render(self, model, remembered_note: str = ""):
+    def render(self, model):
         """Paint the current VoucherBalanceModel. Called by the controller."""
         self.result_panel.setVisible(model.found)
         self.amount_label.setText(model.amount_text())
         self.expiry_label.setText(model.expiry_text())
-        self.saved_note.setText(remembered_note if model.found else "")
         if model.found:
             # The code has done its job; don't leave it on screen.
             self.code_input.clear()
@@ -165,6 +156,5 @@ class VoucherBalancePopupView(QFrame):
         self.code_input.clear()
         self.amount_label.setText("")
         self.expiry_label.setText("")
-        self.saved_note.setText("")
         self.result_panel.hide()
         self.status_banner.show_message("")

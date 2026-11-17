@@ -29,7 +29,6 @@ import screens.payment.model as payment_module  # noqa: E402
 from database.db_manager import DatabaseManager  # noqa: E402
 from database.models import init_db  # noqa: E402
 from managers.print_items import PrintItem  # noqa: E402
-from managers.session_vouchers import SessionVouchers  # noqa: E402
 from managers.timeout_manager import TimeoutManager  # noqa: E402
 from managers.voucher_manager import VoucherManager  # noqa: E402
 from managers.print_refund import record_print_success, refund_failed_print  # noqa: E402
@@ -69,7 +68,6 @@ class FakeMainApp:
         self.clock = SimpleNamespace(now=1000.0)
         self.timeouts = TimeoutManager(clock=lambda: self.clock.now)
         self.timeouts.expired.connect(lambda name, action: action() if action else None)
-        self.session_vouchers = SessionVouchers()   # Vouchers checked in the balance popup
         self.payment_screen = SimpleNamespace(model=None)
         self.voucher_screen = VoucherController(self)
         self.scan_result_screen = SimpleNamespace(
@@ -284,100 +282,25 @@ def test_inserted_money_restarts_the_payment_timeout(kiosk):
         screen.on_leave()
 
 
-class TestCheckedVouchersAtPayment:
-    """Vouchers checked in the balance popup are listed on payment with their balance and a
-    tap-to-apply button. They are never applied by themselves (docs/remaining-work.md 2.2)."""
+class TestVouchersAreNotRemembered:
+    """Checking a balance keeps nothing: payment lists no earlier Voucher and applies none
+    without the customer typing or reading the code again, so a customer who walks away
+    leaves nothing for the next one to use."""
 
-    @staticmethod
-    def payment_screen(main_app):
+    def test_payment_offers_no_one_tap_apply_for_a_voucher_checked_earlier(self, kiosk, db):
         from screens.payment.controller import PaymentController
+        main_app, model = kiosk
+        issue_voucher(main_app, model, db, 2)
         screen = PaymentController(main_app)
         main_app.stacked_widget = SimpleNamespace(currentWidget=lambda: screen)
         options = PrintOptionsModel()
         options.set_items([PrintItem({'path': PDF}, [1])])
         screen.set_payment_data(options.get_payment_data())
         screen.on_enter()
-        return screen
-
-    @staticmethod
-    def remember(main_app, code, remaining):
-        main_app.session_vouchers.add(vm.normalize_code(code), remaining)
-
-    def test_nothing_is_listed_when_nothing_was_checked(self, kiosk, db):
-        main_app, model = kiosk
-        screen = self.payment_screen(main_app)
         try:
-            assert screen.view.checked_vouchers_box.isHidden()
-        finally:
-            screen.on_leave()
-
-    def test_a_checked_voucher_is_listed_with_its_balance_but_not_applied(self, kiosk, db):
-        main_app, model = kiosk
-        code = issue_voucher(main_app, model, db, 2)
-        self.remember(main_app, code, 2)
-        screen = self.payment_screen(main_app)
-        try:
-            assert not screen.view.checked_vouchers_box.isHidden()
-            [button] = screen.view.checked_vouchers.values()
-            assert "P2" in button.text() and code.replace("-", "")[:4] not in button.text()
-            assert screen.model.applied_vouchers == []                       # never automatic
-            assert VoucherManager(db).balance(code).remaining == 2
-        finally:
-            screen.on_leave()
-
-    def test_tapping_it_applies_it_and_takes_it_off_the_list(self, kiosk, db):
-        main_app, model = kiosk
-        code = issue_voucher(main_app, model, db, 2)
-        self.remember(main_app, code, 2)
-        screen = self.payment_screen(main_app)
-        try:
-            [button] = screen.view.checked_vouchers.values()
-            button.click()
-
-            [applied] = screen.model.applied_vouchers
-            assert (applied.amount, applied.remaining) == (2, 0)
-            assert screen.model.amount_owed == job_cost() - 2
-            assert screen.view.checked_vouchers_box.isHidden()
-        finally:
-            screen.on_leave()
-
-    def test_each_checked_voucher_gets_its_own_button(self, kiosk, db):
-        main_app, model = kiosk
-        first = issue_voucher(main_app, model, db, 1)
-        second = issue_voucher(main_app, model, db, 3)
-        self.remember(main_app, first, 1)
-        self.remember(main_app, second, 3)
-        screen = self.payment_screen(main_app)
-        try:
-            assert len(screen.view.checked_vouchers) == 2
-            screen.view.checked_vouchers[vm.normalize_code(second)].click()
-            assert [v.amount for v in screen.model.applied_vouchers] == [3]
-            assert list(screen.view.checked_vouchers) == [vm.normalize_code(first)]   # the other stays
-        finally:
-            screen.on_leave()
-
-    def test_a_voucher_applied_by_typing_leaves_the_list_too(self, kiosk, db):
-        main_app, model = kiosk
-        code = issue_voucher(main_app, model, db, 2)
-        self.remember(main_app, code, 2)
-        screen = self.payment_screen(main_app)
-        try:
-            assert screen.apply_voucher_code(code)
-            assert screen.view.checked_vouchers_box.isHidden()
-        finally:
-            screen.on_leave()
-
-    def test_a_voucher_that_stopped_working_is_refused_and_stays_listed(self, kiosk, db):
-        main_app, model = kiosk
-        code = issue_voucher(main_app, model, db, 2)
-        self.remember(main_app, code, 2)
-        VoucherManager(db).apply([code], 2)          # used up elsewhere since it was checked
-        screen = self.payment_screen(main_app)
-        try:
-            [button] = screen.view.checked_vouchers.values()
-            button.click()
+            assert not hasattr(screen.view, 'checked_vouchers_box')
+            assert not hasattr(main_app, 'session_vouchers')
             assert screen.model.applied_vouchers == []
-            assert not screen.view.voucher_banner.isHidden()
         finally:
             screen.on_leave()
 
@@ -1339,3 +1262,27 @@ class TestPrintOutcomeAfterSettlement:
         assert outcome.voucher is None and outcome.voucher_failed
         assert logged_row(db)['status'] == 'print_failed'
         assert len(sms) == 1
+
+
+class TestVoucherEntryFitsTheScreen:
+    """With "Use a voucher" open the payment screen overflowed the panel and clipped the
+    keypad (kiosk photo). The keypad is two rows and the receipt shrinks to the total."""
+
+    def test_keypad_is_two_rows_and_the_receipt_shrinks_while_it_is_open(self, kiosk, db):
+        from screens.payment.controller import PaymentController
+        main_app, model = kiosk
+        screen = PaymentController(main_app)
+        try:
+            view = screen.view
+            view.reset_voucher_entry()
+            assert not view.summary_label.isHidden() and view.change_label.isHidden()
+            view._show_voucher_input()
+            assert view.summary_label.isHidden() and view.receipt_divider.isHidden()
+            assert not view.voucher_keypad.isHidden()
+            rows = {view.voucher_keypad.layout().getItemPosition(i)[0]
+                    for i in range(view.voucher_keypad.layout().count())}
+            assert rows == {0, 1}
+            view.reset_voucher_entry()   # the next customer gets the full receipt back
+            assert not view.summary_label.isHidden()
+        finally:
+            screen.on_leave()
