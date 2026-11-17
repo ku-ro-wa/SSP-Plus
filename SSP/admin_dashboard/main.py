@@ -17,6 +17,7 @@ from fastapi.staticfiles import StaticFiles
 
 from config import get_config
 from admin_dashboard.auth import SESSION_COOKIE_NAME, LoginRequired
+from admin_dashboard.security_headers import SecurityHeadersMiddleware
 from admin_dashboard.startup_check import secret_key_problem
 from admin_dashboard.routers import accounting, auth, kiosk, settings
 
@@ -28,6 +29,7 @@ docs_url = "/docs" if config.docs_enabled else None
 redoc_url = "/redoc" if config.docs_enabled else None
 
 app = FastAPI(title="AIO SPARK Admin Dashboard", docs_url=docs_url, redoc_url=redoc_url)
+app.add_middleware(SecurityHeadersMiddleware)
 
 app.include_router(auth.router)
 app.include_router(accounting.router)

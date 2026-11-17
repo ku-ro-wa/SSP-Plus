@@ -1,0 +1,83 @@
+/* Admin Dashboard styles (issue #162). Every page's CSS lives here, not in
+   the templates, so the Content-Security-Policy can forbid inline styles.
+   Page-only rules are scoped by the <body class="page-<name>"> base.html sets. */
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { font-family: Arial, Helvetica, sans-serif; background: #f4f4f4; color: #1a1a1a; }
+header { background: #000; color: #fff; padding: 16px 20px; }
+header h1 { font-size: 22px; font-weight: 400; }
+.muted-on-dark { color: #aaa; font-size: 16px; }
+nav { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+nav a { color: #ccc; text-decoration: none; padding: 6px 14px; border-radius: 8px; border: 1px solid #444; font-size: 14px; }
+nav a.active { background: #fff; color: #000; border-color: #fff; }
+main { max-width: 860px; margin: 24px auto; padding: 0 16px; }
+section { margin-bottom: 28px; }
+h2 { font-size: 16px; margin-bottom: 10px; }
+.card { background: #fff; border-radius: 10px; box-shadow: 0 1px 4px rgba(0,0,0,.1); padding: 16px 18px; }
+.scroll { overflow-x: auto; }
+table { width: 100%; border-collapse: collapse; background: #fff; border-radius: 10px; overflow: hidden; box-shadow: 0 1px 4px rgba(0,0,0,.1); }
+th, td { text-align: left; padding: 10px 14px; font-size: 14px; vertical-align: top; }
+th { background: #eee; font-weight: 600; }
+tbody tr:not(:last-child) td { border-bottom: 1px solid #eee; }
+td.numeric, th.numeric { text-align: right; }
+.warn { color: #8a5a00; font-weight: 600; }
+.ok { color: #0F8558; font-weight: 600; }
+.crit, .bad { color: #b3261e; font-weight: 600; }
+.muted { color: #666; font-size: 13px; }
+.grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 12px; }
+.big { font-size: 28px; font-weight: 600; margin-top: 4px; }
+/* Ink level bar: an SVG <rect width="N%">, since a style="width: N%"
+   attribute would be blocked by the CSP. */
+.bar { display: block; width: 100%; height: 8px; background: #ddd; border-radius: 4px; margin-top: 8px; overflow: hidden; }
+.bar rect { fill: #0F8558; }
+.bar.warn rect { fill: #d98e04; }
+.bar.crit rect { fill: #b3261e; }
+.pager { display: flex; gap: 12px; align-items: center; margin-top: 10px; font-size: 14px; }
+.pager a { color: #000; }
+.capitalize { text-transform: capitalize; }
+.spaced { margin-top: 12px; }
+.spaced-lg { margin-top: 14px; }
+
+/* Accounting */
+.page-accounting .filters { display: flex; gap: 10px; margin-bottom: 20px; }
+.page-accounting .filter-btn { background: #fff; border: 2px solid #ccc; border-radius: 10px; padding: 10px 18px; font-size: 15px; cursor: pointer; }
+.page-accounting .filter-btn.active { background: #000; color: #fff; border-color: #000; }
+.page-accounting th, .page-accounting td { padding: 14px 18px; }
+.page-accounting td.source { text-transform: capitalize; }
+.page-accounting .chart-card { background: #fff; border-radius: 10px; box-shadow: 0 1px 4px rgba(0, 0, 0, .1); padding: 20px; margin-bottom: 20px; }
+.page-accounting .vouchers { margin-top: 20px; }
+.page-accounting .vouchers td.label { color: #555; }
+.page-accounting .collections { margin-top: 20px; }
+.page-accounting .collections .note, .page-accounting .vouchers .note { font-size: 13px; color: #777; }
+
+/* Kiosk */
+.page-kiosk .edit { display: flex; flex-wrap: wrap; gap: 10px; align-items: end; margin-top: 14px; padding-top: 14px; border-top: 1px solid #eee; }
+.page-kiosk .edit.flush { margin-top: 0; padding-top: 0; border-top: 0; }
+.page-kiosk .edit label { display: flex; flex-direction: column; gap: 4px; font-size: 13px; color: #666; flex: 1 1 110px; }
+.page-kiosk .edit input { font-size: 18px; padding: 10px 12px; border: 1px solid #bbb; border-radius: 8px; width: 100%; min-height: 46px; }
+.page-kiosk .edit button, .page-kiosk .btn { font-size: 16px; padding: 12px 20px; min-height: 46px; border: 0; border-radius: 8px; background: #000; color: #fff; cursor: pointer; }
+.page-kiosk .edit button.secondary { background: #fff; color: #000; border: 1px solid #000; }
+.page-kiosk .msg { margin-top: 10px; min-height: 18px; }
+
+/* Logs */
+.page-logs .btn { font-size: 14px; padding: 8px 14px; min-height: 40px; border: 0; border-radius: 8px; background: #000; color: #fff; cursor: pointer; margin-left: 8px; }
+
+/* Settings */
+.page-settings .field { display: grid; grid-template-columns: 1fr 160px; gap: 12px; align-items: center; padding: 12px 0; }
+.page-settings .field + .field { border-top: 1px solid #eee; }
+.page-settings .field input { font-size: 16px; padding: 8px 10px; border: 1px solid #bbb; border-radius: 8px; width: 100%; }
+.page-settings .field input.invalid { border-color: #b3261e; }
+.page-settings .field .err { color: #b3261e; font-size: 13px; grid-column: 1 / -1; }
+.page-settings button { font-size: 15px; padding: 10px 22px; border: 0; border-radius: 8px; background: #000; color: #fff; cursor: pointer; margin-top: 14px; }
+.page-settings #msg { margin-top: 12px; }
+
+/* Sign in (login.html, which doesn't extend base.html) */
+.page-login header { padding: 20px 32px; }
+.page-login main { max-width: 380px; margin: 48px auto; padding: 0 24px; }
+.page-login form { background: #fff; border-radius: 10px; box-shadow: 0 1px 4px rgba(0, 0, 0, .1); padding: 24px; display: flex; flex-direction: column; gap: 14px; }
+.page-login label { font-size: 14px; font-weight: 600; display: flex; flex-direction: column; gap: 6px; }
+.page-login input { font-size: 15px; padding: 10px 12px; border: 2px solid #ccc; border-radius: 10px; }
+.page-login input:focus { outline: none; border-color: #000; }
+.page-login button { background: #000; color: #fff; border: none; border-radius: 10px; padding: 12px 18px; font-size: 15px; cursor: pointer; }
+.page-login button:disabled { opacity: .6; cursor: default; }
+.page-login .error { color: #b00020; font-size: 14px; min-height: 18px; }
