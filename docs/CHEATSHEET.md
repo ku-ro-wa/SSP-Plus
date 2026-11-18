@@ -158,7 +158,6 @@ Sign in at `/login` (2 hours of inactivity signs you out; 5 wrong passwords lock
 - Collect cash shows a preview, then asks you to confirm. If the counts moved meanwhile it refuses (409): reload and redo it.
 - An error stays unresolved until a person marks it resolved; a later success doesn't clear it.
 - The touchscreen's Kiosk Admin and the dashboard edit the same data. A touchscreen already open keeps the old value until it is reopened.
-- Nothing loads? The kiosk's service: `systemctl status ssp-admin-dashboard`. Is the tunnel open on your laptop?
 
 **Remove a dashboard account** (the CLI can't): `sqlite3 SSP/database/ssp_database.db "delete from users where username='<name>'"`. List accounts: `sqlite3 SSP/database/ssp_database.db "select username, role from users"`.
 
