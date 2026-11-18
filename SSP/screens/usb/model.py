@@ -238,11 +238,14 @@ class USBScreenModel(QObject):
         pdf_files = self.usb_manager.scan_and_copy_pdf_files(drive_path)
         print(f"scan_files_from_drive received: {drive_path}")
 
+        ejected = getattr(self.usb_manager, 'last_eject_ok', True)
         if pdf_files:
-            self.status_changed.emit(f"Success! Found {len(pdf_files)} PDF file(s). USB is now safe to remove.", 'success')
+            removal = " USB is now safe to remove." if ejected else ""
+            self.status_changed.emit(f"Success! Found {len(pdf_files)} PDF file(s).{removal}", 'success')
             self.pdf_files_found.emit(pdf_files)
         else:
-            self.status_changed.emit("No PDF files were found on the USB drive.", 'error')
+            removal = " You can remove it now." if ejected else ""
+            self.status_changed.emit(f"No PDF files were found on the USB drive.{removal}", 'error')
             # Restart monitoring after a delay
             threading.Timer(3.0, self.start_usb_monitoring).start()
 
