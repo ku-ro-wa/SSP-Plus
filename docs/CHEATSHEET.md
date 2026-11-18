@@ -117,7 +117,7 @@ make seed-demo-data                                         # [sim] fills ssp_da
 PYTHONPATH=SSP python -m admin_dashboard.cli --help
 PYTHONPATH=SSP python -m admin_dashboard.cli create-account --username alice --password '...' --role admin    # or operator
 PYTHONPATH=SSP python -m admin_dashboard.cli reset-password --username alice --password '...'
-scripts/install_dashboard_service.sh                        # [pi] run at boot (--uninstall to remove)
+bash scripts/install_dashboard_service.sh                   # [pi] run at boot; as yourself, not sudo (--uninstall to remove)
 journalctl -u ssp-admin-dashboard -f                        # [pi] if installed as a system service
 ss -ltnp | grep 8100                                        # [pi] expect 127.0.0.1:8100, never 0.0.0.0
 ```
@@ -134,12 +134,56 @@ The kiosk's own browser uses `http://127.0.0.1:8100/login` directly. It listens 
 | Symptom | Cause / fix |
 |---|---|
 | `127.0.0.1:8100` doesn't load on the laptop | The tunnel isn't open (or its SSH session ended). Reopen it; nothing changes on the Pi. To tell which side is down, run `curl -sI http://127.0.0.1:8100/login` on the Pi: 200 there means the tunnel. |
+| `ssh -L` says `bind ... Address already in use` | Something on the laptop already holds 8100, often an old tunnel (`lsof -iTCP:8100 -sTCP:LISTEN`; Windows: `netstat -ano \| findstr :8100`). Stop it, or tunnel to another local port: `ssh -L 8101:127.0.0.1:8100 <user>@<kiosk-host>`, then `http://127.0.0.1:8101/login`. Run `ssh -L` on the **laptop**, not on the kiosk. |
 | `make run-admin-dashboard` on the Pi: address already in use | The boot service already runs it. Use `sudo systemctl restart ssp-admin-dashboard`, not a second copy. If `sudo ss -ltnp \| grep 8100` shows a stray manual copy, kill it, then restart the service. |
 | Page looks unstyled or a button does nothing after a deploy | Stale cached CSS/JS: hard refresh (Cmd+Shift+R on a Mac, Ctrl+Shift+R elsewhere). DevTools → Network should show `dashboard.css` and the page's `.js` as 200. A 404 on `favicon.ico` is normal. |
 | Signed out after a while | `ADMIN_DASHBOARD_SESSION_HOURS` of inactivity (2 on the kiosk). Sign in again. |
 | Sign-in succeeds but bounces back to `/login` | `ADMIN_DASHBOARD_SECURE_COOKIE=true` over plain HTTP: the browser won't send the cookie back. Leave it `false` with the tunnel; `true` only behind Tailscale Serve's HTTPS. |
 
 Accounts exist only through this CLI. With `SIM_MODE=true` it writes to the demo DB, not the real one. Run it from the repo root with `PYTHONPATH=SSP`, not as `python SSP/admin_dashboard/cli.py` (import error).
+
+### Dashboard 101
+
+Sign in at `/login` (2 hours of inactivity signs you out; 5 wrong passwords lock the account for 15 minutes). Two roles: **admin** can read and change things, **operator** can only read. Give `admin` only to people who must edit.
+
+| Page | What it is for | Operator | Admin |
+|---|---|---|---|
+| `/accounting` | Revenue and transaction counts per source (usb, wifi, email, scanner), Vouchers, cash collections. Range: today, week, month, all | read | read |
+| `/kiosk` | Live state: paper, ₱1/₱5 coins, ink, unresolved errors, owed payments | read | set or refill values, Collect cash, mark errors resolved, settle owed payments in cash |
+| `/logs` | Transactions, errors and the Admin Actions audit trail, newest first, Older/Newer paging | read | mark errors resolved |
+| `/settings` | Voucher expiry, pickup window, max change, coin reserves, low-change warning, Digital Copy fee | read | change |
+
+- Every edit writes an Admin Actions row (who, from where, old and new value), so you can see who changed what on `/logs`.
+- A raw `sqlite3` update skips that audit row. Use the dashboard or Kiosk Admin.
+- Collect cash shows a preview, then asks you to confirm. If the counts moved meanwhile it refuses (409): reload and redo it.
+- An error stays unresolved until a person marks it resolved; a later success doesn't clear it.
+- The touchscreen's Kiosk Admin and the dashboard edit the same data. A touchscreen already open keeps the old value until it is reopened.
+
+**Remove a dashboard account** (the CLI can't): `sqlite3 SSP/database/ssp_database.db "delete from users where username='<name>'"`. List accounts: `sqlite3 SSP/database/ssp_database.db "select username, role from users"`.
+
+## SSH access  [pi]
+
+SSH is key-only (`docs/KIOSK_PI_SETUP.md` step 3), so a new person needs a key added by someone who already has access. **Never send a private key** (`~/.ssh/id_ed25519`). Send only the public one (`id_ed25519.pub`).
+
+```bash
+# New person, on their laptop (use a passphrase):
+ssh-keygen -t ed25519 -C "name@laptop"
+cat ~/.ssh/id_ed25519.pub                  # send this one line, e.g. in chat; it is safe to share
+
+# Someone who already has access, on the kiosk:
+echo 'ssh-ed25519 AAAA... name@laptop' >> ~/.ssh/authorized_keys
+chmod 600 ~/.ssh/authorized_keys
+
+# Remove someone: delete their line from ~/.ssh/authorized_keys
+```
+
+**On Windows** (10/11 ship OpenSSH, so the commands above work as they are in PowerShell or Windows Terminal):
+- Keys live in `C:\Users\<name>\.ssh\`. In `cmd.exe`, show the public key with `type %USERPROFILE%\.ssh\id_ed25519.pub`.
+- The public key must stay on **one line** when pasted; a wrapped line silently fails to log in.
+- If `aio-spark-kiosk.local` doesn't resolve, use the kiosk's IP.
+- Inside WSL, `ssh` uses WSL's own `~/.ssh`, not the Windows one. Make the key in whichever you will use.
+
+Then the new person tests `ssh <user>@aio-spark-kiosk.local`. Everyone logs in as the same kiosk user, so the key comment (`-C`) is the only record of whose key is whose.
 
 ## 9. Wi-Fi hotspot and portal  [pi]
 

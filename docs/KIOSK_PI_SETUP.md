@@ -76,7 +76,9 @@ sudo apt update && sudo apt full-upgrade -y
 
 SSH is the only way in until Tailscale (step 15), so lock it to keys once step 3's packages are in.
 
-1. From each laptop that needs access, copy its key (`ssh-keygen -t ed25519` first if it has none):
+1. From each laptop that needs access, copy its key (`ssh-keygen -t ed25519` first if it has none).
+   This works while password login is still on. Once step 2 is done, add a new person's public key
+   by hand instead (see "SSH access" in `CHEATSHEET.md`); never share a private key:
 
    ```bash
    ssh-copy-id <user>@aio-spark-kiosk.local
