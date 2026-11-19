@@ -191,6 +191,8 @@ Then the new person tests `ssh <user>@aio-spark-kiosk.local`. Everyone logs in a
 sudo python3 scripts/setup_hotspot.py --dry-run     # print what it would do
 sudo python3 scripts/setup_hotspot.py               # apply from .env (WIFI_HOTSPOT_ENABLED)
 python3 scripts/setup_hotspot.py --root /tmp/stage  # write files under /tmp/stage, run nothing
+systemctl status hostapd dnsmasq ssp-hotspot-ip; rfkill list; nmcli radio wifi   # hotspot down? check before re-running the script
+sudo nmcli radio wifi on && sudo systemctl restart hostapd   # radio blocked by NetworkManager (SETUP.md, Kiosk hotspot)
 python scripts/generate_tls_cert.py [output_dir]    # self-signed cert for the portal
 ```
 

@@ -328,6 +328,24 @@ After=ssp-hotspot-ip.service ssp-hotspot-firewall.service
 """
 
 
+def render_hostapd_dropin() -> str:
+    # NetworkManager soft-blocks the radio at startup when its saved state has
+    # Wi-Fi off, even with the interface unmanaged, and hostapd then exits 0
+    # (seen on the kiosk 2026-11-19). So hostapd starts after NetworkManager,
+    # unblocks the radio itself just before starting, and is restarted however
+    # it exits: on-failure would miss a clean exit. RestartSec keeps it within
+    # systemd's default start limit (5 starts in 10 s).
+    return _header() + """[Unit]
+Requires=ssp-hotspot-ip.service ssp-hotspot-firewall.service
+After=ssp-hotspot-ip.service ssp-hotspot-firewall.service NetworkManager.service
+
+[Service]
+ExecStartPre=-/usr/sbin/rfkill unblock wlan
+Restart=always
+RestartSec=5
+"""
+
+
 # ---------------------------------------------------------------------------
 # Plan: a list of actions, built without touching the system
 # ---------------------------------------------------------------------------
@@ -409,7 +427,7 @@ def plan(
             DNSMASQ_CONF: render_dnsmasq(s),
             NM_UNMANAGED_CONF: render_nm_unmanaged(s),
             IP_UNIT: render_ip_unit(s),
-            HOSTAPD_DROPIN: render_service_dropin(),
+            HOSTAPD_DROPIN: render_hostapd_dropin(),
             DNSMASQ_DROPIN: render_service_dropin(),
         })
     else:
@@ -436,6 +454,12 @@ def plan(
     if s.enabled:
         # Debian ships hostapd masked until it has a config.
         actions.append(Run(("systemctl", "unmask", "hostapd.service")))
+        # NetworkManager keeps its own Wi-Fi on/off switch (WirelessEnabled in
+        # its state file) and applies it at every boot, unmanaged interface or
+        # not: "off" (from the desktop's network menu or `nmcli radio wifi off`)
+        # blocks the hotspot's radio. Turn it on and keep it on. Ignored where
+        # NetworkManager isn't installed.
+        actions.append(Run(("nmcli", "radio", "wifi", "on"), check=False))
         for unit in ("ssp-hotspot-ip", "hostapd", "dnsmasq"):
             actions.append(Run(("systemctl", "enable", f"{unit}.service")))
         for unit in ("ssp-hotspot-ip", "hostapd", "dnsmasq"):
@@ -491,7 +515,13 @@ def apply(actions: list, root: Path, dry_run: bool = False, run_commands: bool =
                 shutil.move(str(source), str(dest))
                 print(f"    moved to /{dest.relative_to(root)}")
         elif isinstance(action, Run):
-            result = subprocess.run(action.argv)
+            try:
+                result = subprocess.run(action.argv)
+            except FileNotFoundError:
+                if action.check:
+                    raise SystemExit(f"command not found: {action.argv[0]}")
+                print(f"    {action.argv[0]} not installed: skipped")
+                continue
             if action.check and result.returncode != 0:
                 raise SystemExit(f"command failed ({result.returncode}): {' '.join(action.argv)}")
 
