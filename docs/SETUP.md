@@ -475,7 +475,7 @@ What it writes:
 | `/etc/dnsmasq.d/ssp-hotspot.conf` | DHCP on the hotspot, `PORTAL_HOSTNAME` → hotspot address, no upstream DNS |
 | `/etc/ssp-hotspot/firewall.nft` + `ssp-hotspot-firewall.service` | its own `inet ssp_hotspot` table (doesn't touch Tailscale's rules) |
 | `ssp-hotspot-ip.service` | puts `WIFI_HOTSPOT_ADDRESS` on the interface, unblocks rfkill |
-| `hostapd.service.d/`, `dnsmasq.service.d/` drop-ins | start only after the address and firewall |
+| `hostapd.service.d/`, `dnsmasq.service.d/` drop-ins | start only after the address and firewall; hostapd also starts after NetworkManager, unblocks the radio first and restarts whenever it exits |
 | `/etc/NetworkManager/conf.d/ssp-hotspot-unmanaged.conf` | stops NetworkManager fighting hostapd |
 
 ### Off the Pi
@@ -509,6 +509,15 @@ First run: 2026-10-08.
     updates were running. Wait for them (`pgrep -a apt`) and re-run; don't kill apt.
   - Run it over Ethernet: it takes `wlan0` away from NetworkManager.
   - The repo had been copied onto the Pi without `.git`, so `git pull` didn't work. Clone it.
+  - The hotspot was found down after boots (2026-11-19): `hostapd` inactive, `rfkill list` showing
+    Wi-Fi `Soft blocked: yes`, `nmcli radio wifi` showing `disabled`. NetworkManager keeps its own
+    Wi-Fi on/off switch (`WirelessEnabled` in `/var/lib/NetworkManager/NetworkManager.state`) and
+    applies it at every boot, even to an unmanaged interface; its journal says `Wi-Fi ... disabled
+    by state file`. It had been switched off (the desktop's network menu or `nmcli radio wifi off`
+    do it), so each boot blocked the radio after `ssp-hotspot-ip` had unblocked it, and `hostapd`
+    exited cleanly. The script now runs `nmcli radio wifi on`, and `hostapd` unblocks the radio
+    itself and restarts. Don't turn Wi-Fi off from the kiosk's desktop. To recover by hand:
+    `sudo nmcli radio wifi on && sudo systemctl restart hostapd`.
 - Phones: iPhone with mobile data off and on both reached the upload page, but each took over 10 s
   (cause not yet known). Android not yet tested.
 

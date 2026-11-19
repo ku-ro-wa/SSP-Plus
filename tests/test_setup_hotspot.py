@@ -206,6 +206,29 @@ class TestFirewall:
         assert "delete table inet ssp_hotspot" in text
 
 
+class TestServiceDropins:
+    def test_both_wait_for_the_address_and_firewall(self):
+        for text in (hs.render_hostapd_dropin(), hs.render_service_dropin()):
+            lines = _lines(text)
+            assert "Requires=ssp-hotspot-ip.service ssp-hotspot-firewall.service" in lines
+            assert any(line.startswith("After=ssp-hotspot-ip.service ssp-hotspot-firewall.service")
+                       for line in lines)
+
+    def test_hostapd_unblocks_the_radio_after_networkmanager_and_always_restarts(self):
+        # hostapd exits 0 when the radio is blocked, so on-failure wouldn't restart it.
+        lines = _lines(hs.render_hostapd_dropin())
+        after = next(line for line in lines if line.startswith("After="))
+        assert "NetworkManager.service" in after.split("=", 1)[1].split()
+        assert "ExecStartPre=-/usr/sbin/rfkill unblock wlan" in lines
+        assert "Restart=always" in lines
+        assert "RestartSec=5" in lines
+
+    def test_plan_writes_the_hostapd_dropin_to_hostapd(self, tmp_path):
+        writes = {a.path: a.content for a in hs.plan(_settings(), tmp_path) if isinstance(a, hs.Write)}
+        assert writes[hs.HOSTAPD_DROPIN] == hs.render_hostapd_dropin()
+        assert writes[hs.DNSMASQ_DROPIN] == hs.render_service_dropin()
+
+
 class TestPlanEnabled:
     def test_writes_every_hotspot_file(self, tmp_path):
         actions = hs.plan(_settings(), tmp_path)
@@ -223,6 +246,14 @@ class TestPlanEnabled:
         firewall = runs.index(("systemctl", "restart", "ssp-hotspot-firewall.service"))
         assert firewall < runs.index(("systemctl", "restart", "hostapd.service"))
         assert firewall < runs.index(("systemctl", "restart", "dnsmasq.service"))
+
+    def test_networkmanager_wifi_switch_is_turned_on_before_hostapd_starts(self, tmp_path):
+        # NetworkManager's saved "Wi-Fi off" blocked the radio at every boot (2026-11-19).
+        actions = hs.plan(_settings(), tmp_path)
+        runs = _runs(actions)
+        radio_on = runs.index(("nmcli", "radio", "wifi", "on"))
+        assert radio_on < runs.index(("systemctl", "restart", "hostapd.service"))
+        assert not next(a for a in actions if isinstance(a, hs.Run) and a.argv[0] == "nmcli").check
 
     def test_foreign_file_is_backed_up_before_being_replaced(self, tmp_path):
         foreign = tmp_path / hs.HOSTAPD_CONF
@@ -253,6 +284,7 @@ class TestPlanDisabled:
         assert ("systemctl", "disable", "--now", "dnsmasq.service") in runs
         assert ("systemctl", "restart", "ssp-hotspot-firewall.service") in runs
         assert not any(argv[:2] == ("systemctl", "enable") and "hostapd" in argv[-1] for argv in runs)
+        assert ("nmcli", "radio", "wifi", "on") not in runs
 
     def test_removes_hotspot_files_left_from_an_earlier_run(self, tmp_path):
         hs.apply(hs.plan(_settings(), tmp_path), tmp_path, run_commands=False)
@@ -324,6 +356,23 @@ class TestApply:
         assert hs.is_managed(tmp_path / hs.HOSTAPD_CONF)
         assert (tmp_path / hs.FIREWALL_NFT).read_text() == hs.render_firewall(_settings())
         assert "[skip] run     systemctl restart hostapd.service" in capsys.readouterr().out
+
+    def test_missing_optional_command_is_skipped(self, tmp_path, monkeypatch, capsys):
+        def missing(argv):
+            raise FileNotFoundError(argv[0])
+        monkeypatch.setattr(hs.subprocess, "run", missing)
+
+        hs.apply([hs.Run(("nmcli", "radio", "wifi", "on"), check=False)], tmp_path)
+
+        assert "nmcli not installed: skipped" in capsys.readouterr().out
+
+    def test_missing_required_command_stops_the_run(self, tmp_path, monkeypatch):
+        def missing(argv):
+            raise FileNotFoundError(argv[0])
+        monkeypatch.setattr(hs.subprocess, "run", missing)
+
+        with pytest.raises(SystemExit, match="command not found: systemctl"):
+            hs.apply([hs.Run(("systemctl", "daemon-reload"))], tmp_path)
 
     def test_dry_run_changes_nothing(self, tmp_path):
         hs.apply(hs.plan(_settings(), tmp_path), tmp_path, dry_run=True)
