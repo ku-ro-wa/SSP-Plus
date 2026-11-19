@@ -40,11 +40,16 @@ class USBFileManager:
         self.current_usb_drive = None
         self.files_in_use = set()  # Track files currently being processed
         self.operation_in_progress = False
+        # Whether the last scan's drive was unmounted (safe to pull out)
+        self.last_eject_ok = True
+
+    @property
+    def sim_mode(self):
+        return os.getenv('SIM_MODE', 'false').lower() in ('true', '1', 'yes')
 
     def get_usb_drives(self):
         """Detect ONLY actual USB/removable drives - exclude all internal drives"""
-        sim_mode = os.getenv('SIM_MODE', 'false').lower() in ('true', '1', 'yes')
-        if sim_mode:
+        if self.sim_mode:
             return self._get_sim_usb_drives()
 
         usb_drives = []
@@ -308,17 +313,16 @@ class USBFileManager:
             # Mark operation as complete
             self.set_operation_in_progress(False)
 
-            # After all files are processed, automatically "eject" the USB drive
             if copied_files:
                 print(f"✅ Successfully copied {len(copied_files)} PDF files:")
                 for f in copied_files:
                     print(f"   📄 {f['filename']} ({f['size']/1024:.1f} KB, {f['pages']} pages)")
-
-                # Automatically eject USB drive after successful copy
-                self._auto_eject_usb_drive(source_dir)
             else:
                 print("❌ No PDF files found to copy")
 
+            # Unmount whether or not anything was copied: a drive left mounted
+            # and then pulled out gets its FAT dirty bit (or worse) left set
+            self.last_eject_ok = self._auto_eject_usb_drive(source_dir)
             return copied_files
 
         except Exception as e:
@@ -327,6 +331,7 @@ class USBFileManager:
             self.set_operation_in_progress(False)
             import traceback
             traceback.print_exc()
+            self.last_eject_ok = self._auto_eject_usb_drive(source_dir)
             return []
 
     def scan_and_copy_pdf_files_by_paths(self, source_paths: list, display_names: list = None) -> list:
@@ -576,37 +581,51 @@ class USBFileManager:
         self.current_usb_drive = None
 
     def _auto_eject_usb_drive(self, usb_path):
-        """Automatically eject USB drive after files are copied."""
-        try:
-            print(f"🔄 Auto-ejecting USB drive: {usb_path}")
+        """Unmount the drive after it has been read.
 
-            # Clear all safety tracking
-            self.files_in_use.clear()
-            self.operation_in_progress = False
-            self.current_usb_drive = None
+        Returns True only when the drive is confirmed no longer mounted (on
+        Linux), so callers say "safe to remove" only when it is. Other
+        platforms aren't unmounted here and return True as before.
+        """
+        print(f"🔄 Auto-ejecting USB drive: {usb_path}")
 
-            # Try to unmount the drive (Linux/macOS)
-            if platform.system() == "Linux":
-                try:
-                    import subprocess
-                    # Find the device path for the mount point
-                    result = subprocess.run(['findmnt', '-n', '-o', 'SOURCE', usb_path],
-                                            capture_output=True, text=True, timeout=5)
-                    if result.returncode == 0:
-                        device = result.stdout.strip()
-                        print(f"🔌 Unmounting device: {device}")
-                        subprocess.run(['umount', usb_path], timeout=10)
-                        print("✅ USB drive unmounted successfully")
-                    else:
-                        print("⚠️ Could not find device for unmounting")
-                except Exception as e:
-                    print(f"⚠️ Could not unmount USB drive: {e}")
+        # Clear all safety tracking
+        self.files_in_use.clear()
+        self.operation_in_progress = False
+        self.current_usb_drive = None
 
-            print("✅ USB drive is now safe to remove at any time")
+        if platform.system() != "Linux" or self.sim_mode:
+            return True
 
-        except Exception as e:
-            print(f"⚠️ Error during auto-eject: {e}")
-            # Still clear the safety tracking even if unmount fails
-            self.files_in_use.clear()
-            self.operation_in_progress = False
-            self.current_usb_drive = None
+        import subprocess
+
+        def run(cmd, timeout):
+            try:
+                return subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+            except (OSError, subprocess.TimeoutExpired) as e:
+                print(f"⚠️ {cmd[0]} failed: {e}")
+                return None
+
+        def still_mounted():
+            result = run(['findmnt', '-n', '-o', 'SOURCE', '--mountpoint', usb_path], 5)
+            return result is not None and result.returncode == 0
+
+        found = run(['findmnt', '-n', '-o', 'SOURCE', '--mountpoint', usb_path], 5)
+        if found is None or found.returncode != 0:
+            print("⚠️ Drive is not mounted (already removed?)")
+            return True
+        device = found.stdout.strip()
+        print(f"🔌 Unmounting device: {device}")
+
+        # The desktop's automounter (udisks2) mounted it; udisksctl can unmount
+        # it without root. Plain umount is the fallback.
+        for cmd in (['udisksctl', 'unmount', '-b', device], ['umount', usb_path]):
+            result = run(cmd, 15)
+            if result is not None and result.returncode == 0 and not still_mounted():
+                print("✅ USB drive unmounted, safe to remove")
+                return True
+            if result is not None and result.returncode != 0:
+                print(f"⚠️ {' '.join(cmd)}: {(result.stderr or result.stdout).strip()}")
+
+        print("❌ Could not unmount USB drive, it is NOT safe to remove yet")
+        return False
