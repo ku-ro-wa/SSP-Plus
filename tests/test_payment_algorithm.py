@@ -118,10 +118,10 @@ class TestMaxDispensableChange:
         pam = PaymentAlgorithmManager(_make_db(coins_1=3, coins_5=2))
         assert pam.get_max_dispensable_change() == 13
 
-    def test_respects_reserve_thresholds(self):
+    def test_low_coin_warning_levels_do_not_reduce_it(self):
         settings = {'min_coin_threshold_1': 2, 'min_coin_threshold_5': 1}
         pam = PaymentAlgorithmManager(_make_db(coins_1=3, coins_5=2, settings=settings))
-        assert pam.get_max_dispensable_change() == 6
+        assert pam.get_max_dispensable_change() == 13
 
     def test_capped_by_max_change_limit(self):
         pam = PaymentAlgorithmManager(_make_db(coins_1=100, coins_5=100, settings={'max_change_limit': 50}))
@@ -158,13 +158,14 @@ class TestSettingsReadLive:
         settings['max_change_limit'] = 20
         assert pam.get_max_dispensable_change() == 20
 
-    def test_reserves_apply_without_rebuilding(self):
+    def test_warning_levels_are_read_live_but_never_limit_change(self):
         settings = {}
         pam = PaymentAlgorithmManager(_make_db(coins_1=3, coins_5=2, settings=settings))
         assert pam.get_max_dispensable_change() == 13
         settings['min_coin_threshold_1'] = 2
         settings['min_coin_threshold_5'] = 1
-        assert pam.get_max_dispensable_change() == 6
+        assert pam.MIN_COIN_THRESHOLDS == {1: 2, 5: 1}
+        assert pam.get_max_dispensable_change() == 13
 
     def test_unparseable_values_fall_back_to_defaults(self):
         settings = {'max_change_limit': 'lots', 'min_coin_threshold_1': 'x'}
@@ -177,47 +178,89 @@ class TestSettingsReadLive:
         assert pam.MIN_COIN_THRESHOLDS[5] == 0
 
 
-class TestBestPaymentRespectsMaxChange:
-    def test_max_payment_is_cost_plus_max_change(self):
-        # cost ₱50, Maximum change ₱25: the customer can pay up to ₱75 in any mix of
-        # bills and coins (₱20 bills: 20+20+20 = ₱60 still gets ₱10 back as coins)
+class TestBestPaymentDisplay:
+    """The 'Max payment we can receive (available ...)' line: the largest accepted
+    denomination (1, 5, 10, 20, 50, 100) whose change the hoppers can cover."""
+
+    def test_largest_denomination_whose_change_fits(self):
+        # ₱13 in the hoppers, cost ₱7: ceiling ₱20, so pay ₱20 and get ₱13 back
+        pam = PaymentAlgorithmManager(_make_db(coins_1=3, coins_5=2))
+        result = pam.find_best_payment_amount(7.0)
+        assert result['amount'] == 20.0 and result['change'] == 13.0
+        assert result['reason'] == 'Max payment we can receive: ₱20.00 (available ₱13.00)'
+
+    def test_rounds_down_to_a_denomination(self):
+        pam = PaymentAlgorithmManager(_make_db(coins_1=100, coins_5=100))
+        result = pam.find_best_payment_amount(50.0)
+        assert result['amount'] == 100.0 and result['change'] == 50.0
+
+    def test_exact_when_nothing_fits(self):
+        pam = PaymentAlgorithmManager(_make_db(coins_1=0, coins_5=0))
+        result = pam.find_best_payment_amount(7.0)
+        assert result['amount'] == 7.0 and result['reason'] == 'Exact payment'
+
+    def test_follows_hopper_stock(self):
+        pam = PaymentAlgorithmManager(_make_db(coins_1=0, coins_5=1))
+        result = pam.find_best_payment_amount(5.0)
+        assert result['amount'] == 10.0 and result['change'] == 5.0
+
+    def test_low_coin_warning_levels_do_not_change_it(self):
+        settings = {'min_coin_threshold_1': 50, 'min_coin_threshold_5': 50}
+        pam = PaymentAlgorithmManager(_make_db(coins_1=3, coins_5=2, settings=settings))
+        assert pam.find_best_payment_amount(7.0)['amount'] == 20.0
+
+
+class TestAvailableMatchesThePayout:
+    """'available' on the max-payment line is the coin change actually paid; change
+    owed beyond Maximum change is a Voucher."""
+
+    def test_available_is_capped_at_max_change(self):
+        # ₱3 job, plenty of coins: ₱100 is still the max payment, but only ₱50 comes
+        # out in coins and the other ₱47 is a voucher
+        pam = PaymentAlgorithmManager(
+            _make_db(coins_1=100, coins_5=100, settings={'max_change_limit': 50}))
+        result = pam.find_best_payment_amount(3.0)
+        assert result['amount'] == 100.0
+        assert result['change'] == 50.0 and result['voucher'] == 47.0
+        assert result['required_coins'] == {1: 0, 5: 10}
+        assert result['reason'] == 'Max payment we can receive: ₱100.00 (available ₱50.00)'
+
+    def test_smaller_limit(self):
         pam = PaymentAlgorithmManager(
             _make_db(coins_1=100, coins_5=100, settings={'max_change_limit': 25}))
         result = pam.find_best_payment_amount(50.0)
-        assert result['amount'] == 75.0
-        assert result['change'] == 25.0
-        assert '₱75.00' in result['reason']
+        assert result['amount'] == 100.0
+        assert result['change'] == 25.0 and result['voucher'] == 25.0
 
-    def test_not_rounded_down_to_a_bill(self):
-        pam = PaymentAlgorithmManager(
-            _make_db(coins_1=100, coins_5=100, settings={'max_change_limit': 10}))
+    def test_under_the_limit_nothing_is_vouchered(self):
+        pam = PaymentAlgorithmManager(_make_db(coins_1=3, coins_5=2))
         result = pam.find_best_payment_amount(7.0)
-        assert result['amount'] == 17.0 and result['change'] == 10.0
+        assert result['change'] == 13.0 and result['voucher'] == 0.0
 
-    def test_zero_limit_means_exact_payment(self):
-        pam = PaymentAlgorithmManager(
-            _make_db(coins_1=100, coins_5=100, settings={'max_change_limit': 0}))
-        result = pam.find_best_payment_amount(7.0)
-        assert result['amount'] == 7.0 and result['change'] == 0.0
+    def test_exact_payment_has_no_voucher(self):
+        pam = PaymentAlgorithmManager(_make_db(coins_1=0, coins_5=0))
+        assert pam.find_best_payment_amount(7.0)['voucher'] == 0.0
 
-    def test_limited_by_stock_when_below_the_cap(self):
-        pam = PaymentAlgorithmManager(
-            _make_db(coins_1=3, coins_5=0, settings={'max_change_limit': 50}))
-        result = pam.find_best_payment_amount(7.0)
-        assert result['amount'] == 10.0 and result['change'] == 3.0
-
-    def test_suggestion_follows_a_changed_limit(self):
-        settings = {'max_change_limit': 100}
+    def test_follows_a_changed_limit_without_rebuilding(self):
+        settings = {'max_change_limit': 50}
         pam = PaymentAlgorithmManager(_make_db(coins_1=100, coins_5=100, settings=settings))
-        assert pam.find_best_payment_amount(7.0)['amount'] == 107.0
-        settings['max_change_limit'] = 10
-        assert pam.find_best_payment_amount(7.0)['amount'] == 17.0
+        assert pam.find_best_payment_amount(3.0)['change'] == 50.0
+        settings['max_change_limit'] = 20
+        assert pam.find_best_payment_amount(3.0)['change'] == 20.0
 
-    def test_required_coins_match_the_change(self):
-        pam = PaymentAlgorithmManager(
-            _make_db(coins_1=100, coins_5=100, settings={'max_change_limit': 25}))
-        result = pam.find_best_payment_amount(50.0)
-        assert result['required_coins'] == {1: 0, 5: 5}
+    def test_always_equals_what_the_dispenser_would_pay(self):
+        for cap in (0, 7, 25, 50, 1000):
+            for ones in (0, 4, 100):
+                for fives in (0, 3, 100):
+                    pam = PaymentAlgorithmManager(_make_db(
+                        coins_1=ones, coins_5=fives, settings={'max_change_limit': cap}))
+                    for cost in (3.0, 7.0, 50.0):
+                        r = pam.find_best_payment_amount(cost)
+                        owed = int(r['amount'] - cost)
+                        assert r['change'] + r['voucher'] == owed
+                        assert r['change'] == _planned(owed, pam.get_dispense_limits(owed))
+                        assert r['change'] <= cap
+                        assert r['required_coins'][5] * 5 + r['required_coins'][1] == r['change']
 
 
 def _planned(owed, limits):
@@ -242,10 +285,10 @@ class TestDispenseLimits:
         assert limits == {5: 3, 1: 35}
         assert _planned(97, limits) == 50
 
-    def test_reserves_are_held_back(self):
+    def test_low_coin_warning_levels_do_not_hold_coins_back(self):
         settings = {'max_change_limit': 1000, 'min_coin_threshold_1': 2, 'min_coin_threshold_5': 1}
         pam = PaymentAlgorithmManager(_make_db(coins_1=10, coins_5=4, settings=settings))
-        assert pam.get_dispense_limits(97) == {5: 3, 1: 8}
+        assert pam.get_dispense_limits(97) == {5: 4, 1: 10}
 
     def test_small_change_under_the_cap_is_untouched(self):
         pam = PaymentAlgorithmManager(_make_db(coins_1=10, coins_5=5))
@@ -276,3 +319,29 @@ class TestDispenseLimits:
                         planned = _planned(owed, limits)
                         assert planned <= min(cap, owed)
                         assert limits[5] <= fives and limits[1] <= ones
+
+
+class TestLowCoinWarningLevelsAreDisplayOnly:
+    """'Warn when coins fall to n' only drives the low-coin display. It must not change
+    what the kiosk accepts or pays out, even when a hopper is under n."""
+    SETTINGS = {'min_coin_threshold_1': 50, 'min_coin_threshold_5': 50}
+
+    def test_change_can_be_dispensed_with_hoppers_under_the_level(self):
+        pam = PaymentAlgorithmManager(_make_db(coins_1=3, coins_5=2, settings=dict(self.SETTINGS)))
+        can, reason, req = pam.can_dispense_change(13)
+        assert can is True and req == {1: 3, 5: 2}
+
+    def test_max_payment_ignores_the_level(self):
+        with_level = PaymentAlgorithmManager(_make_db(coins_1=3, coins_5=2, settings=dict(self.SETTINGS)))
+        without = PaymentAlgorithmManager(_make_db(coins_1=3, coins_5=2))
+        assert with_level.find_best_payment_amount(7.0) == without.find_best_payment_amount(7.0)
+        assert with_level.find_best_payment_amount(7.0)['amount'] == 20.0
+
+    def test_payout_limits_ignore_the_level(self):
+        with_level = PaymentAlgorithmManager(_make_db(coins_1=3, coins_5=2, settings=dict(self.SETTINGS)))
+        assert with_level.get_dispense_limits(13) == {5: 2, 1: 3}
+
+    def test_validate_payment_ignores_the_level(self):
+        pam = PaymentAlgorithmManager(_make_db(coins_1=3, coins_5=2, settings=dict(self.SETTINGS)))
+        valid, _, info = pam.validate_payment(7.0, 20.0)
+        assert valid is True and info['change_amount'] == 13.0
