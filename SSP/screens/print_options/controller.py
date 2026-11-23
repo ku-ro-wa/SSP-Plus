@@ -108,10 +108,12 @@ class PrintOptionsController(QWidget):
         self.main_app.show_screen('payment')
 
     def _go_back(self):
-        """Goes back to the input selection (homepage) screen."""
-        print("Print options screen: going back to input selection")
+        """Goes back to the screen the files came from: the scan's destination
+        choice for a scan, otherwise the file browser (ticks and pages kept)."""
+        previous = 'scan_destination' if self.source == 'scanner' else 'file_browser'
+        print(f"Print options screen: going back to {previous}")
         self.on_leave()
-        self.main_app.show_screen('homepage')
+        self.main_app.show_screen(previous)
 
     def _show_message(self, title, text):
         """Shows a message to the user."""
