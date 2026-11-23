@@ -13,7 +13,7 @@ from PyQt5.QtWidgets import (
 )
 
 from config import get_config
-from managers.voucher_manager import MSG_UNGIVEN_CHANGE
+from managers.voucher_manager import MSG_UNGIVEN_CHANGE, typed_code
 from ui.icons import icon, icon_path, svg_widget
 from ui.theme import (
     CARD_QSS, COLORS, DANGER_BUTTON_QSS, FONT, HEADER_QSS, PRIMARY_BUTTON_QSS, RADIUS,
@@ -312,6 +312,28 @@ class CodeKeypad(QWidget):
         else:
             target.insert(value)
         self.pressed.emit()
+
+
+class VoucherCodeInput(QLineEdit):
+    """Voucher code entry for the payment screen and the balance popup. Holds at most the
+    code's 8 characters and shows them as XXXX-XXXX (the hyphen is added, there is no
+    key for it), so a customer can't type past the end of a code."""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._formatting = False
+        self.textChanged.connect(self._reformat)
+
+    def _reformat(self, text):
+        if self._formatting:
+            return
+        shown = typed_code(text)
+        if shown != text:
+            self._formatting = True
+            try:
+                self.setText(shown)  # cursor goes to the end, where the keypad types
+            finally:
+                self._formatting = False
 
 
 class OtpEntryPanel(QWidget):

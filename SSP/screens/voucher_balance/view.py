@@ -5,11 +5,11 @@
 # value and expiry, nothing else. Contains no logic; the controller feeds it from
 # VoucherBalanceModel.
 
-from PyQt5.QtWidgets import QFrame, QHBoxLayout, QLabel, QLineEdit, QVBoxLayout, QWidget
+from PyQt5.QtWidgets import QFrame, QHBoxLayout, QLabel, QVBoxLayout, QWidget
 from PyQt5.QtCore import Qt, pyqtSignal
 
 from ui.theme import COLORS, FONT, RADIUS
-from ui.widgets import BackButton, CodeKeypad, PrimaryButton, ReaderHint, StatusBanner
+from ui.widgets import BackButton, CodeKeypad, PrimaryButton, ReaderHint, StatusBanner, VoucherCodeInput
 
 SUBTITLE = "Enter your voucher code to see how much is left on it."
 
@@ -61,9 +61,8 @@ class VoucherBalancePopupView(QFrame):
         entry_row.setSpacing(6)
         entry_row.addStretch()
 
-        self.code_input = QLineEdit()
+        self.code_input = VoucherCodeInput()  # at most 8 characters, shown XXXX-XXXX
         self.code_input.setPlaceholderText("XXXX-XXXX")
-        self.code_input.setMaxLength(16)  # room for 'V1:' and spaces; normalize_code decides
         self.code_input.setAlignment(Qt.AlignCenter)
         self.code_input.setMinimumWidth(260)
         self.code_input.setStyleSheet(
@@ -74,6 +73,7 @@ class VoucherBalancePopupView(QFrame):
         self.code_input.returnPressed.connect(self._emit_check)
 
         self.check_button = PrimaryButton("Check balance")
+        self.check_button.setMinimumHeight(44)
         self.check_button.clicked.connect(self._emit_check)
 
         entry_row.addWidget(self.code_input)

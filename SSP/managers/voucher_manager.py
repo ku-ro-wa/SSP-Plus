@@ -57,6 +57,17 @@ def normalize_code(raw) -> Optional[str]:
     return s
 
 
+def typed_code(raw: str) -> str:
+    """What an entry field should show while a code is typed: only code characters
+    (a 'V1:' prefix, hyphens and spaces dropped, Crockford look-alikes fixed), at most
+    CODE_LENGTH of them, with the hyphen after the fourth: 'abcd1' -> 'ABCD-1'."""
+    s = (raw or "").strip().upper()
+    if s.startswith(QR_PREFIX):
+        s = s[len(QR_PREFIX):]
+    chars = "".join(c for c in s.translate(_CROCKFORD_FIXES) if c in CODE_ALPHABET)[:CODE_LENGTH]
+    return chars if len(chars) <= 4 else f"{chars[:4]}-{chars[4:]}"
+
+
 def format_code(code: str) -> str:
     """'ABCD1234' -> 'ABCD-1234' (the typeable on-screen form)."""
     return f"{code[:4]}-{code[4:]}"

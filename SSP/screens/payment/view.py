@@ -2,12 +2,15 @@
 
 from html import escape
 
-from PyQt5.QtWidgets import QFrame, QWidget, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit
+from PyQt5.QtWidgets import QFrame, QWidget, QVBoxLayout, QHBoxLayout, QLabel
 from PyQt5.QtCore import Qt, pyqtSignal
 
 from config import get_config
 from ui.theme import COLORS, FONT
-from ui.widgets import Header, BackButton, CodeKeypad, PrimaryButton, SecondaryButton, StatusBanner, NAV_EDGE_INSET, nav_button
+from ui.widgets import (
+    Header, BackButton, CodeKeypad, PrimaryButton, SecondaryButton, StatusBanner, VoucherCodeInput,
+    NAV_EDGE_INSET, nav_button,
+)
 
 
 def _classify_status_variant(status_text: str) -> str:
@@ -145,9 +148,8 @@ class PaymentScreenView(QWidget):
         self.use_voucher_btn.clicked.connect(self._show_voucher_input)
         row.addWidget(self.use_voucher_btn)
 
-        self.voucher_input = QLineEdit()
+        self.voucher_input = VoucherCodeInput()  # at most 8 characters, shown XXXX-XXXX
         self.voucher_input.setPlaceholderText("Voucher code (XXXX-XXXX)")
-        self.voucher_input.setMaxLength(16)  # room for 'V1:' and a hyphen
         self.voucher_input.setAlignment(Qt.AlignCenter)
         self.voucher_input.setStyleSheet(
             f"QLineEdit {{ border: 1px solid {COLORS['border_strong']}; border-radius: 6px; padding: 6px; "
