@@ -78,6 +78,7 @@ class ScanResultScreenView(QWidget):
         body_layout.addSpacing(16)
 
         self.done_button = PrimaryButton("Done")
+        self.done_button.setMinimumHeight(44)
         self.done_button.clicked.connect(self.done_clicked.emit)
 
         body_layout.addStretch(2)

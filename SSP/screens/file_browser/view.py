@@ -79,10 +79,11 @@ class PDFButton(QPushButton):
         filename = pdf_data['filename']
         size_mb = pdf_data.get('size', 0) / (1024 * 1024)
         if pdf_data.get('error'):
-            self.setText(f"⚠️ {filename}\n({size_mb:.1f}MB, can't be opened)")
+            # No emoji: the kiosk has no emoji font and draws them as a bar
+            self.setText(f"{filename}\n({size_mb:.1f}MB, can't be opened)")
         else:
             pages = pdf_data.get('pages', 1)
-            self.setText(f"📄 {filename}\n({size_mb:.1f}MB, ~{pages} pages)")
+            self.setText(f"{filename}\n({size_mb:.1f}MB, ~{pages} pages)")
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
         self.setStyleSheet(self.get_normal_style())
         self.clicked.connect(self.on_click)
@@ -219,7 +220,7 @@ class PDFPageWidget(QFrame):
         self.preview_label.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         self.preview_label.setStyleSheet(
             f"QLabel {{ background-color: {COLORS['bg_subtle']}; border: 1px solid {COLORS['border']}; "
-            f"border-radius: {RADIUS['sm']}px; color: {COLORS['text_secondary']}; font-size: 13px; }}"
+            f"border-radius: {RADIUS['sm']}px; color: {COLORS['text_secondary']}; font-size: {FONT['size_sm']}px; }}"
         )
         self.preview_label.setText(f"Loading\nPage {self.page_num}...")
         layout.addWidget(self.checkbox, 0)
@@ -268,7 +269,7 @@ class PDFPageWidget(QFrame):
         self.preview_label.setText(f"Page {self.page_num}\n\nError:\n{error_msg}")
         self.preview_label.setStyleSheet(
             f"QLabel {{ background-color: {COLORS['danger_bg']}; border: 1px solid {COLORS['danger']}; "
-            f"border-radius: {RADIUS['sm']}px; color: {COLORS['danger']}; font-size: 13px; }}"
+            f"border-radius: {RADIUS['sm']}px; color: {COLORS['danger']}; font-size: {FONT['size_sm']}px; }}"
         )
 
 

@@ -96,6 +96,7 @@ class ScannerScreenView(QWidget):
         # switching to colour is stated on the button.
         self.colour_button = SecondaryButton("")
         self.colour_button.setCheckable(True)
+        self.colour_button.setMinimumHeight(44)
         self.colour_button.toggled.connect(self._on_colour_toggled)
         colour_row = QHBoxLayout()
         colour_row.addStretch()
