@@ -39,6 +39,9 @@ class ThankYouScreenView(QWidget):
 
         self.subtitle_label = QLabel("You may now remove your USB")
         self.subtitle_label.setAlignment(Qt.AlignCenter)
+        # Must wrap: the no-paper refill hint is one long line, and a label that can't wrap
+        # widens the whole window, pushing every screen past both panel edges.
+        self.subtitle_label.setWordWrap(True)
         self.subtitle_label.setStyleSheet(
             f"color: {COLORS['text_secondary']}; font-size: {FONT['size_xl']}px;"
         )
