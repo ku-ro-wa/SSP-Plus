@@ -3,7 +3,7 @@
 
 import os
 
-from PyQt5.QtGui import QFont, QFontDatabase
+from PyQt5.QtGui import QColor, QFont, QFontDatabase, QPalette
 from PyQt5.QtWidgets import QApplication
 
 COLORS = {
@@ -345,6 +345,11 @@ def apply_theme(app: QApplication) -> None:
     app.setStyle("Fusion")
     load_fonts()
     app.setFont(base_font())
+    # Placeholder text ("6-digit code", "XXXX-XXXX") in the muted grey, 5:1 on white;
+    # Fusion's own placeholder colour measured 2.8:1.
+    palette = app.palette()
+    palette.setColor(QPalette.PlaceholderText, QColor(COLORS["text_muted"]))
+    app.setPalette(palette)
     app.setStyleSheet(build_stylesheet())
 
 

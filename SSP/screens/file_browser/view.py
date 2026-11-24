@@ -55,7 +55,9 @@ QPushButton:hover {{ background-color: {COLORS["primary_hover"]}; }}
 # Outline/fill colors for page selection UI (grid thumbnails + single-page view).
 # Kept distinct from COLORS['border']/COLORS['border_strong'], which are nearly
 # identical light greys and don't read as a clear "selected vs not" outline.
-PAGE_OUTLINE_COLOR = "#A8A8A4"
+# An unticked box is only its outline, so it needs WCAG 1.4.11's 3:1: 3.5:1 on white,
+# 3.2:1 on bg_subtle (#A8A8A4, before, was 2.4:1).
+PAGE_OUTLINE_COLOR = "#8A8A86"
 PAGE_SELECTED_COLOR = "#1C1C1A"
 CHECKBOX_CHECKED_ICON = icon_path("checkbox-checked").replace("\\", "/")
 
