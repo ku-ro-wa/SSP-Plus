@@ -4,6 +4,7 @@ from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel, QFrame, 
 from PyQt5.QtCore import Qt, pyqtSignal
 
 from managers.voucher_manager import MSG_UNGIVEN_CHANGE
+from ui.dialogs import KioskMessageBox
 from ui.icons import icon
 from ui.theme import COLORS, FONT
 from ui.widgets import Header, LowChangeBanner, ReaderHint, SecondaryButton, StatusBanner
@@ -94,10 +95,9 @@ class IdleScreenView(QWidget):
 
     def confirm_low_change(self):
         """Modal "Continue anyway / Cancel" prompt. Returns True to continue."""
-        dialog = QMessageBox(self)
-        dialog.setIcon(QMessageBox.Warning)
-        dialog.setWindowTitle("Low on change")
-        dialog.setText(f"This kiosk is low on change right now. {MSG_UNGIVEN_CHANGE}")
+        dialog = KioskMessageBox(self, "Low on change",
+                                 f"This kiosk is low on change right now. {MSG_UNGIVEN_CHANGE}",
+                                 QMessageBox.Warning)
         continue_button = dialog.addButton("Continue anyway", QMessageBox.AcceptRole)
         dialog.addButton("Cancel", QMessageBox.RejectRole)
         dialog.exec_()

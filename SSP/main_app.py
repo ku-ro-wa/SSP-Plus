@@ -1085,6 +1085,16 @@ class PrintingSystemApp(QMainWindow):
             print(f"⚠️ Error stopping change dispensing: {e}")
         stop_all_hopper_motors()
 
+    def changeEvent(self, a0) -> None:
+        """Never stay minimised on the kiosk: a minimised kiosk shows the Pi desktop.
+        Dialogs have no title bar (ui/dialogs.py), so this is the backstop for any other
+        way the window gets minimised. Off in SIM_MODE, so a laptop's window can be."""
+        super().changeEvent(a0)
+        if (a0 is not None and a0.type() == QtCore.QEvent.WindowStateChange
+                and self.isMinimized() and not get_config().sim_mode):
+            print("⚠️ Kiosk window was minimised; restoring fullscreen")
+            QTimer.singleShot(0, self.showFullScreen)
+
     def closeEvent(self, a0) -> None:
         """
         Qt event handler for window close.

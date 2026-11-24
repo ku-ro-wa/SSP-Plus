@@ -148,7 +148,7 @@ def tap_idle(main_app, answer=None):
     def respond():
         dialog = QApplication.activeModalWidget()
         if isinstance(dialog, QMessageBox):
-            seen.append(dialog.text())
+            seen.append(f"{dialog.text()}\n{dialog.informativeText()}")  # heading, then message
             [button] = [b for b in dialog.buttons() if b.text() == answer]
             button.click()
 

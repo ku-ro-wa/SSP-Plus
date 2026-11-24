@@ -11,6 +11,8 @@ from config import get_config
 from managers.supply_levels import (
     COIN_CRIT, COIN_WARN, INK_CRIT, INK_WARN, PAPER_CRIT, PAPER_WARN,
 )
+from ui import dialogs
+from ui.dialogs import KioskMessageBox
 from ui.theme import COLORS, FONT, GROUPBOX_QSS, INPUT_QSS, RADIUS, severity_color
 from ui.widgets import BackButton, CodeKeypad, Header, PrimaryButton, SecondaryButton, nav_row
 
@@ -403,10 +405,7 @@ class AdminScreenView(QWidget):
             f"Ref {row['payment_ref'][:8]}\n\n"
             "Only settle it for the customer who paid: check what they say they paid, and when."
         )
-        box = QMessageBox(self)
-        box.setIcon(QMessageBox.Question)
-        box.setWindowTitle("Owed payment")
-        box.setText(text)
+        box = KioskMessageBox(self, "Owed payment", text, QMessageBox.Question)
         voucher_button = box.addButton("Issue voucher", QMessageBox.AcceptRole) if vouchers_enabled else None
         cash_button = box.addButton("Refunded in cash", QMessageBox.AcceptRole)
         box.addButton("Not now", QMessageBox.RejectRole)
@@ -433,14 +432,11 @@ class AdminScreenView(QWidget):
             "With the coins at 0 the kiosk gives no change until you enter the hopper "
             "counts after refilling."
         )
-        box = QMessageBox(self)
-        box.setIcon(QMessageBox.Question)
-        box.setWindowTitle("Collect cash")
-        box.setText(text)
+        box = KioskMessageBox(self, "Collect cash", text, QMessageBox.Question)
         box.setStandardButtons(QMessageBox.Yes | QMessageBox.Cancel)
         box.setDefaultButton(QMessageBox.Cancel)
         box.button(QMessageBox.Yes).setText("Collect")
         return box.exec_() == QMessageBox.Yes
 
     def show_message_box(self, title: str, text: str):
-        QMessageBox.warning(self, title, text)
+        dialogs.warning(self, title, text)

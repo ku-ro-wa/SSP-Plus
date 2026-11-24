@@ -1,6 +1,7 @@
 from PyQt5.QtWidgets import (QDialog, QVBoxLayout, QGridLayout, QPushButton, QLabel)
 from PyQt5.QtCore import Qt, pyqtSignal
 
+from ui.dialogs import KIOSK_DIALOG_FLAGS
 from ui.theme import COLORS, FONT, RADIUS
 
 
@@ -15,7 +16,10 @@ class PinDialogView(QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setWindowTitle("Admin Access")
-        self.setFixedSize(460, 640)
+        # No title bar: its minimise button let a customer out to the Pi desktop.
+        # Cancel (below the keypad) is the way out instead of the title bar's close.
+        self.setWindowFlags(KIOSK_DIALOG_FLAGS)
+        self.setFixedSize(460, 730)
         self.setup_ui()
 
     def setup_ui(self):
@@ -71,6 +75,13 @@ class PinDialogView(QDialog):
 
         main_layout.addLayout(keypad_layout)
 
+        # Not one of _keys: it stays usable during a lockout, so nobody is stuck here.
+        self.cancel_button = QPushButton("Cancel")
+        self.cancel_button.setObjectName("PinCancel")
+        self.cancel_button.setCursor(Qt.PointingHandCursor)
+        self.cancel_button.clicked.connect(self.reject)
+        main_layout.addWidget(self.cancel_button)
+
     def update_pin_display(self, pin_text):
         """Updates the PIN display with the provided text (asterisks)."""
         self.pin_display.setText(pin_text)
@@ -93,8 +104,7 @@ class PinDialogView(QDialog):
         return f"""
             QDialog {{
                 background-color: {COLORS['bg']};
-                border: 1px solid {COLORS['border_strong']};
-                border-radius: {RADIUS['lg']}px;
+                border: 2px solid {COLORS['text_muted']};
             }}
             QLabel#PinDisplay {{
                 background-color: {COLORS['bg_subtle']};
@@ -126,6 +136,11 @@ class PinDialogView(QDialog):
                 background-color: {COLORS['border']};
             }}
             QPushButton#PinClear {{
+                color: {COLORS['text_secondary']};
+            }}
+            QPushButton#PinCancel {{
+                font-size: {FONT['size_md']}px;
+                min-height: 56px;
                 color: {COLORS['text_secondary']};
             }}
             QPushButton#PinEnter {{

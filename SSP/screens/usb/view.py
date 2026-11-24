@@ -1,10 +1,11 @@
 # screens/usb/view.py
 
 from PyQt5.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QLabel, QGraphicsOpacityEffect, QMessageBox
+    QWidget, QVBoxLayout, QHBoxLayout, QLabel, QGraphicsOpacityEffect
 )
 from PyQt5.QtCore import Qt, pyqtSignal, QTimer
 
+from ui import dialogs
 from ui.theme import COLORS, FONT
 from ui.widgets import Header, BackButton, StatusBanner, nav_row
 
@@ -121,11 +122,11 @@ class USBScreenView(QWidget):
 
     def show_message(self, title, text):
         """Shows a message to the user."""
-        QMessageBox.information(self, title, text)
+        dialogs.information(self, title, text)
 
     def show_warning(self, title, text):
         """Shows a warning message to the user."""
-        QMessageBox.warning(self, title, text)
+        dialogs.warning(self, title, text)
 
     def show_safety_warning(self, message):
         """Shows a safety warning message."""

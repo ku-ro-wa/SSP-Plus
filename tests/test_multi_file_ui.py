@@ -9,7 +9,8 @@ from unittest.mock import MagicMock
 os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
 import fitz  # noqa: E402
 import pytest  # noqa: E402
-from PyQt5.QtWidgets import QApplication, QMessageBox  # noqa: E402
+from PyQt5.QtWidgets import QApplication  # noqa: E402
+from ui import dialogs  # noqa: E402
 
 import screens.print_options.model as po_model  # noqa: E402
 from managers.print_items import MAX_FILES_PER_TRANSACTION, PrintItem  # noqa: E402
@@ -50,7 +51,7 @@ def wait_until(condition, what="the analysis"):
 @pytest.fixture
 def browser(monkeypatch):
     warnings = []
-    monkeypatch.setattr(QMessageBox, 'warning', lambda *a, **k: warnings.append(a[2]))
+    monkeypatch.setattr(dialogs, 'warning', lambda *a, **k: warnings.append(a[2]))
     main_app = MagicMock()
     controller = FileBrowserController(main_app)
     controller.set_source('usb')
@@ -302,7 +303,7 @@ def test_the_model_refuses_no_files_and_too_many(tmp_path, model):
 
 @pytest.fixture
 def options(monkeypatch):
-    monkeypatch.setattr(QMessageBox, 'warning', MagicMock())
+    monkeypatch.setattr(dialogs, 'warning', MagicMock())
     main_app = MagicMock()
     main_app.admin_screen.get_paper_count.return_value = 100
     controller = PrintOptionsController(main_app)
@@ -382,7 +383,7 @@ def test_backing_out_of_payment_changing_the_job_and_returning_works_twice(tmp_p
     change copies and color and go to payment again, more than once."""
     controller, main_app = options
     warned = []
-    monkeypatch.setattr(QMessageBox, 'warning', lambda *a, **k: warned.append(a[2]))
+    monkeypatch.setattr(dialogs, 'warning', lambda *a, **k: warned.append(a[2]))
     items = [PrintItem(pdf_data(tmp_path, 'a.pdf', pages=3, color_pages=(1,)), [1, 2, 3]),
              PrintItem(pdf_data(tmp_path, 'b.pdf', pages=1), [1])]
     controller.set_items(items, 'usb')
@@ -411,7 +412,7 @@ def test_backing_out_of_payment_changing_the_job_and_returning_works_twice(tmp_p
 def test_continue_during_a_stalled_price_recovers_instead_of_a_popup(tmp_path, options, monkeypatch):
     controller, main_app = options
     warned = []
-    monkeypatch.setattr(QMessageBox, 'warning', lambda *a, **k: warned.append(a[2]))
+    monkeypatch.setattr(dialogs, 'warning', lambda *a, **k: warned.append(a[2]))
     item = PrintItem(pdf_data(tmp_path, 'a.pdf', pages=2, color_pages=(1,)), [1, 2])
     controller.set_items([item], 'usb')
     item.analysis = None            # a price that never arrived (failed or stopped analysis)

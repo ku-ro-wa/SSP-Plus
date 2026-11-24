@@ -12,11 +12,12 @@ import re
 from unittest.mock import MagicMock
 
 import pytest
-from PyQt5.QtWidgets import QApplication, QMessageBox
+from PyQt5.QtWidgets import QApplication
 
 from screens.file_browser.controller import FileBrowserController
 from screens.print_options.controller import PrintOptionsController
 from screens.thank_you.controller import ThankYouController
+from ui import dialogs
 from screens.payment.view import PaymentScreenView
 from managers.voucher_manager import CODE_ALPHABET
 
@@ -39,7 +40,7 @@ def test_no_controller_takes_its_views_layout():
 
 @pytest.mark.parametrize("controller_class", [ThankYouController, PrintOptionsController, FileBrowserController])
 def test_controller_holds_its_view_and_adds_no_window(monkeypatch, controller_class):
-    monkeypatch.setattr(QMessageBox, "warning", MagicMock())
+    monkeypatch.setattr(dialogs, "warning", MagicMock())
     windows_before = set(QApplication.topLevelWidgets())
 
     controller = controller_class(MagicMock())

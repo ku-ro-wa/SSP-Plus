@@ -1,7 +1,8 @@
 # screens/data_viewer/controller.py
 
-from PyQt5.QtWidgets import QWidget, QGridLayout, QMessageBox
+from PyQt5.QtWidgets import QWidget, QGridLayout
 
+from ui import dialogs
 from .model import DataViewerModel
 from .view import DataViewerScreenView
 
@@ -62,7 +63,7 @@ class DataViewerController(QWidget):
 
     def _show_message(self, title, text):
         """Shows a message to the user."""
-        QMessageBox.warning(self, title, text)
+        dialogs.warning(self, title, text)
 
     # --- Public API for main_app ---
 

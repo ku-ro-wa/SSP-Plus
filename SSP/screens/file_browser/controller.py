@@ -1,7 +1,8 @@
-from PyQt5.QtWidgets import QWidget, QGridLayout, QMessageBox
+from PyQt5.QtWidgets import QWidget, QGridLayout
 from PyQt5.QtCore import pyqtSignal
 from managers.print_items import PrintItem
 from managers.timeout_manager import TimeoutPolicy
+from ui import dialogs
 from .model import FileBrowserModel
 from .view import FileBrowserView
 
@@ -77,17 +78,17 @@ class FileBrowserController(QWidget):
         print(f"🔍 Continue clicked with {len(files)} ticked file(s)")
 
         if not files:
-            QMessageBox.warning(self, "No PDF Selected", "Please tick at least one file to print.")
+            dialogs.warning(self, "No PDF Selected", "Please tick at least one file to print.")
             return
 
         for pdf_data, pages in files:
             if pdf_data.get('error'):
-                QMessageBox.warning(self, "File Can't Be Opened",
-                                    "This file can't be printed. Please choose another file.")
+                dialogs.warning(self, "File Can't Be Opened",
+                                "This file can't be printed. Please choose another file.")
                 return
             if not pages:
-                QMessageBox.warning(self, "No Pages Selected",
-                                    f"Please select at least one page of {pdf_data['filename']}.")
+                dialogs.warning(self, "No Pages Selected",
+                                f"Please select at least one page of {pdf_data['filename']}.")
                 return
 
         items = [PrintItem(pdf_data, pages) for pdf_data, pages in files]
@@ -139,7 +140,7 @@ class FileBrowserController(QWidget):
 
     def _show_error(self, error_message):
         """Shows error messages to the user."""
-        QMessageBox.critical(self, "Error", error_message)
+        dialogs.critical(self, "Error", error_message)
 
     # --- PDF Preview Control Methods ---
 

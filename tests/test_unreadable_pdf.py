@@ -12,7 +12,8 @@ os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
 import fitz  # noqa: E402
 import pytest  # noqa: E402
 from PyQt5.QtCore import QEvent  # noqa: E402
-from PyQt5.QtWidgets import QApplication, QLabel, QMessageBox  # noqa: E402
+from PyQt5.QtWidgets import QApplication, QLabel  # noqa: E402
+from ui import dialogs  # noqa: E402
 
 from managers.usb_file_manager import USBFileManager  # noqa: E402
 
@@ -68,7 +69,7 @@ def test_copy_by_paths_flags_a_pdf_that_cannot_be_opened(usb_drive, tmp_path):
 @pytest.fixture
 def file_browser(monkeypatch):
     from screens.file_browser.controller import FileBrowserController
-    monkeypatch.setattr(QMessageBox, 'warning', MagicMock())
+    monkeypatch.setattr(dialogs, 'warning', MagicMock())
     main_app = MagicMock()
     controller = FileBrowserController(main_app)
     controller.set_source('usb')
