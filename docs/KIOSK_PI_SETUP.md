@@ -394,10 +394,10 @@ must be in `dialout` (step 5). If nothing new appears under `/dev/tty*` when the
 plugged in, it's in keyboard mode. Scan the manual's USB COM settings barcode to switch it back.
 
 Done on 2026-11-24: `/etc/udev/rules.d/99-usb-keyboards.rules` from `SETUP.md` → "QR reader
-(kiosk)" step 1, which ignores the reader in keyboard mode (`0525:a4ac`) and any keyboard on the
-customer port. The Pi's USB-A sockets (two pairs side by side, A/B one pair, C/D the other):
+(kiosk)" step 1, which ignores the reader in keyboard mode (`0525:a4ac`) and, since 2026-11-24,
+any input device (keyboard, mouse) on the customer port. The Pi's USB-A sockets (two pairs side by side, A/B one pair, C/D the other):
 
-| Socket | Path | Connected to | Keyboard |
+| Socket | Path | Connected to | Keyboard/mouse |
 |---|---|---|---|
 | A (pair 1, top) | `1-1.3` | Customer-facing USB port | Ignored |
 | B (pair 1, bottom) | `1-1.4` | Touchscreen | Works |
@@ -429,9 +429,9 @@ cd ~/SSP-Plus && scripts/install_kiosk_service.sh
 ```
 
 It checks labwc is running, writes `~/.config/systemd/user/ssp-kiosk.service`, creates
-`~/.config/labwc/autostart` from `/etc/xdg/labwc/autostart` if it's missing (a user autostart
-replaces the system one, so without the copy the taskbar disappears), adds one line to it that
-starts the service, and starts the service. Safe to re-run; `--uninstall` undoes it.
+`~/.config/labwc/autostart` from `/etc/xdg/labwc/autostart` if it's missing, adds one line to it
+that starts the service, and starts the service. Raspberry Pi OS runs labwc with `-m` (merge), so
+both autostart files run: the system one starts the desktop and taskbar, the user one the app. Safe to re-run; `--uninstall` undoes it.
 
 What the unit does (see the script for the file):
 
@@ -469,6 +469,68 @@ After `systemctl stop` the app stays stopped until it's started again or the Pi 
 `Restart=always` only applies to crashes, kills and a closed window. Alt+F4 on the panel
 therefore brings the app straight back; use `systemctl --user stop ssp-kiosk` to reach the
 desktop. The same applies to `make run-admin-dashboard` and the dashboard service (port 8100).
+
+### No desktop behind the app — done 2026-11-24
+
+When the app restarts (a crash: `RestartSec=5` plus startup, so ~8 s or more) the screen used to
+show the desktop and taskbar, which a customer could tap. The desktop (`pcmanfm-pi`) and taskbar
+(`wf-panel-pi`) are turned off, so a restart shows a black screen with nothing to tap. Both are
+started by the **system** autostart (labwc runs with `-m`, so editing only the user file isn't
+enough), owned by the `rpd-wayland-core` package:
+
+```bash
+sudo cp /etc/xdg/labwc/autostart /etc/xdg/labwc/autostart.bak
+sudo sed -i -e 's|^/usr/bin/lwrespawn /usr/bin/pcmanfm-pi|#&|' -e 's|^/usr/bin/lwrespawn /usr/bin/wf-panel-pi|#&|' /etc/xdg/labwc/autostart
+```
+
+Comment out the same two lines in `~/.config/labwc/autostart` (it's a file; edit it with `nano`).
+Keep `kanshi` (the panel's resolution) and `lxsession-xdg-autostart`. Nothing in labwc's own
+config needs changing: the system `rc.xml` already unbinds a left click (a touch tap) on the empty
+background, and its root menu holds only "Desktop Preferences...".
+
+**`pcmanfm-pi` was also the USB automounter.** The app doesn't mount drives: it looks for one
+already mounted under `/media/` and unmounts it with `udisksctl` after reading. Without
+`pcmanfm-pi`, `udiskie` does the mounting, the same way (udisks2, as `group-c`, under
+`/media/group-c/<label>`):
+
+```bash
+sudo apt install udiskie
+echo '/usr/bin/udiskie --automount --no-notify --no-tray --no-file-manager &  # USB automount (pcmanfm-pi is off)' >> ~/.config/labwc/autostart
+```
+
+Run that `echo` once: each run adds another line, and another copy of udiskie. It must start from
+the desktop session (the autostart), not over SSH, where mounting asks for a password.
+
+It mounts only the filesystems customers' drives use. Without this, a card with a Linux
+partition (a Raspberry Pi OS card, say) mounts twice, the app refuses it as two drives, and
+scanning the Linux partition freezes the app and lists whatever PDFs that system holds.
+`~/.config/udiskie/config.yml`:
+
+```yaml
+device_config:
+- id_type: vfat
+  automount: true
+- id_type: exfat
+  automount: true
+- id_type: ntfs
+  automount: true
+- id_type: ext4
+  ignore: true
+- automount: false      # anything else: not mounted
+```
+
+Test after `sudo reboot`:
+
+1. `pgrep -af "wf-panel|pcmanfm|lwrespawn"` prints nothing, and `pgrep -c udiskie` prints `1`.
+2. `systemctl --user stop ssp-kiosk`: a black screen, and tapping or long-pressing anywhere
+   (top edge included) does nothing. `systemctl --user start ssp-kiosk` brings the app back.
+3. A USB drive opens in the app as before, and the app says it's safe to remove.
+4. With the app stopped, a card with a FAT and an ext4 partition:
+   `lsblk -o NAME,FSTYPE,MOUNTPOINTS /dev/sda` shows only the FAT one mounted.
+
+With the app stopped there's no desktop to work from: use SSH, or a keyboard on an internal
+socket (step 13) and Ctrl+Alt+F2. Recheck test 1 after an `apt upgrade`, in case a new
+`rpd-wayland-core` restores the system file. To undo, copy the `.bak` back and reboot.
 
 ### Admin Dashboard (system service) — not done yet
 
@@ -530,7 +592,9 @@ tunnel from step 7.
 - **Dashboard key:** `.env` on the kiosk has its own `ADMIN_DASHBOARD_SECRET_KEY` (not the dev default); see "Admin Dashboard secret key" in step 7. A key set only on a laptop does nothing for the kiosk.
 - **SSH:** key-only, and 22 and 8100 refused from the hotspot ("SSH: keys only" in step 3). `ss -ltnp | grep 8100` shows `127.0.0.1:8100`.
 - **Dashboard accounts:** `select username, role from users` lists only people who need access, with `admin` only for those who edit.
-- **Keyboards:** the udev rule from step 13 is in place: a keyboard on the customer port (socket A) types nothing.
+- **Keyboards and mice:** the udev rule from step 13 is in place: a keyboard or mouse on the customer port (socket A) does nothing.
+  A restart shows a black screen, not the desktop, and `udiskie` mounts USB drives instead
+  (step 14, "No desktop behind the app").
   On site, a keyboard goes in an internal socket. **Ctrl+Alt+F2** opens a text login that asks for
   `group-c`'s password (the maintenance path); **Ctrl+Alt+F7** goes back to the app, or to the desktop if
   the app isn't running. labwc's own shortcuts (Alt+F4, Alt+Tab, ...) are left as they are on purpose:
