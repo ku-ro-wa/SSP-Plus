@@ -12,7 +12,7 @@ was written while rebuilding on a new card, so the next rebuild needs only the r
 |------|--------|
 | 1–7, 9–12 | Done on the new card |
 | 8. Printer (CUPS) and scanner | Printer done 2026-10-16: fixed driverless queue `HP_Smart_Tank` over `ipp-usb`. Scanner done 2026-10-20: sane-airscan over `ipp-usb`. Printer swapped to a Smart Tank 660-670 on 2026-10-20; both now use the model-independent `localhost:60000` addresses |
-| 13. QR reader | **In progress**: reads over serial and `QR_READER_PORT` set, 2026-10-20. udev rule, settings barcodes and the issue #38 checks not done |
+| 13. QR reader | **In progress**: reads over serial and `QR_READER_PORT` set, 2026-10-20. udev keyboard rule done 2026-11-24. Settings barcodes and the issue #38 checks not done |
 | 14. Start at boot (systemd) | Kiosk app done 2026-11-10 (`scripts/install_kiosk_service.sh`; start, restart after a kill and reboot checked). Admin Dashboard service not done |
 | 15. Tailscale | **Not done yet**: planned in ADR-0005, not set up |
 | 16–17. Checks and backup image | Baseline image taken 2026-10-15, before steps 8 and 13–15 |
@@ -393,8 +393,22 @@ get the same by-id name. In that case, use `/dev/serial/by-path/` instead. The u
 must be in `dialout` (step 5). If nothing new appears under `/dev/tty*` when the reader is
 plugged in, it's in keyboard mode. Scan the manual's USB COM settings barcode to switch it back.
 
-Still to do: follow `SETUP.md` → "QR reader (kiosk)": udev rule (vendor/product ID from `lsusb`),
-`QR_READER_PORT`, the settings barcodes, and the miniterm check. Then finish issue #38: a phone's
+Done on 2026-11-24: `/etc/udev/rules.d/99-usb-keyboards.rules` from `SETUP.md` → "QR reader
+(kiosk)" step 1, which ignores the reader in keyboard mode (`0525:a4ac`) and any keyboard on the
+customer port. The Pi's USB-A sockets (two pairs side by side, A/B one pair, C/D the other):
+
+| Socket | Path | Connected to | Keyboard |
+|---|---|---|---|
+| A (pair 1, top) | `1-1.3` | Customer-facing USB port | Ignored |
+| B (pair 1, bottom) | `1-1.4` | Touchscreen | Works |
+| C (pair 2, top) | `1-1.1` | QR reader | Works (the reader itself is ignored by ID) |
+| D (pair 2, bottom) | `1-1.2` | Printer | Works |
+
+All four are in use, so for a keyboard on site, open the enclosure and swap it in for the
+printer, the reader or the touchscreen. If the cables are moved between sockets, update the
+`KERNELS=="1-1.3"` in the rule.
+
+Still to do: the settings barcodes and the miniterm check from `SETUP.md` → "QR reader (kiosk)". Then finish issue #38: a phone's
 Wi-Fi and email Session QRs open the right flow, and unplugging and replugging the reader shows
 in Kiosk Admin without a restart.
 
@@ -516,6 +530,11 @@ tunnel from step 7.
 - **Dashboard key:** `.env` on the kiosk has its own `ADMIN_DASHBOARD_SECRET_KEY` (not the dev default); see "Admin Dashboard secret key" in step 7. A key set only on a laptop does nothing for the kiosk.
 - **SSH:** key-only, and 22 and 8100 refused from the hotspot ("SSH: keys only" in step 3). `ss -ltnp | grep 8100` shows `127.0.0.1:8100`.
 - **Dashboard accounts:** `select username, role from users` lists only people who need access, with `admin` only for those who edit.
+- **Keyboards:** the udev rule from step 13 is in place: a keyboard on the customer port (socket A) types nothing.
+  On site, a keyboard goes in an internal socket. **Ctrl+Alt+F2** opens a text login that asks for
+  `group-c`'s password (the maintenance path); **Ctrl+Alt+F7** goes back to the app, or to the desktop if
+  the app isn't running. labwc's own shortcuts (Alt+F4, Alt+Tab, ...) are left as they are on purpose:
+  only someone who has opened the enclosure can plug a keyboard in where they work.
 - **Reboot test:** everything comes up without anyone touching it.
 - **Power and heat**, after the kiosk has run for a while (ideally after a few prints):
 
