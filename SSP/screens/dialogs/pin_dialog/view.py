@@ -1,12 +1,14 @@
-from PyQt5.QtWidgets import (QDialog, QVBoxLayout, QGridLayout, QPushButton, QLabel)
+from PyQt5.QtWidgets import QGridLayout, QPushButton, QLabel
 from PyQt5.QtCore import Qt, pyqtSignal
 
-from ui.dialogs import KIOSK_DIALOG_FLAGS
+from ui.dialogs import OverlayDialog
 from ui.theme import COLORS, FONT, RADIUS
 
 
-class PinDialogView(QDialog):
-    """View for the PIN Dialog - handles UI components and presentation."""
+class PinDialogView(OverlayDialog):
+    """View for the PIN Dialog - handles UI components and presentation. An overlay in the
+    app window (ui/dialogs.py), not a separate window: a title bar's minimise button let a
+    customer out to the Pi desktop. Cancel is the way out instead of a title bar's close."""
 
     # Signals for user interactions
     number_clicked = pyqtSignal(str)  # digit
@@ -14,21 +16,21 @@ class PinDialogView(QDialog):
     enter_clicked = pyqtSignal()
 
     def __init__(self, parent=None):
-        super().__init__(parent)
-        self.setWindowTitle("Admin Access")
-        # No title bar: its minimise button let a customer out to the Pi desktop.
-        # Cancel (below the keypad) is the way out instead of the title bar's close.
-        self.setWindowFlags(KIOSK_DIALOG_FLAGS)
-        self.setFixedSize(460, 730)
+        super().__init__(parent, card_width=460)
         self.setup_ui()
 
     def setup_ui(self):
         """Sets up the user interface for the dialog."""
-        self.setStyleSheet(self._dialog_qss())
+        self.card.setStyleSheet(self.card.styleSheet() + self._dialog_qss())
 
-        main_layout = QVBoxLayout(self)
+        main_layout = self.card_layout
         main_layout.setSpacing(18)
         main_layout.setContentsMargins(28, 28, 28, 28)
+
+        title = QLabel("Admin access")
+        title.setAlignment(Qt.AlignCenter)
+        title.setStyleSheet(f"color: {COLORS['text']}; font-size: {FONT['size_xl']}px; font-weight: 700;")
+        main_layout.addWidget(title)
 
         # --- Display for the PIN ---
         self.pin_display = QLabel()
@@ -102,10 +104,6 @@ class PinDialogView(QDialog):
 
     def _dialog_qss(self):
         return f"""
-            QDialog {{
-                background-color: {COLORS['bg']};
-                border: 2px solid {COLORS['text_muted']};
-            }}
             QLabel#PinDisplay {{
                 background-color: {COLORS['bg_subtle']};
                 border: 1px solid {COLORS['border_strong']};
@@ -116,11 +114,12 @@ class PinDialogView(QDialog):
                 color: {COLORS['text']};
             }}
             QLabel#PinStatus {{
-                font-size: {FONT['size_sm']}px;
+                font-size: {FONT['size_md']}px;
+                font-weight: 600;
                 color: {COLORS['text_secondary']};
             }}
             QPushButton {{
-                background-color: {COLORS['bg']};
+                background-color: {COLORS['bg_subtle']};
                 color: {COLORS['text']};
                 font-size: {FONT['size_xl']}px;
                 font-weight: 600;
@@ -128,15 +127,19 @@ class PinDialogView(QDialog):
                 border-radius: {RADIUS['md']}px;
                 min-height: 76px;
             }}
-            QPushButton:hover {{
-                background-color: {COLORS['bg_subtle']};
-                border-color: {COLORS['primary']};
-            }}
             QPushButton:pressed {{
                 background-color: {COLORS['border']};
             }}
+            QPushButton:disabled {{
+                background-color: {COLORS['bg']};
+                color: {COLORS['border_strong']};
+                border-color: {COLORS['border']};
+            }}
             QPushButton#PinClear {{
                 color: {COLORS['text_secondary']};
+            }}
+            QPushButton#PinClear:disabled {{
+                color: {COLORS['border_strong']};
             }}
             QPushButton#PinCancel {{
                 font-size: {FONT['size_md']}px;
@@ -153,5 +156,8 @@ class PinDialogView(QDialog):
             }}
             QPushButton#PinEnter:pressed {{
                 background-color: {COLORS['primary_pressed']};
+            }}
+            QPushButton#PinEnter:disabled {{
+                background-color: {COLORS['border']};
             }}
         """

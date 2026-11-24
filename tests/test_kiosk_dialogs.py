@@ -1,8 +1,8 @@
 """
-No pop-up on the kiosk has a window-manager title bar: maximising then minimising one
-left the customer on the Pi desktop, outside the app. ui/dialogs.py's boxes and the PIN
-dialog are frameless, the PIN dialog has its own Cancel (usable during a lockout), and
-the main window restores itself if minimised.
+Pop-ups are overlays inside the app window (ui/dialogs.py), never separate windows: a
+window's title bar let a customer maximise then minimise it and land on the Pi desktop,
+outside the app. The PIN dialog is one too, with its own Cancel (usable during a lockout),
+and the main window restores itself if it is minimised anyway.
 """
 import os
 import re
@@ -12,10 +12,11 @@ from unittest.mock import patch
 import pytest
 
 os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
-from PyQt5.QtCore import Qt  # noqa: E402
-from PyQt5.QtWidgets import QApplication, QDialog, QMessageBox  # noqa: E402
+from PyQt5.QtCore import QTimer  # noqa: E402
+from PyQt5.QtWidgets import QApplication, QDialog, QMainWindow, QWidget  # noqa: E402
 
-from ui.dialogs import DIALOG_BUTTON_HEIGHT, KioskMessageBox  # noqa: E402
+from ui import dialogs  # noqa: E402
+from ui.dialogs import DIALOG_BUTTON_HEIGHT, MessageDialog, OverlayDialog  # noqa: E402
 
 SSP_DIR = Path(__file__).resolve().parent.parent / "SSP"
 
@@ -25,42 +26,73 @@ def qapp():
     return QApplication.instance() or QApplication([])
 
 
-def frameless(widget):
-    return bool(widget.windowFlags() & Qt.FramelessWindowHint)
-
-
-def test_kiosk_message_box_has_no_title_bar(qapp):
-    box = KioskMessageBox(None, "Low on change", "Pay the exact amount.", QMessageBox.Warning)
-    assert frameless(box)
-    assert box.text() == "Low on change"  # the title a title bar would have shown
-    assert box.informativeText() == "Pay the exact amount."
-
-
-def test_kiosk_message_box_buttons_are_touch_sized(qapp):
-    box = KioskMessageBox(None, "Title", "Text")
-    button = box.addButton("OK", QMessageBox.AcceptRole)
-    box.show()
+@pytest.fixture
+def screen(qapp):
+    """A screen inside a kiosk-sized window, as the app has it."""
+    window = QMainWindow()
+    window.resize(1422, 800)
+    central = QWidget()
+    window.setCentralWidget(central)
+    window.show()
     qapp.processEvents()
-    try:
-        assert button.height() >= DIALOG_BUTTON_HEIGHT
-    finally:
-        box.hide()
+    yield central
+    window.close()
 
 
-def test_pin_dialog_is_frameless_with_a_cancel_that_survives_the_lockout(qapp):
+def answer(text):
+    """Tap the button labelled `text` on the overlay that opens next."""
+    def tap():
+        dialog = OverlayDialog.active()
+        [button] = [b for b in dialog.buttons() if b.text() == text]
+        button.click()
+    QTimer.singleShot(0, tap)
+
+
+def test_a_message_is_an_overlay_over_the_whole_window_not_a_window(screen):
+    dialog = MessageDialog(screen, "Low on change", "Pay the exact amount.")
+    dialog.add_button("OK", primary=True)
+    seen = {}
+
+    def check():
+        seen['window'] = dialog.isWindow()
+        seen['covers'] = dialog.geometry() == screen.window().rect()
+        seen['button_height'] = dialog.buttons()[0].height()
+        dialog.buttons()[0].click()
+    QTimer.singleShot(0, check)
+
+    assert dialog.exec_() == QDialog.Accepted
+    assert seen == {'window': False, 'covers': True, 'button_height': seen['button_height']}
+    assert seen['button_height'] >= DIALOG_BUTTON_HEIGHT
+
+
+def test_the_tapped_button_is_reported(screen):
+    dialog = MessageDialog(screen, "Collect cash", "Record these counts?")
+    dialog.add_button("Cancel", cancel=True)
+    collect = dialog.add_button("Collect", primary=True)
+    answer("Cancel")
+    assert dialog.exec_() == QDialog.Rejected
+    assert dialog.clicked_button() is not collect
+
+
+def test_helpers_wait_for_ok(screen):
+    answer("OK")
+    assert dialogs.warning(screen, "No PDF Selected", "Please tick at least one file.") == QDialog.Accepted
+    assert OverlayDialog.active() is None
+
+
+def test_pin_dialog_is_an_overlay_with_a_cancel_that_survives_the_lockout(screen):
     from screens.dialogs.pin_dialog.view import PinDialogView
-    dialog = PinDialogView()
-    assert frameless(dialog)
+    dialog = PinDialogView(screen)
+    assert not dialog.isWindow()
     dialog.set_locked(True, 300)
     assert dialog.cancel_button.isEnabled()
-    dialog.show()
-    dialog.cancel_button.click()
-    assert dialog.result() == QDialog.Rejected
+    QTimer.singleShot(0, dialog.cancel_button.click)
+    assert dialog.exec_() == QDialog.Rejected
 
 
 def test_no_screen_uses_a_native_message_box():
-    # QMessageBox's static helpers and bare QMessageBox(...) get a title bar on the kiosk.
-    native = re.compile(r"QMessageBox\.(warning|information|critical|question)\(|QMessageBox\(")
+    # QMessageBox opens a window with a title bar on the kiosk.
+    native = re.compile(r"QMessageBox|QInputDialog")
     offenders = [
         f"{path.relative_to(SSP_DIR)}:{n}"
         for path in (SSP_DIR / "screens").rglob("*.py")
@@ -73,7 +105,6 @@ def test_no_screen_uses_a_native_message_box():
 @pytest.mark.parametrize("sim_mode,restored", [(False, True), (True, False)])
 def test_main_window_restores_itself_when_minimised(qapp, sim_mode, restored):
     from PyQt5.QtCore import QEvent
-    from PyQt5.QtWidgets import QMainWindow
 
     import main_app
 
