@@ -1,9 +1,10 @@
 # screens/print_options/controller.py
 
-from PyQt5.QtWidgets import QWidget, QGridLayout, QMessageBox
+from PyQt5.QtWidgets import QWidget, QGridLayout
 
 from managers.print_items import total_sheets
 from managers.timeout_manager import TimeoutPolicy
+from ui import dialogs
 from .model import PrintOptionsModel
 from .view import PrintOptionsScreenView
 
@@ -76,7 +77,7 @@ class PrintOptionsController(QWidget):
     def _on_analysis_error(self, error_message):
         """Handles analysis errors."""
         self.view.set_analysis_status("Error during analysis!", error_message)
-        QMessageBox.critical(self, "Analysis Error", error_message)
+        dialogs.critical(self, "Analysis Error", error_message)
 
     def _continue_to_payment(self):
         """Continues to the payment screen."""
@@ -117,7 +118,7 @@ class PrintOptionsController(QWidget):
 
     def _show_message(self, title, text):
         """Shows a message to the user."""
-        QMessageBox.information(self, title, text)
+        dialogs.information(self, title, text)
 
     # --- Public API for main_app ---
 
@@ -125,6 +126,8 @@ class PrintOptionsController(QWidget):
         """Sets the files to print (PrintItems, in print order). digital_fee adds a
         scan's digital-copy fee to the total (see ScanDestinationController)."""
         self.source = source
+        # Say where Back goes (_go_back): the scan's choices, or the file browser
+        self.view.back_btn.setText("Back to Scan Options" if source == 'scanner' else "Back to File Selection")
         self.model.set_items(items, digital_fee=digital_fee)
         self.view.set_items(self.model.items)
         # Clear any existing warnings when setting new PDF data

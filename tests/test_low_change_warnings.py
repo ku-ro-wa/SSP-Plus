@@ -9,13 +9,13 @@ by clicking its button once it is showing.
 """
 import locale
 import os
-import sys
 
 import pytest
 
 os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
 from PyQt5.QtCore import QObject, QTimer, pyqtSignal  # noqa: E402
-from PyQt5.QtWidgets import QApplication, QMessageBox, QStackedWidget  # noqa: E402
+from PyQt5.QtWidgets import QApplication, QStackedWidget  # noqa: E402
+from ui.dialogs import OverlayDialog  # noqa: E402
 
 import screens.homepage.model as homepage_module  # noqa: E402
 import screens.idle.model as idle_module  # noqa: E402
@@ -132,23 +132,15 @@ def banner_shown(screen):
     return not screen.view.low_change_banner.isHidden()
 
 
-# Qt 5.15.2 (the last Windows PyQt5 wheel) segfaults in QMessageBox.show() on the
-# offscreen platform; run with QT_QPA_PLATFORM=windows to exercise these there.
-needs_message_box = pytest.mark.skipif(
-    sys.platform == "win32" and os.environ.get("QT_QPA_PLATFORM") in ("offscreen", "minimal"),
-    reason="QMessageBox crashes Qt 5.15.2 on Windows under the offscreen platform",
-)
-
-
 def tap_idle(main_app, answer=None):
     """Touch the idle screen. If a confirmation dialog opens, click `answer` on it.
     Returns the dialog's text, or None if no dialog opened."""
     seen = []
 
     def respond():
-        dialog = QApplication.activeModalWidget()
-        if isinstance(dialog, QMessageBox):
-            seen.append(dialog.text())
+        dialog = OverlayDialog.active()
+        if dialog is not None:
+            seen.append(dialog.text())  # heading, then message
             [button] = [b for b in dialog.buttons() if b.text() == answer]
             button.click()
 
@@ -211,7 +203,6 @@ class TestIdleConfirmation:
         assert tap_idle(kiosk) is None
         assert kiosk.screens[-1] == 'homepage'
 
-    @needs_message_box
     def test_continue_anyway_goes_to_homepage(self, kiosk, db):
         stock_hoppers(db, ones=0, fives=0)
         kiosk.show_screen('idle')
@@ -221,7 +212,6 @@ class TestIdleConfirmation:
         assert 'Voucher' in text
         assert kiosk.screens[-1] == 'homepage'
 
-    @needs_message_box
     def test_cancel_stays_on_idle(self, kiosk, db):
         stock_hoppers(db, ones=0, fives=0)
         kiosk.show_screen('idle')

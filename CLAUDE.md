@@ -49,6 +49,10 @@ Where an expiry goes: before a file is chosen (`homepage`, `usb`, `wifi`, `email
 
 "Check voucher balance" is a popup, not a screen (`screens/voucher_balance`, opened by `main_app.open_voucher_balance()` from the homepage and print options): a dimmed full-window overlay, so nothing underneath can be tapped, and any `show_screen()` closes it and wipes it. While it's open a Voucher QR read checks the balance rather than doing what the screen underneath would. A balance check keeps nothing: the code isn't remembered for the session, so the customer types or reads it again at payment and a customer who walks away leaves no Voucher for the next one to apply. A balance check shares the wrong-code lockout with payment (ADR 0003).
 
+### Pop-ups
+
+Messages and questions are overlays inside the app window (`ui/dialogs.py`: `MessageDialog`, the `warning`/`information`/`critical` helpers, and `OverlayDialog` for custom content such as the PIN dialog), never `QMessageBox` or another top-level window: a separate window gets the window manager's title bar, and on the kiosk maximising then minimising one left the customer on the Pi desktop. `OverlayDialog` keeps QDialog's calling style (`exec_()` returns `QDialog.Accepted`/`Rejected`); tests answer one through `OverlayDialog.active()`. As a backstop, the main window returns to fullscreen if it is minimised (off in SIM_MODE). `tests/test_kiosk_dialogs.py` fails if a screen uses `QMessageBox`.
+
 ### Background threads
 
 Two persistent `QThread` managers are started in `PrintingSystemApp.__init__` and stopped in `cleanup()`:

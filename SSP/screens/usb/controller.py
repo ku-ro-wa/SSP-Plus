@@ -42,8 +42,7 @@ class USBController(QWidget):
 
     def _update_status(self, text, style_key):
         """Updates the status indicator with the given text and style."""
-        color_hex = self.model.get_status_color(style_key)
-        self.view.update_status_indicator(text, style_key, color_hex)
+        self.view.update_status_indicator(text, style_key)
 
     def _handle_pdf_files_found(self, pdf_files):
         """Handles when PDF files are found on the USB drive."""

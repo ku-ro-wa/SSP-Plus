@@ -1,10 +1,11 @@
 # screens/usb/view.py
 
 from PyQt5.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QLabel, QGraphicsOpacityEffect, QMessageBox
+    QWidget, QVBoxLayout, QHBoxLayout, QLabel, QGraphicsOpacityEffect
 )
 from PyQt5.QtCore import Qt, pyqtSignal, QTimer
 
+from ui import dialogs
 from ui.theme import COLORS, FONT
 from ui.widgets import Header, BackButton, StatusBanner, nav_row
 
@@ -99,7 +100,7 @@ class USBScreenView(QWidget):
         """Sets up timers for the view."""
         self.blink_timer.timeout.connect(self.blink_status)
 
-    def update_status_indicator(self, text, style_key, color_hex):
+    def update_status_indicator(self, text, style_key):
         """Updates the text and variant of the status banner."""
         variant = STATUS_VARIANT_BY_KEY.get(style_key, 'info')
         self.status_banner.show_message(text, variant)
@@ -121,11 +122,11 @@ class USBScreenView(QWidget):
 
     def show_message(self, title, text):
         """Shows a message to the user."""
-        QMessageBox.information(self, title, text)
+        dialogs.information(self, title, text)
 
     def show_warning(self, title, text):
         """Shows a warning message to the user."""
-        QMessageBox.warning(self, title, text)
+        dialogs.warning(self, title, text)
 
     def show_safety_warning(self, message):
         """Shows a safety warning message."""

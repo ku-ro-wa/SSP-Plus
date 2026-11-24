@@ -2,7 +2,7 @@
 
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QLabel, QPushButton, QHBoxLayout,
-    QLineEdit, QMessageBox, QGroupBox
+    QLineEdit, QGroupBox
 )
 from PyQt5.QtCore import Qt, pyqtSignal
 from PyQt5.QtGui import QDoubleValidator
@@ -11,6 +11,8 @@ from config import get_config
 from managers.supply_levels import (
     COIN_CRIT, COIN_WARN, INK_CRIT, INK_WARN, PAPER_CRIT, PAPER_WARN,
 )
+from ui import dialogs
+from ui.dialogs import MessageDialog
 from ui.theme import COLORS, FONT, GROUPBOX_QSS, INPUT_QSS, RADIUS, severity_color
 from ui.widgets import BackButton, CodeKeypad, Header, PrimaryButton, SecondaryButton, nav_row
 
@@ -334,7 +336,7 @@ class AdminScreenView(QWidget):
             f"color: {tint}; font-size: {FONT['size_md']}px; font-weight: 700;"
         )
 
-    def update_paper_count_display(self, count, color=None):
+    def update_paper_count_display(self, count):
         """Updates the paper count label, tinted by remaining level."""
         self.paper_count_label.setText(str(count))
         tint = severity_color(count, PAPER_WARN, PAPER_CRIT)
@@ -403,15 +405,12 @@ class AdminScreenView(QWidget):
             f"Ref {row['payment_ref'][:8]}\n\n"
             "Only settle it for the customer who paid: check what they say they paid, and when."
         )
-        box = QMessageBox(self)
-        box.setIcon(QMessageBox.Question)
-        box.setWindowTitle("Owed payment")
-        box.setText(text)
-        voucher_button = box.addButton("Issue voucher", QMessageBox.AcceptRole) if vouchers_enabled else None
-        cash_button = box.addButton("Refunded in cash", QMessageBox.AcceptRole)
-        box.addButton("Not now", QMessageBox.RejectRole)
+        box = MessageDialog(self, "Owed payment", text)
+        box.add_button("Not now", cancel=True)
+        cash_button = box.add_button("Refunded in cash")
+        voucher_button = box.add_button("Issue voucher", primary=True) if vouchers_enabled else None
         box.exec_()
-        clicked = box.clickedButton()
+        clicked = box.clicked_button()
         if voucher_button is not None and clicked is voucher_button:
             return 'voucher'
         if clicked is cash_button:
@@ -433,14 +432,11 @@ class AdminScreenView(QWidget):
             "With the coins at 0 the kiosk gives no change until you enter the hopper "
             "counts after refilling."
         )
-        box = QMessageBox(self)
-        box.setIcon(QMessageBox.Question)
-        box.setWindowTitle("Collect cash")
-        box.setText(text)
-        box.setStandardButtons(QMessageBox.Yes | QMessageBox.Cancel)
-        box.setDefaultButton(QMessageBox.Cancel)
-        box.button(QMessageBox.Yes).setText("Collect")
-        return box.exec_() == QMessageBox.Yes
+        box = MessageDialog(self, "Collect cash", text)
+        box.add_button("Cancel", cancel=True)
+        collect_button = box.add_button("Collect", primary=True)
+        box.exec_()
+        return box.clicked_button() is collect_button
 
     def show_message_box(self, title: str, text: str):
-        QMessageBox.warning(self, title, text)
+        dialogs.warning(self, title, text)

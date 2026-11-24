@@ -39,3 +39,10 @@ TEXT_PAIRS = [
 @pytest.mark.parametrize("fg,bg,minimum", TEXT_PAIRS)
 def test_text_pair_meets_minimum(fg, bg, minimum):
     assert ratio(COLORS[fg], COLORS[bg]) >= minimum, f"{fg} on {bg}: {ratio(COLORS[fg], COLORS[bg]):.2f}"
+
+
+def test_unticked_box_outline_meets_non_text_contrast():
+    # An unticked file or page box is only its outline: WCAG 1.4.11 asks 3:1.
+    from screens.file_browser.view import PAGE_OUTLINE_COLOR
+    assert ratio(PAGE_OUTLINE_COLOR, COLORS["bg"]) >= 3.0
+    assert ratio(PAGE_OUTLINE_COLOR, COLORS["bg_subtle"]) >= 3.0

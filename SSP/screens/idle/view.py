@@ -1,9 +1,10 @@
 # screens/idle/view.py
 
-from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel, QFrame, QMessageBox)
+from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel, QFrame)
 from PyQt5.QtCore import Qt, pyqtSignal
 
 from managers.voucher_manager import MSG_UNGIVEN_CHANGE
+from ui.dialogs import MessageDialog
 from ui.icons import icon
 from ui.theme import COLORS, FONT
 from ui.widgets import Header, LowChangeBanner, ReaderHint, SecondaryButton, StatusBanner
@@ -94,14 +95,12 @@ class IdleScreenView(QWidget):
 
     def confirm_low_change(self):
         """Modal "Continue anyway / Cancel" prompt. Returns True to continue."""
-        dialog = QMessageBox(self)
-        dialog.setIcon(QMessageBox.Warning)
-        dialog.setWindowTitle("Low on change")
-        dialog.setText(f"This kiosk is low on change right now. {MSG_UNGIVEN_CHANGE}")
-        continue_button = dialog.addButton("Continue anyway", QMessageBox.AcceptRole)
-        dialog.addButton("Cancel", QMessageBox.RejectRole)
+        dialog = MessageDialog(self, "Low on change",
+                               f"This kiosk is low on change right now. {MSG_UNGIVEN_CHANGE}")
+        dialog.add_button("Cancel", cancel=True)
+        continue_button = dialog.add_button("Continue anyway", primary=True)
         dialog.exec_()
-        return dialog.clickedButton() is continue_button
+        return dialog.clicked_button() is continue_button
 
     def get_admin_button_geometry(self):
         """Returns the geometry of the admin button for touch validation."""

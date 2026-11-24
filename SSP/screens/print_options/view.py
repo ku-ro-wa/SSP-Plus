@@ -180,7 +180,7 @@ class PrintOptionsScreenView(QWidget):
         layout.setSpacing(12)
         main_layout.addWidget(body, 1)
 
-        self.back_btn = BackButton("Back to Input Selection")
+        self.back_btn = BackButton("Back to File Selection")  # the controller names Back's destination
         self.back_btn.clicked.connect(self.back_button_clicked.emit)
 
         # ---- One row per file; scrolls when there are more than fit ----
