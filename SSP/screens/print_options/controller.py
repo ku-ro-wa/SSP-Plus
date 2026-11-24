@@ -126,6 +126,8 @@ class PrintOptionsController(QWidget):
         """Sets the files to print (PrintItems, in print order). digital_fee adds a
         scan's digital-copy fee to the total (see ScanDestinationController)."""
         self.source = source
+        # Say where Back goes (_go_back): the scan's choices, or the file browser
+        self.view.back_btn.setText("Back to Scan Options" if source == 'scanner' else "Back to File Selection")
         self.model.set_items(items, digital_fee=digital_fee)
         self.view.set_items(self.model.items)
         # Clear any existing warnings when setting new PDF data

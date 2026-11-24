@@ -78,3 +78,13 @@ def test_back_after_a_scan_returns_to_the_scan_destination(kiosk):
     options.view.back_button_clicked.emit()
 
     assert main_app.shown == ['scan_destination']
+
+
+@pytest.mark.parametrize("source,label", [
+    ('usb', "Back to File Selection"), ('wifi', "Back to File Selection"),
+    ('email', "Back to File Selection"), ('scanner', "Back to Scan Options"),
+])
+def test_back_button_names_where_it_goes(kiosk, source, label):
+    options = kiosk.printing_options_screen
+    options.set_items([PrintItem({'path': PDF, 'filename': 'a.pdf'}, [1])], source)
+    assert options.view.back_btn.text() == label
