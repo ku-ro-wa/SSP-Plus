@@ -534,33 +534,55 @@ settings barcodes, so anyone at the kiosk can switch it to keyboard mode with on
 therefore ignores the reader as an input device. See
 `docs/adr/0004-qr-reader-serial-mode-and-untrusted-payloads.md` for why.
 
-### 1. Ignore the reader as a keyboard (udev)
+### 1. Ignore keyboards the customer can reach (udev)
 
-Plug the reader in and find its USB vendor and product ID. Don't guess them:
+The reader changes its USB ID with its mode. On the kiosk's reader (2026-11-24):
 
-```bash
-lsusb
-# Bus 001 Device 004: ID xxxx:yyyy ...   <- the reader; unplug/replug to see which line changes
+| Mode | Settings code | `lsusb` |
+|---|---|---|
+| USB COM (serial) | `JA060` | `0525:a4a7` Linux-USB Serial Gadget |
+| USB keyboard (HID) | `JA020` | `0525:a4ac` Linux-USB HID Gadget |
+
+The rule has to match the **keyboard-mode** ID, so `lsusb` while the reader is in serial mode
+gives the wrong one. To read it on another reader: stop the app, scan `JA020`, run `lsusb`,
+then scan `JA060` (USB COM) to switch back. The app can't switch it
+back for you, since keyboard mode has no serial port to send on.
+
+The same rule blocks any keyboard plugged into the customer-facing USB port, which would
+otherwise reach the desktop. Keyboards on the other ports, inside the enclosure, still work for
+maintenance. Find the customer port's path with a keyboard plugged into it
+(`udevadm info /dev/input/by-id/*-event-kbd | grep DEVPATH`, the `1-1.N` part); a USB 3 stick
+won't do, because it shows up on bus 2. Create `/etc/udev/rules.d/99-usb-keyboards.rules`:
+
+```
+# Customer-facing USB-A port (1-1.3 on the kiosk): no keyboards, behind a hub included
+SUBSYSTEM=="input", ENV{ID_INPUT_KEYBOARD}=="1", KERNELS=="1-1.3", ENV{LIBINPUT_IGNORE_DEVICE}="1"
+# QR reader switched to keyboard mode, whichever port it's on
+SUBSYSTEM=="input", ENV{ID_VENDOR_ID}=="0525", ENV{ID_MODEL_ID}=="a4ac", ENV{LIBINPUT_IGNORE_DEVICE}="1"
 ```
 
-Create `/etc/udev/rules.d/99-qr-reader.rules`, replacing `xxxx` / `yyyy` with the IDs from `lsusb`:
+The reader is matched by ID rather than by port so that its socket can take a keyboard during
+maintenance once the reader is unplugged. Reload with
+`sudo udevadm control --reload && sudo udevadm trigger`, then check with the app stopped:
 
-```
-# QR reader: never treat it as a keyboard, even if a settings barcode switches it to HID-KBW
-SUBSYSTEM=="input", ATTRS{idVendor}=="xxxx", ATTRS{idProduct}=="yyyy", ENV{ID_INPUT}="", ENV{ID_INPUT_KEYBOARD}="", ENV{LIBINPUT_IGNORE_DEVICE}="1"
-```
+1. Scan `JA020`. `udevadm info /dev/input/by-id/usb-NetChip_HID_Gadget_20080411-event-kbd | grep LIBINPUT`
+   shows `LIBINPUT_IGNORE_DEVICE=1`, and a scan into a text field on the kiosk screen types
+   nothing. Scan `JA060` to switch back.
+2. A keyboard in the customer port gets `LIBINPUT_IGNORE_DEVICE=1` and types nothing.
+3. A keyboard in any other port types. (Right after plugging in, labwc can take a moment to
+   pick it up; Caps Lock lighting means it has.)
 
-Reload with `sudo udevadm control --reload && sudo udevadm trigger`, then unplug and replug the
-reader. This rule only silences the keyboard side. The stable serial path comes from the stock
-udev serial rules, not from this file, and appears under `/dev/serial/by-id/`:
+The rule only silences keyboards. The stable serial path comes from the stock udev serial rules
+and appears under `/dev/serial/by-id/`:
 
 ```bash
 ls -l /dev/serial/by-id/
 ```
 
-> Verified on the kiosk Pi (GitHub issue #38): the by-id path survives a reboot, and a reader
-> switched to keyboard mode types nothing. That was on the first card, which died on 2026-10-14,
-> so check both again on the new one. The rule assumes a libinput desktop session.
+> The rule lives on the SD card, not in the repo: a rebuilt card needs it again. The first
+> card had a reader-only rule (issue #38), lost when that card died on 2026-10-14. This one was
+> installed and checked on the new card on 2026-11-24. It assumes a libinput desktop session
+> (labwc).
 
 ### 2. Point the app at it
 
