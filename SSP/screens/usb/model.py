@@ -73,13 +73,6 @@ class USBScreenModel(QObject):
         self.monitoring_thread = None
         self.returning_from_file_browser = False  # Flag to prevent auto-navigation loop
 
-        self.STATUS_COLORS = {
-            'monitoring': '#ff9900',  # Orange
-            'success': '#28a745',     # Green
-            'warning': '#ffc107',     # Yellow
-            'error': '#dc3545'        # Red
-        }
-
     def __del__(self):
         """Destructor to ensure thread cleanup when object is destroyed."""
         self.stop_usb_monitoring()
@@ -112,10 +105,6 @@ class USBScreenModel(QObject):
                     pass
 
             return FallbackUSBManager()
-
-    def get_status_color(self, style_key):
-        """Returns the color for a given status style."""
-        return self.STATUS_COLORS.get(style_key, '#ffffff')
 
     def start_usb_monitoring(self):
         """Starts the background thread to watch for USB insertions."""

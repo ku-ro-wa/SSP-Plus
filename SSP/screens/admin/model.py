@@ -9,7 +9,7 @@ from managers.sms_manager import send_operator_alert
 
 class AdminModel(QObject):
     """Handles the data and business logic for the admin screen."""
-    paper_count_changed = pyqtSignal(int, str)  # Emits new count and display color
+    paper_count_changed = pyqtSignal(int)  # the view picks the tint (severity_color)
     coin_count_changed = pyqtSignal(int, int)   # Emits coin_1_count, coin_5_count
     cmyk_levels_changed = pyqtSignal(float, float, float, float)  # Emits cyan, magenta, yellow, black
     show_message = pyqtSignal(str, str)         # Emits message title and text
@@ -42,8 +42,7 @@ class AdminModel(QObject):
         """Loads the paper count from the database and emits a signal."""
         self._refresh_paper_count()
         print(f"AdminModel.load_paper_count: Loaded {self.paper_count} from database")
-        color = self._get_color_for_count(self.paper_count)
-        self.paper_count_changed.emit(self.paper_count, color)
+        self.paper_count_changed.emit(self.paper_count)
 
     def reset_paper_count(self):
         """Resets the paper count to 100."""
@@ -58,8 +57,7 @@ class AdminModel(QObject):
         self._refresh_paper_count()
         if self.paper_count < 100:
             self._write_paper_count(self.paper_count + 1)
-            color = self._get_color_for_count(self.paper_count)
-            self.paper_count_changed.emit(self.paper_count, color)
+            self.paper_count_changed.emit(self.paper_count)
             print(f"Paper count increased to {self.paper_count}")
 
     def decrease_paper_count(self):
@@ -67,8 +65,7 @@ class AdminModel(QObject):
         self._refresh_paper_count()
         if self.paper_count > 0:
             self._write_paper_count(self.paper_count - 1)
-            color = self._get_color_for_count(self.paper_count)
-            self.paper_count_changed.emit(self.paper_count, color)
+            self.paper_count_changed.emit(self.paper_count)
             print(f"Paper count decreased to {self.paper_count}")
 
     def update_paper_count_from_string(self, count_str: str):
@@ -400,11 +397,3 @@ class AdminModel(QObject):
         except Exception as e:
             print(f"Error resetting CMYK levels: {e}")
             self.show_message.emit("Error", f"Failed to reset CMYK levels: {e}")
-
-    def _get_color_for_count(self, count: int) -> str:
-        """Determines the display color based on the paper count."""
-        if count <= 20:
-            return "#dc3545"
-        if count <= 50:
-            return "#ffc107"
-        return "#28a745"

@@ -99,7 +99,7 @@ class USBScreenView(QWidget):
         """Sets up timers for the view."""
         self.blink_timer.timeout.connect(self.blink_status)
 
-    def update_status_indicator(self, text, style_key, color_hex):
+    def update_status_indicator(self, text, style_key):
         """Updates the text and variant of the status banner."""
         variant = STATUS_VARIANT_BY_KEY.get(style_key, 'info')
         self.status_banner.show_message(text, variant)
