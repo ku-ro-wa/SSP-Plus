@@ -534,7 +534,7 @@ settings barcodes, so anyone at the kiosk can switch it to keyboard mode with on
 therefore ignores the reader as an input device. See
 `docs/adr/0004-qr-reader-serial-mode-and-untrusted-payloads.md` for why.
 
-### 1. Ignore keyboards the customer can reach (udev)
+### 1. Ignore input devices the customer can reach (udev)
 
 The reader changes its USB ID with its mode. On the kiosk's reader (2026-11-24):
 
@@ -548,15 +548,16 @@ gives the wrong one. To read it on another reader: stop the app, scan `JA020`, r
 then scan `JA060` (USB COM) to switch back. The app can't switch it
 back for you, since keyboard mode has no serial port to send on.
 
-The same rule blocks any keyboard plugged into the customer-facing USB port, which would
-otherwise reach the desktop. Keyboards on the other ports, inside the enclosure, still work for
-maintenance. Find the customer port's path with a keyboard plugged into it
+The same rule blocks any input device (keyboard, mouse, touchpad) plugged into the
+customer-facing USB port, which only has to take USB drives: a keyboard there would otherwise
+reach the desktop, and a mouse adds right and middle clicks to what touch can do. Input devices
+on the other ports, inside the enclosure, still work for maintenance. Find the customer port's path with a keyboard plugged into it
 (`udevadm info /dev/input/by-id/*-event-kbd | grep DEVPATH`, the `1-1.N` part); a USB 3 stick
 won't do, because it shows up on bus 2. Create `/etc/udev/rules.d/99-usb-keyboards.rules`:
 
 ```
-# Customer-facing USB-A port (1-1.3 on the kiosk): no keyboards, behind a hub included
-SUBSYSTEM=="input", ENV{ID_INPUT_KEYBOARD}=="1", KERNELS=="1-1.3", ENV{LIBINPUT_IGNORE_DEVICE}="1"
+# Customer-facing USB-A port (1-1.3 on the kiosk): no input devices, behind a hub included
+SUBSYSTEM=="input", ENV{ID_INPUT}=="1", KERNELS=="1-1.3", ENV{LIBINPUT_IGNORE_DEVICE}="1"
 # QR reader switched to keyboard mode, whichever port it's on
 SUBSYSTEM=="input", ENV{ID_VENDOR_ID}=="0525", ENV{ID_MODEL_ID}=="a4ac", ENV{LIBINPUT_IGNORE_DEVICE}="1"
 ```
@@ -568,11 +569,12 @@ maintenance once the reader is unplugged. Reload with
 1. Scan `JA020`. `udevadm info /dev/input/by-id/usb-NetChip_HID_Gadget_20080411-event-kbd | grep LIBINPUT`
    shows `LIBINPUT_IGNORE_DEVICE=1`, and a scan into a text field on the kiosk screen types
    nothing. Scan `JA060` to switch back.
-2. A keyboard in the customer port gets `LIBINPUT_IGNORE_DEVICE=1` and types nothing.
+2. A keyboard in the customer port gets `LIBINPUT_IGNORE_DEVICE=1` and types nothing; a mouse
+   there moves no pointer. A USB drive there still opens in the app.
 3. A keyboard in any other port types. (Right after plugging in, labwc can take a moment to
    pick it up; Caps Lock lighting means it has.)
 
-The rule only silences keyboards. The stable serial path comes from the stock udev serial rules
+The rule only silences input devices. The stable serial path comes from the stock udev serial rules
 and appears under `/dev/serial/by-id/`:
 
 ```bash

@@ -22,7 +22,7 @@ reader.
   - The kiosk OS ignores the reader as an input device (a udev rule matching its vendor and
     product ID), so a reader switched to keyboard mode can't type anything. The rule matches
     the keyboard-mode ID (`0525:a4ac`), which differs from the serial-mode one (`0525:a4a7`).
-    The same rule ignores any keyboard on the customer-facing USB port, by port, and leaves
+    The same rule ignores any input device on the customer-facing USB port, by port, and leaves
     the ports inside the enclosure usable for maintenance (`docs/SETUP.md`, "QR reader
     (kiosk)"). Keyboard mode and Restore Defaults are the one change the app can't undo,
     since both remove the serial port it re-asserts the config over, and a restart doesn't

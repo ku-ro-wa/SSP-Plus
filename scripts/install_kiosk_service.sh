@@ -7,8 +7,9 @@
 #   scripts/install_kiosk_service.sh --uninstall  # back to starting it by hand
 #
 # Writes ~/.config/systemd/user/ssp-kiosk.service and one line in
-# ~/.config/labwc/autostart (created from the system one if missing, so the
-# desktop and taskbar still start).
+# ~/.config/labwc/autostart (created from the system one if missing). Pi OS
+# runs labwc with -m, so the system autostart runs too; the kiosk turns its
+# desktop and taskbar off there (KIOSK_PI_SETUP.md step 14).
 set -euo pipefail
 
 REPO="$(cd "$(dirname "$0")/.." && pwd)"
