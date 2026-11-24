@@ -19,6 +19,7 @@ from managers.voucher_manager import (
     VoucherManager,
     format_code,
     normalize_code,
+    typed_code,
 )
 
 
@@ -130,6 +131,19 @@ class TestCodeFormat:
 
     def test_format_code(self):
         assert format_code("ABCD1234") == "ABCD-1234"
+
+    @pytest.mark.parametrize("raw,shown", [
+        ("", ""), ("abc", "ABC"), ("ABCD", "ABCD"), ("ABCDE", "ABCD-E"),
+        ("ABCD-", "ABCD"),               # backspacing over the 5th character drops the hyphen
+        ("ABCD1234", "ABCD-1234"),
+        ("ABCD12345678", "ABCD-1234"),   # stops at 8 characters
+        ("V1:ABCD1234", "ABCD-1234"),    # a pasted QR payload
+        ("abcd o1il", "ABCD-0111"),      # look-alikes fixed, space dropped
+        ("AB!U?CD", "ABCD"),             # not code characters
+    ])
+    def test_typed_code(self, raw, shown):
+        assert typed_code(raw) == shown
+        assert len(shown.replace("-", "")) <= 8
 
 
 class TestIssue:

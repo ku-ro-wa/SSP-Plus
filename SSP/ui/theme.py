@@ -23,11 +23,11 @@ COLORS = {
     "primary_pressed": "#0B6443",
     # Banner and accents: white text on it is about 4.65:1.
     "header": "#0F8558",  # same green as the buttons
-    "danger": "#EB5757",
+    "danger": "#C53030",
     "danger_bg": "#FDEDED",
-    "success": "#2F7D5C",
+    "success": "#2A7353",
     "success_bg": "#EAF5EF",
-    "warning": "#B8720A",
+    "warning": "#946000",
     "warning_bg": "#FDF3E2",
 }
 

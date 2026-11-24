@@ -764,7 +764,9 @@ class TestVoucherEntryOnScreen:
             keys[BACKSPACE_KEY].click()
             for ch in chars[1:]:
                 keys[ch].click()
-            assert view.voucher_input.text() == chars
+            assert view.voucher_input.text() == code  # the hyphen is put in for them
+            keys["Z"].click()  # a ninth character: the code is already complete
+            assert view.voucher_input.text() == code
             view.apply_voucher_btn.click()
 
             assert view.vouchers_label.text() == f"Voucher ••••-{code[-4:]}: P2 applied, P0 left"

@@ -14,7 +14,7 @@ from PyQt5.QtWidgets import QApplication, QStackedWidget  # noqa: E402
 from screens.admin.view import AdminScreenView  # noqa: E402
 from screens.email.view import EmailScreenView  # noqa: E402
 from screens.wifi.view import WifiScreenView  # noqa: E402
-from ui.widgets import BACKSPACE_KEY, Card  # noqa: E402
+from ui.widgets import BACKSPACE_KEY, Card, CodeKeypad, VoucherCodeInput  # noqa: E402
 
 
 @pytest.fixture(scope='module')
@@ -143,3 +143,32 @@ class TestAdminInkKeypad:
         view.update_cmyk_clicked.connect(lambda *levels: sent.append(levels))
         view._update_cmyk_levels()
         assert sent == [(33.0, 10.0, 10.0, 10.0)]
+
+
+class TestVoucherCodeEntry:
+    """A Voucher code is 8 characters: the entry stops there and puts the hyphen in."""
+
+    def test_keypad_typing_stops_at_eight_characters(self, qapp):
+        from managers.voucher_manager import CODE_ALPHABET
+        field = VoucherCodeInput()
+        keypad = CodeKeypad(field, CODE_ALPHABET)
+        for key in "ABCD1234XYZ":
+            keypad.key_buttons[key].click()
+        assert field.text() == "ABCD-1234"
+
+    def test_backspace_removes_the_hyphen_with_the_fifth_character(self, qapp):
+        from managers.voucher_manager import CODE_ALPHABET
+        field = VoucherCodeInput()
+        keypad = CodeKeypad(field, CODE_ALPHABET)
+        for key in "ABCDE":
+            keypad.key_buttons[key].click()
+        assert field.text() == "ABCD-E"
+        keypad.key_buttons[BACKSPACE_KEY].click()
+        assert field.text() == "ABCD"
+
+    def test_both_voucher_entries_use_it(self, qapp):
+        from screens.payment.view import PaymentScreenView
+        from screens.voucher_balance.view import VoucherBalancePopupView
+        from managers.voucher_manager import CODE_ALPHABET
+        assert isinstance(PaymentScreenView(CODE_ALPHABET).voucher_input, VoucherCodeInput)
+        assert isinstance(VoucherBalancePopupView(CODE_ALPHABET).code_input, VoucherCodeInput)

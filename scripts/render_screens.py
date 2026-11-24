@@ -77,6 +77,10 @@ def fill_live_content(name, screen):
         screen.view.set_email_hint("aiospark.uploads@gmail.com", "PRINT")
     if name in ("wifi", "email"):
         screen.view.show_status("Invalid or expired code. Please try again.")
+    if name == "homepage":
+        # Low on change and a QR read's reply at once: both banners showing
+        screen.view.set_change_low(True)
+        screen.view.show_status("That code is for the Email screen. Open Email and type it there.")
     if name == "scanner":
         screen.view.update_page_count(2)
         screen.view.show_preview(sample_page_image(), 2)
@@ -247,14 +251,19 @@ def main():
         screen.show()
         app.processEvents()
         needed = screen.minimumSizeHint().height()
+        # Too wide matters as much as too tall: the window takes the largest minimum size of
+        # any screen, so one line that can't wrap pushes every screen past both panel edges.
+        needed_width = screen.minimumSizeHint().width()
         screen.grab().save(os.path.join(args.out, f"{name}.png"))
         screen.hide()
         overflow = f"  OVERFLOWS by {needed - height}px" if needed > height else ""
+        if needed_width > width:
+            overflow += f"  OVERFLOWS width by {needed_width - width}px"
         print(f"  {name:<18} needs {needed}px of {height}px{overflow}")
         if overflow:
             overflowed.append(name)
     if overflowed:
-        sys.exit(f"Too tall for the panel: {', '.join(overflowed)}")
+        sys.exit(f"Too big for the panel: {', '.join(overflowed)}")
 
 
 if __name__ == "__main__":

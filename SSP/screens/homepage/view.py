@@ -10,6 +10,9 @@ from ui.theme import COLORS, FONT
 from ui.widgets import Card, Header, LowChangeBanner, ReaderHint, SecondaryButton, StatusBanner
 
 
+HOMEPAGE_CARD_HEIGHT = 170
+
+
 class HomepageScreenView(QWidget):
     """The user interface for the Landing (upload method selection) screen. Contains no logic."""
 
@@ -31,7 +34,7 @@ class HomepageScreenView(QWidget):
         content = QWidget()
         content.setStyleSheet(f"background-color: {COLORS['bg']};")
         fg_layout = QVBoxLayout(content)
-        fg_layout.setContentsMargins(120, 24, 120, 0)
+        fg_layout.setContentsMargins(120, 8, 120, 0)
         fg_layout.setSpacing(8)
         outer_layout.addWidget(content, 1)
 
@@ -46,7 +49,7 @@ class HomepageScreenView(QWidget):
         admin_footer = QWidget()
         admin_footer.setStyleSheet(f"background-color: {COLORS['bg']};")
         admin_row = QHBoxLayout(admin_footer)
-        admin_row.setContentsMargins(50, 0, 50, 30)
+        admin_row.setContentsMargins(50, 0, 50, 16)
         admin_row.addStretch(1)
         admin_row.addWidget(self.admin_button)
         outer_layout.addWidget(admin_footer)
@@ -89,6 +92,9 @@ class HomepageScreenView(QWidget):
         )
 
         for card in (self.usb_card, self.wifi_card, self.email_card, self.scanner_card):
+            # Shorter than Card's 200 so the low-change banner and a QR reply both fit
+            # on the 800px screen; a three-line description needs about 150.
+            card.setFixedHeight(HOMEPAGE_CARD_HEIGHT)
             card.clicked.connect(self.method_card_clicked.emit)
 
         cards_grid = QGridLayout()
@@ -107,6 +113,7 @@ class HomepageScreenView(QWidget):
 
         # Not an upload method, so a plain button below the cards rather than a fifth card.
         self.voucher_balance_button = SecondaryButton("Check voucher balance")
+        self.voucher_balance_button.setMinimumHeight(44)
         self.voucher_balance_button.clicked.connect(self.voucher_balance_clicked.emit)
         voucher_row = QHBoxLayout()
         voucher_row.addStretch()
