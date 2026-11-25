@@ -1,6 +1,6 @@
 # Power loss mid-payment: record what's owed, an operator releases it
 
-_Status: accepted; implemented in issue #156, not yet tried on kiosk hardware. Builds on ADR 0003 (Vouchers) and ADR 0008 (abandoned payments)._
+_Status: accepted; implemented in issue #156, not yet tried on kiosk hardware. Builds on ADR 0003 (Vouchers) and ADR 0012 (abandoned payments)._
 
 A payment exists only in memory until `PaymentModel.settle_transaction()` logs it as `paid`,
 which happens after change is dispensed. If power is cut before that, the cash inserted, any
